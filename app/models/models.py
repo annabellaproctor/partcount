@@ -109,6 +109,7 @@ class Component(Base):
     component_type = relationship("ComponentType", back_populates="components")
     footprints = relationship("Footprint", back_populates="component")
     bins = relationship("BinAssignment", back_populates="component")
+    component_suppliers = relationship("ComponentSupplier", back_populates="component")
 
 
 class Footprint(Base):
@@ -151,3 +152,66 @@ class BinAssignment(Base):
     box = relationship("Box", back_populates="bins")
     component = relationship("Component", back_populates="bins")
     footprint = relationship("Footprint", back_populates="bin_assignments")
+
+
+# ---------------------------------------------------------------------------
+# Suppliers + Purchase Orders
+# ---------------------------------------------------------------------------
+
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    name = Column(String, nullable=False)            # Amazon, AliExpress, Digikey, Molex
+    url = Column(String)
+    notes = Column(Text)
+    component_suppliers = relationship("ComponentSupplier", back_populates="supplier")
+    purchase_orders = relationship("PurchaseOrder", back_populates="supplier")
+
+
+class ComponentSupplier(Base):
+    """Links a component to a supplier with SKU/MPN/price"""
+    __tablename__ = "component_suppliers"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    component_id = Column(String, ForeignKey("components.id"), nullable=False)
+    supplier_id = Column(String, ForeignKey("suppliers.id"), nullable=False)
+    sku = Column(String)                             # supplier SKU / ASIN
+    mpn = Column(String)                             # manufacturer part number
+    unit_price = Column(Float)
+    pack_size = Column(Integer, default=1)
+    url = Column(String)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    component = relationship("Component", back_populates="component_suppliers")
+    supplier = relationship("Supplier", back_populates="component_suppliers")
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    supplier_id = Column(String, ForeignKey("suppliers.id"))
+    reference = Column(String)                       # Amazon order number, etc
+    status = Column(String, default="pending")       # pending, ordered, received, cancelled
+    order_date = Column(DateTime)
+    expected_date = Column(DateTime)
+    received_date = Column(DateTime)
+    total_cost = Column(Float)
+    order_url = Column(String)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    supplier = relationship("Supplier", back_populates="purchase_orders")
+    items = relationship("PurchaseOrderItem", back_populates="order", cascade="all, delete-orphan")
+
+
+class PurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    order_id = Column(String, ForeignKey("purchase_orders.id"), nullable=False)
+    component_id = Column(String, ForeignKey("components.id"))
+    component_supplier_id = Column(String, ForeignKey("component_suppliers.id"))
+    quantity_ordered = Column(Integer, default=1)
+    quantity_received = Column(Integer, default=0)
+    unit_price = Column(Float)
+    notes = Column(Text)
+    order = relationship("PurchaseOrder", back_populates="items")
+    component = relationship("Component")
+    component_supplier = relationship("ComponentSupplier")

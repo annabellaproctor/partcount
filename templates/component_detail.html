@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}{{ comp.barcode_id }} :: LAB::INV{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <a href="/components" class="muted" style="font-size:11px;">← Components</a>
+  <span class="sep">/</span>
+  <span class="bid">{{ comp.barcode_id }}</span>
+  <span style="color:var(--text);font-size:14px;">{{ comp.name }}</span>
+</div>
+
+<div class="row g-3">
+  <!-- Left: image + quick info -->
+  <div class="col-md-3">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Image</div>
+      <div class="p-3 text-center">
+        {% if comp.image_path %}
+        <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
+        {% else %}
+        <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;" id="comp-img-placeholder">
+          No image
+        </div>
+        {% endif %}
+
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
+          <!-- Upload from computer -->
+          <label class="btn btn-primary btn-sm" style="cursor:pointer;">
+            Upload
+            <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this)">
+          </label>
+          <!-- Web search -->
+          <button class="btn btn-primary btn-sm" onclick="openImageSearch()">Search Web</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bin location -->
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Location</div>
+      <div class="p-3">
+        {% if bins %}
+        {% for bin in bins %}
+        <div style="font-size:12px;margin-bottom:4px;">
+          <span class="bid">{{ bin.box.label }}</span>
+          <span class="muted" style="margin-left:6px;">Cell {{ bin.cell_id }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="muted" style="font-size:11px;">Not assigned to any bin</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Label print -->
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Labels</div>
+      <div class="p-3" style="display:flex;flex-direction:column;gap:6px;">
+        <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">Print Outside Label</a>
+        <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">Print Barcode Label</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: details -->
+  <div class="col-md-5">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Details</div>
+      <div class="p-3">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;">
+          {% macro row(label, val) %}
+          <tr>
+            <td style="color:var(--text3);padding:4px 0;width:120px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;">{{ label }}</td>
+            <td style="padding:4px 0;color:var(--text);">{{ val or '—' }}</td>
+          </tr>
+          {% endmacro %}
+          {{ row("Barcode ID", comp.barcode_id) }}
+          {{ row("Name", comp.name) }}
+          {{ row("Value", comp.value) }}
+          {{ row("Unit", comp.unit) }}
+          {{ row("Package", comp.package) }}
+          {{ row("Tolerance", comp.tolerance) }}
+          {{ row("Voltage Rating", comp.voltage_rating) }}
+          {{ row("Type", ctype.name if ctype else None) }}
+          {{ row("Datasheet", "") }}
+          {% if comp.datasheet_url %}
+          <tr>
+            <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Datasheet</td>
+            <td><a href="{{ comp.datasheet_url }}" target="_blank" style="font-size:11px;">↗ Open</a></td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Created</td>
+            <td style="font-size:11px;color:var(--text2);">{{ comp.created_at.strftime('%Y-%m-%d') }}</td>
+          </tr>
+        </table>
+        {% if comp.notes %}
+        <div style="margin-top:10px;padding:8px;background:var(--bg3);border-radius:2px;font-size:11px;color:var(--text2);">{{ comp.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Footprints / stock -->
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Stock / Footprints</div>
+      <div class="p-3">
+        {% if footprints %}
+        <table class="table">
+          <thead><tr><th>Manufacturer</th><th>Source</th><th>Qty</th><th>Low@</th></tr></thead>
+          <tbody>
+            {% for fp in footprints %}
+            <tr>
+              <td>{{ fp.manufacturer or '—' }}</td>
+              <td class="muted">{{ fp.source or '—' }}</td>
+              <td style="color:{% if fp.quantity <= fp.low_stock_threshold %}var(--red){% else %}var(--green){% endif %}">
+                {{ fp.quantity }}
+              </td>
+              <td class="muted">{{ fp.low_stock_threshold }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="muted" style="font-size:11px;">No stock records</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Used in projects -->
+    {% if used_in %}
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Used In Projects</div>
+      <div class="p-3">
+        {% for proj in used_in %}
+        <a href="/projects/{{ proj.id }}" style="display:block;padding:4px 0;font-size:12px;">{{ proj.name }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: suppliers + orders -->
+  <div class="col-md-4">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Suppliers / SKUs</div>
+      <div class="p-3">
+        {% for cs in component_suppliers %}
+        <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:var(--text);">{{ cs.supplier.name }}</span>
+            {% if cs.unit_price %}<span style="color:var(--amber);">${{ "%.2f"|format(cs.unit_price) }}</span>{% endif %}
+          </div>
+          {% if cs.sku %}<div class="muted">SKU: {{ cs.sku }}</div>{% endif %}
+          {% if cs.mpn %}<div class="muted">MPN: {{ cs.mpn }}</div>{% endif %}
+          {% if cs.url %}<a href="{{ cs.url }}" target="_blank" style="font-size:10px;">↗ Link</a>{% endif %}
+          <button class="btn btn-danger btn-xs" style="margin-top:4px;"
+            hx-delete="/api/suppliers/link/{{ cs.id }}"
+            hx-confirm="Remove this supplier link?"
+            hx-swap="outerHTML"
+            hx-target="closest div">Remove</button>
+        </div>
+        {% endfor %}
+
+        <!-- Add supplier link -->
+        <form hx-post="/api/suppliers/link" hx-swap="none" hx-on::after-request="location.reload()" enctype="multipart/form-data" style="margin-top:10px;">
+          <input type="hidden" name="component_id" value="{{ comp.id }}">
+          <div class="row g-1">
+            <div class="col-12">
+              <select name="supplier_id" class="form-select form-select-sm">
+                <option value="">— select supplier —</option>
+                {% for s in all_suppliers %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6"><input name="sku" class="form-control form-control-sm" placeholder="SKU / ASIN"></div>
+            <div class="col-6"><input name="mpn" class="form-control form-control-sm" placeholder="MPN"></div>
+            <div class="col-6"><input name="unit_price" type="number" step="0.01" class="form-control form-control-sm" placeholder="Price $"></div>
+            <div class="col-6"><input name="pack_size" type="number" class="form-control form-control-sm" placeholder="Pack size" value="1"></div>
+            <div class="col-12"><input name="url" class="form-control form-control-sm" placeholder="Product URL"></div>
+            <div class="col-12"><button type="submit" class="btn btn-primary btn-sm w-100">Link Supplier</button></div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Purchase history -->
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Purchase History</div>
+      <div class="p-3">
+        {% if purchase_history %}
+        {% for item in purchase_history %}
+        <div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;">
+          <div style="display:flex;justify-content:space-between;">
+            <span>{{ item.order.supplier.name if item.order.supplier else '—' }}</span>
+            <span class="status-badge status-{{ item.order.status }}">{{ item.order.status }}</span>
+          </div>
+          <div class="muted">Qty: {{ item.quantity_ordered }} · Received: {{ item.quantity_received }}</div>
+          {% if item.order.reference %}<div class="muted">Ref: {{ item.order.reference }}</div>{% endif %}
+          {% if item.order.order_date %}<div class="muted">{{ item.order.order_date.strftime('%Y-%m-%d') }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="muted" style="font-size:11px;">No purchase history</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Image search modal -->
+<div id="img-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;overflow-y:auto;padding:20px;">
+  <div style="max-width:700px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);">Image Search</span>
+      <button onclick="closeImageSearch()" class="btn btn-danger btn-sm">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <input id="img-search-input" class="form-control" value="{{ comp.name }} {{ comp.package or '' }} component" placeholder="Search query">
+      <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
+    </div>
+    <!-- Upload tab -->
+    <div style="margin-bottom:12px;padding:10px;background:var(--bg3);border:1px dashed var(--border2);border-radius:2px;text-align:center;">
+      <label style="cursor:pointer;font-size:11px;color:var(--text2);">
+        Or drag & drop / click to upload from computer
+        <input type="file" accept="image/*" style="display:none" onchange="uploadFromModal(this)">
+      </label>
+    </div>
+    <div id="img-results" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"></div>
+    <div id="img-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const COMP_ID = "{{ comp.id }}";
+
+function openImageSearch() {
+  document.getElementById('img-modal').style.display = 'block';
+  doImageSearch();
+}
+function closeImageSearch() {
+  document.getElementById('img-modal').style.display = 'none';
+}
+
+async function doImageSearch() {
+  const q = document.getElementById('img-search-input').value;
+  const status = document.getElementById('img-status');
+  const results = document.getElementById('img-results');
+  status.textContent = 'Searching...';
+  results.innerHTML = '';
+  const data = await fetch('/api/images/search?q=' + encodeURIComponent(q)).then(r => r.json());
+  status.textContent = data.length ? `${data.length} results` : 'No results';
+  data.forEach(img => {
+    const div = document.createElement('div');
+    div.style.cssText = 'cursor:pointer;border:1px solid var(--border);border-radius:2px;overflow:hidden;aspect-ratio:1;background:var(--bg3);';
+    div.innerHTML = `<img src="${img.thumb || img.url}" style="width:100%;height:100%;object-fit:contain;" loading="lazy" onerror="this.parentElement.style.display='none'">`;
+    div.onclick = () => selectImage(img.url);
+    results.appendChild(div);
+  });
+}
+
+async function selectImage(url) {
+  document.getElementById('img-status').textContent = 'Downloading...';
+  const fd = new FormData();
+  fd.append('component_id', COMP_ID);
+  fd.append('image_url', url);
+  const r = await fetch('/api/images/fetch', {method:'POST', body: fd});
+  if (r.ok) {
+    const data = await r.json();
+    document.querySelectorAll('#comp-img, #comp-img-placeholder').forEach(el => {
+      if (el.tagName === 'IMG') el.src = data.image_path + '?t=' + Date.now();
+      else { el.outerHTML = `<img src="${data.image_path}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">`; }
+    });
+    closeImageSearch();
+  }
+}
+
+async function uploadImage(input) {
+  if (!input.files[0]) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  const r = await fetch('/api/images/upload/' + COMP_ID, {method:'POST', body: fd});
+  if (r.ok) {
+    const data = await r.json();
+    location.reload();
+  }
+}
+
+async function uploadFromModal(input) {
+  if (!input.files[0]) return;
+  await uploadImage(input);
+}
+</script>
+{% endblock %}

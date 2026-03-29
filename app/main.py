@@ -9,7 +9,7 @@ import os
 
 from app.models.database import init_db, get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem
-from app.routers import components, boxes, labels, projects, apikeys
+from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate
 from app.services.ws_manager import manager
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -35,6 +35,9 @@ app.include_router(boxes.router)
 app.include_router(labels.router)
 app.include_router(projects.router)
 app.include_router(apikeys.router)
+app.include_router(suppliers.router)
+app.include_router(images.router)
+app.include_router(migrate.router)
 
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")
@@ -144,6 +147,45 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         "request": request, "profile": profile, "keys": keys,
     })
 
+
+
+@app.get("/components/{barcode_id}", response_class=HTMLResponse)
+async def component_detail(barcode_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.models import Footprint, BinAssignment, Box, BOMItem, Project, ComponentSupplier, Supplier, PurchaseOrderItem, PurchaseOrder
+    comp = (await db.execute(select(Component).where(Component.barcode_id == barcode_id))).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404)
+    ctype = (await db.execute(select(ComponentType).where(ComponentType.id == comp.type_id))).scalar_one_or_none()
+    footprints = (await db.execute(select(Footprint).where(Footprint.component_id == comp.id))).scalars().all()
+    bins = (await db.execute(
+        select(BinAssignment, Box).join(Box, Box.id == BinAssignment.box_id)
+        .where(BinAssignment.component_id == comp.id, BinAssignment.active == True)
+    )).fetchall()
+    bins_with_box = [type("Bin", (), {"cell_id": r.BinAssignment.cell_id, "box": r.Box})() for r in bins]
+    bom_projects = (await db.execute(
+        select(Project).join(BOMItem, BOMItem.project_id == Project.id)
+        .where(BOMItem.component_id == comp.id).distinct()
+    )).scalars().all()
+    cs_rows = (await db.execute(
+        select(ComponentSupplier, Supplier).join(Supplier, Supplier.id == ComponentSupplier.supplier_id)
+        .where(ComponentSupplier.component_id == comp.id)
+    )).fetchall()
+    component_suppliers = [type("CS", (), {**{c: getattr(r.ComponentSupplier, c) for c in ["id","sku","mpn","unit_price","pack_size","url","notes"]}, "supplier": r.Supplier})() for r in cs_rows]
+    purchase_history = (await db.execute(
+        select(PurchaseOrderItem, PurchaseOrder)
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.order_id)
+        .where(PurchaseOrderItem.component_id == comp.id)
+        .order_by(PurchaseOrder.order_date.desc())
+    )).fetchall()
+    ph = [type("PH", (), {"quantity_ordered": r.PurchaseOrderItem.quantity_ordered, "quantity_received": r.PurchaseOrderItem.quantity_received, "order": r.PurchaseOrder})() for r in purchase_history]
+    all_suppliers = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    return templates.TemplateResponse("component_detail.html", {
+        "request": request, "comp": comp, "ctype": ctype, "footprints": footprints,
+        "bins": bins_with_box, "used_in": bom_projects,
+        "component_suppliers": component_suppliers, "purchase_history": ph,
+        "all_suppliers": all_suppliers, "profile": profile,
+    })
 
 @app.get("/scan", response_class=HTMLResponse)
 async def scan_page(request: Request, db: AsyncSession = Depends(get_db)):
