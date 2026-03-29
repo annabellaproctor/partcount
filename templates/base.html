@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}LAB INV{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --bg2: #141414;
+      --bg3: #1a1a1a;
+      --border: #2a2a2a;
+      --green: #00ff88;
+      --green-dim: #00cc66;
+      --amber: #ffaa00;
+      --red: #ff3333;
+      --text: #c8c8c8;
+      --text-dim: #666;
+      --font: 'Courier New', Courier, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      margin: 0;
+    }
+    a { color: var(--green-dim); text-decoration: none; }
+    a:hover { color: var(--green); }
+
+    /* navbar */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .topbar .brand {
+      color: var(--green);
+      font-weight: bold;
+      font-size: 15px;
+      letter-spacing: 2px;
+    }
+    .topbar a {
+      color: var(--text-dim);
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .topbar a:hover, .topbar a.active { color: var(--green); }
+    .topbar .ws-status {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .ws-status .dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      margin-right: 4px;
+    }
+    .ws-status.connected .dot { background: var(--green); }
+
+    /* layout */
+    .main { padding: 16px; }
+
+    /* cards */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+    }
+    .card-header {
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      padding: 6px 12px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--green-dim);
+    }
+
+    /* tables */
+    .table {
+      color: var(--text);
+      font-size: 12px;
+      margin: 0;
+    }
+    .table th {
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border-color: var(--border);
+      background: var(--bg3);
+      font-weight: normal;
+    }
+    .table td { border-color: var(--border); vertical-align: middle; }
+    .table tbody tr:hover { background: var(--bg3); }
+
+    /* badges */
+    .badge-id {
+      background: #002211;
+      color: var(--green);
+      border: 1px solid #004422;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      font-family: var(--font);
+    }
+
+    /* forms */
+    .form-control, .form-select {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 2px;
+      font-family: var(--font);
+      font-size: 12px;
+    }
+    .form-control:focus, .form-select:focus {
+      background: var(--bg3);
+      border-color: var(--green-dim);
+      color: var(--text);
+      box-shadow: 0 0 0 2px rgba(0,255,136,0.1);
+    }
+    .form-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
+
+    /* buttons */
+    .btn-primary {
+      background: transparent;
+      border: 1px solid var(--green-dim);
+      color: var(--green);
+      border-radius: 2px;
+      font-family: var(--font);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .btn-primary:hover {
+      background: rgba(0,255,136,0.1);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .btn-sm { padding: 2px 8px; font-size: 10px; }
+
+    /* event log */
+    #event-log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      height: 120px;
+      overflow-y: auto;
+      padding: 8px;
+      font-size: 11px;
+    }
+    .log-line { color: var(--text-dim); }
+    .log-line .ts { color: #333; margin-right: 8px; }
+    .log-line.scan { color: var(--green); }
+    .log-line.stock { color: var(--amber); }
+    .log-line.error { color: var(--red); }
+
+    /* stat boxes */
+    .stat {
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+      background: var(--bg2);
+    }
+    .stat .label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .stat .value { font-size: 24px; color: var(--green); font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">LAB::INV</span>
+  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Dashboard</a>
+  <a href="/components" {% if request.url.path == '/components' %}class="active"{% endif %}>Components</a>
+  <a href="/boxes" {% if request.url.path == '/boxes' %}class="active"{% endif %}>Boxes</a>
+  <a href="/scan" {% if request.url.path == '/scan' %}class="active"{% endif %}>Scan</a>
+  <a href="/labels/sheet" target="_blank">Print Labels</a>
+  <span class="ws-status" id="ws-status">
+    <span class="dot"></span>WS
+  </span>
+</div>
+
+<div class="main">
+  {% block content %}{% endblock %}
+</div>
+
+<!-- Global event log -->
+<div style="position:fixed;bottom:0;left:0;right:0;padding:0 16px 8px;background:var(--bg);border-top:1px solid var(--border);">
+  <div style="font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">EVENT LOG</div>
+  <div id="event-log"></div>
+</div>
+
+<script>
+const log = document.getElementById('event-log');
+const wsStatus = document.getElementById('ws-status');
+
+function addLog(msg, cls='') {
+  const ts = new Date().toTimeString().slice(0,8);
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  line.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  log.prepend(line);
+  if (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+
+ws.onopen = () => {
+  wsStatus.classList.add('connected');
+  wsStatus.querySelector('.dot').title = 'connected';
+  addLog('websocket connected');
+};
+ws.onclose = () => {
+  wsStatus.classList.remove('connected');
+  addLog('websocket disconnected', 'error');
+};
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.event === 'scan') {
+    addLog(`SCAN ${msg.data.barcode_id} → ${msg.data.name} [${msg.data.box}:${msg.data.cell}]`, 'scan');
+    document.dispatchEvent(new CustomEvent('inv:scan', {detail: msg.data}));
+  } else if (msg.event === 'stock_change') {
+    const sign = msg.data.delta > 0 ? '+' : '';
+    addLog(`STOCK ${msg.data.barcode_id} ${sign}${msg.data.delta} → ${msg.data.quantity}`, 'stock');
+    document.dispatchEvent(new CustomEvent('inv:stock', {detail: msg.data}));
+  } else if (msg.event === 'component_created') {
+    addLog(`NEW ${msg.data.barcode_id} ${msg.data.name}`);
+  }
+};
+
+// keyboard barcode input buffer (HID scanner fires keystrokes)
+let buf = '', bufTimer;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && buf.length > 2) {
+    ws.send('SCAN:' + buf);
+    fetch('/api/components/' + buf + '/scan', {method:'POST'});
+    buf = '';
+  } else if (e.key.length === 1) {
+    buf += e.key;
+    clearTimeout(bufTimer);
+    bufTimer = setTimeout(() => buf = '', 500);
+  }
+});
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

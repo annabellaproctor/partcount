@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    container_name: labinv_app
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:Z@9bC4.HufRqJQnXKxaBa24998_.Y.s6@localhost:5432/labinventory
+      INFLUX_URL: http://localhost:8181
+      INFLUX_TOKEN: apiv3_fus4uS4DldRfw1HwtFkVJ_HDTgGaAtgj3pOaNqDa3ScVAGdm7qb2qgmmdOOrNg-6qGoPXKV7Qu7hx3jVxMinIA
+      INFLUX_DB: labinventory
+      IMAGE_DIR: /app/images
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - labinv_images:/app/images
+
+volumes:
+  labinv_images:

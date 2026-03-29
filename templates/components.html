@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Components :: LAB INV{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col">
+    <div class="card">
+      <div class="card-header">Add Component</div>
+      <div class="p-3">
+        <form hx-post="/api/components/" hx-target="#comp-table-body" hx-swap="afterbegin" enctype="multipart/form-data">
+          <div class="row g-2">
+            <div class="col-md-2">
+              <label class="form-label">Type</label>
+              <select name="type_id" class="form-select" required>
+                {% for t in types %}
+                <option value="{{ t.id }}">{{ t.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Name</label>
+              <input name="name" class="form-control" placeholder="10kΩ 0805" required>
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Value</label>
+              <input name="value" class="form-control" placeholder="10k">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Unit</label>
+              <input name="unit" class="form-control" placeholder="Ω">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Package</label>
+              <input name="package" class="form-control" placeholder="0805">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Tolerance</label>
+              <input name="tolerance" class="form-control" placeholder="1%">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Vrating</label>
+              <input name="voltage_rating" type="number" step="0.1" class="form-control">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Image (PNG)</label>
+              <input name="image" type="file" accept="image/png,image/jpeg" class="form-control">
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+              <button type="submit" class="btn btn-primary w-100">ADD</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header">
+    Component Registry
+    <input class="form-control form-control-sm d-inline-block w-auto ms-3"
+           placeholder="Filter..." oninput="filterTable(this.value)">
+  </div>
+  <table class="table" id="comp-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Image</th><th>Name</th><th>Value</th><th>Package</th>
+        <th>Tolerance</th><th>V-Rating</th><th>Type</th><th>Labels</th>
+      </tr>
+    </thead>
+    <tbody id="comp-table-body">
+      {% for comp, ctype in rows %}
+      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value }} {{ comp.package }}">
+        <td><span class="badge-id">{{ comp.barcode_id }}</span></td>
+        <td>
+          {% if comp.image_path %}
+          <img src="{{ comp.image_path }}" style="height:32px;object-fit:contain;">
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ comp.name }}</td>
+        <td>{{ comp.value or '—' }}</td>
+        <td>{{ comp.package or '—' }}</td>
+        <td>{{ comp.tolerance or '—' }}</td>
+        <td>{{ comp.voltage_rating or '—' }}</td>
+        <td>{{ ctype.name if ctype else '—' }}</td>
+        <td>
+          <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">EXT</a>
+          <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">INT</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterTable(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#comp-table tbody tr').forEach(r => {
+    r.style.display = r.dataset.search.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

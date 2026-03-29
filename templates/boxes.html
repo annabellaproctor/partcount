@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Boxes :: LAB INV{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header">Register Box</div>
+      <div class="p-3">
+        <form hx-post="/api/boxes/" hx-target="#boxes-table-body" hx-swap="afterbegin" enctype="multipart/form-data">
+          <div class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label">Label</label>
+              <input name="label" class="form-control" placeholder="BOX-A" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Model</label>
+              <select name="model" class="form-select">
+                <option>BOXALL144</option>
+                <option>BOXALL48</option>
+                <option>BOXALL96</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Cells</label>
+              <input name="cell_count" type="number" class="form-control" placeholder="144">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Location</label>
+              <input name="location" class="form-control" placeholder="desk-ledge">
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+              <button type="submit" class="btn btn-primary w-100">ADD</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header">Box Registry</div>
+  <table class="table" id="boxes-table">
+    <thead>
+      <tr>
+        <th>Label</th><th>Model</th><th>Cells</th><th>Location</th><th>Notes</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="boxes-table-body">
+      {% for box in boxes %}
+      <tr>
+        <td><span class="badge-id">{{ box.label }}</span></td>
+        <td>{{ box.model }}</td>
+        <td>{{ box.cell_count }}</td>
+        <td>{{ box.location or '—' }}</td>
+        <td>{{ box.notes or '—' }}</td>
+        <td>
+          <a href="/boxes/{{ box.id }}/grid" class="btn btn-primary btn-sm">GRID</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
