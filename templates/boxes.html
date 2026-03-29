@@ -1,28 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Boxes :: LAB INV{% endblock %}
+{% block title %}Boxes :: LAB::INV{% endblock %}
 {% block content %}
+<div class="page-title">Boxes</div>
+
 <div class="row g-3 mb-3">
-  <div class="col-md-5">
+  <div class="col-md-7">
     <div class="card">
-      <div class="card-header">Register Box</div>
+      <div class="card-header"><span class="dot"></span>Register Box</div>
       <div class="p-3">
-        <form hx-post="/api/boxes/" hx-target="#boxes-table-body" hx-swap="afterbegin" enctype="multipart/form-data">
+        <form hx-post="/api/boxes/" hx-target="#boxes-table-body" hx-swap="afterbegin" enctype="multipart/form-data" hx-on::after-request="this.reset()">
           <div class="row g-2">
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label">Label</label>
-              <input name="label" class="form-control" placeholder="BOX-A" required>
+              <input name="label" class="form-control" placeholder="A" required>
             </div>
             <div class="col-md-3">
               <label class="form-label">Model</label>
-              <select name="model" class="form-select">
-                <option>BOXALL144</option>
-                <option>BOXALL48</option>
-                <option>BOXALL96</option>
+              <select name="model" class="form-select" onchange="autoFillCells(this)">
+                <option value="BOXALL144">BOXALL144</option>
+                <option value="BOXALL96">BOXALL96</option>
+                <option value="BOXALL48">BOXALL48</option>
+                <option value="BOXALL24">BOXALL24</option>
               </select>
             </div>
             <div class="col-md-2">
               <label class="form-label">Cells</label>
-              <input name="cell_count" type="number" class="form-control" placeholder="144">
+              <input name="cell_count" id="cell-count-input" type="number" class="form-control" placeholder="144" value="144">
+            </div>
+            <div class="col-md-1">
+              <label class="form-label">Slot #</label>
+              <input name="slot_index" type="number" class="form-control" placeholder="0" value="0" min="0">
             </div>
             <div class="col-md-3">
               <label class="form-label">Location</label>
@@ -38,28 +45,128 @@
   </div>
 </div>
 
+<!-- Ledge minimap -->
+{% if boxes %}
+<div class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Ledge Layout — drag to reorder</div>
+  <div class="p-3">
+    <div id="ledge-map" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
+      {% for box in boxes %}
+      {% set size_class = 'box-144' if box.cell_count >= 144 else ('box-96' if box.cell_count >= 96 else ('box-48' if box.cell_count >= 48 else 'box-24')) %}
+      <div class="box-tile {{ size_class }}"
+           draggable="true"
+           data-box-id="{{ box.id }}"
+           data-slot="{{ box.slot_index or 0 }}"
+           ondragstart="ledgeDragStart(event)"
+           ondragover="ledgeDragOver(event)"
+           ondrop="ledgeDrop(event)"
+           ondragleave="ledgeDragLeave(event)"
+           onclick="window.location='/boxes/{{ box.id }}'">
+        <div class="bt-label">{{ box.label }}</div>
+        <div class="bt-model">{{ box.model }}</div>
+        <div class="bt-bar"><div class="bt-fill" style="width:0%"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card mb-5">
-  <div class="card-header">Box Registry</div>
+  <div class="card-header"><span class="dot"></span>Box Registry</div>
   <table class="table" id="boxes-table">
     <thead>
       <tr>
-        <th>Label</th><th>Model</th><th>Cells</th><th>Location</th><th>Notes</th><th></th>
+        <th>Label</th><th>Model</th><th>Cells</th><th>Slot</th><th>Location</th><th></th>
       </tr>
     </thead>
     <tbody id="boxes-table-body">
       {% for box in boxes %}
-      <tr>
-        <td><span class="badge-id">{{ box.label }}</span></td>
+      <tr id="box-row-{{ box.id }}">
+        <td><span class="bid">{{ box.label }}</span></td>
         <td>{{ box.model }}</td>
         <td>{{ box.cell_count }}</td>
-        <td>{{ box.location or '—' }}</td>
-        <td>{{ box.notes or '—' }}</td>
+        <td class="muted">{{ box.slot_index }}</td>
+        <td class="muted">{{ box.location or '—' }}</td>
         <td>
-          <a href="/boxes/{{ box.id }}/grid" class="btn btn-primary btn-sm">GRID</a>
+          <a href="/boxes/{{ box.id }}" class="btn btn-primary btn-sm">OPEN GRID</a>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-fill cell count when model changes
+const cellCounts = {BOXALL144: 144, BOXALL96: 96, BOXALL48: 48, BOXALL24: 24};
+function autoFillCells(sel) {
+  document.getElementById('cell-count-input').value = cellCounts[sel.value] || '';
+}
+
+// Ledge drag reorder
+let ledgeDragSrc = null;
+
+function ledgeDragStart(e) {
+  ledgeDragSrc = e.currentTarget;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', ledgeDragSrc.dataset.boxId);
+  setTimeout(() => ledgeDragSrc.style.opacity = '0.4', 0);
+}
+
+function ledgeDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.style.borderColor = 'var(--green)';
+}
+
+function ledgeDragLeave(e) {
+  e.currentTarget.style.borderColor = '';
+}
+
+async function ledgeDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target.style.borderColor = '';
+  if (!ledgeDragSrc || ledgeDragSrc === target) {
+    if (ledgeDragSrc) ledgeDragSrc.style.opacity = '';
+    return;
+  }
+
+  // swap DOM positions
+  const parent = ledgeDragSrc.parentNode;
+  const srcNext = ledgeDragSrc.nextSibling;
+  const tgtNext = target.nextSibling;
+
+  if (tgtNext === ledgeDragSrc) {
+    parent.insertBefore(ledgeDragSrc, target);
+  } else {
+    parent.insertBefore(ledgeDragSrc, tgtNext);
+    parent.insertBefore(target, srcNext);
+  }
+
+  // persist new slot order
+  const tiles = parent.querySelectorAll('.box-tile');
+  const updates = [];
+  tiles.forEach((t, i) => {
+    updates.push({box_id: t.dataset.boxId, slot_index: i});
+  });
+
+  for (const u of updates) {
+    const fd = new FormData();
+    fd.append('box_id', u.box_id);
+    fd.append('slot_index', u.slot_index);
+    await fetch('/api/boxes/slot', {method:'PATCH', body: fd});
+  }
+
+  ledgeDragSrc.style.opacity = '';
+  ledgeDragSrc = null;
+}
+
+document.addEventListener('dragend', () => {
+  if (ledgeDragSrc) ledgeDragSrc.style.opacity = '';
+  ledgeDragSrc = null;
+});
+</script>
 {% endblock %}

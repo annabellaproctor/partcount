@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block title %}{{ box.label }} Grid :: LAB::INV{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+  <a href="/boxes" class="muted" style="font-size:11px;">← Boxes</a>
+  <span class="sep">/</span>
+  <span class="bid">{{ box.label }}</span>
+  <span style="color:var(--text);font-size:13px;">{{ box.model }}</span>
+  <span class="muted">{{ box.cell_count }} cells</span>
+  <span class="muted" style="font-size:10px;">{{ box.location or '' }}</span>
+  <span style="margin-left:auto;font-size:10px;color:var(--text3);">drag to move · click empty to assign · click filled to clear</span>
+</div>
+
+{% set cols = 12 if box.model == 'BOXALL144' else (8 if box.model == 'BOXALL96' else (6 if box.model == 'BOXALL48' else 4)) %}
+{% set rows = (box.cell_count // cols) if box.cell_count else 12 %}
+
+<div class="card mb-3">
+  <div class="card-header">
+    <span class="dot"></span>Grid — {{ box.label }}
+    <span style="margin-left:auto;font-size:10px;color:var(--text3);" id="grid-status"></span>
+  </div>
+  <div class="p-3">
+    <div id="grid"
+         style="display:grid;grid-template-columns:repeat({{ cols }}, 1fr);gap:3px;user-select:none;">
+      {% for r in range(rows) %}
+        {% for c in range(cols) %}
+          {% set cell_id = "R" + r|string + "C" + c|string %}
+          {% set comp = cell_map.get(cell_id) %}
+          <div class="grid-cell {% if comp %}filled{% else %}empty{% endif %}"
+               id="cell-{{ cell_id }}"
+               data-cell="{{ cell_id }}"
+               data-comp-id="{{ comp.id if comp else '' }}"
+               data-comp-name="{{ comp.name if comp else '' }}"
+               data-barcode="{{ comp.barcode_id if comp else '' }}"
+               draggable="{{ 'true' if comp else 'false' }}"
+               onclick="cellClick(this)"
+               ondragstart="dragStart(event)"
+               ondragover="dragOver(event)"
+               ondrop="dropCell(event)"
+               ondragleave="dragLeave(event)"
+               title="{{ comp.barcode_id + ' · ' + comp.name if comp else cell_id }}">
+            {% if comp %}
+              {% if comp.image_path %}
+              <img src="{{ comp.image_path }}" class="cell-img" draggable="false">
+              {% endif %}
+              <div class="cell-label">{{ comp.value or comp.barcode_id }}</div>
+            {% else %}
+              <div class="cell-empty-label">{{ cell_id }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Assign modal -->
+<div id="assign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:1000;display:flex;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;width:380px;max-width:95vw;">
+    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:12px;">
+      Assign Cell <span id="modal-cell-id" style="color:var(--green);"></span>
+    </div>
+    <input id="comp-search" class="form-control mb-2" placeholder="Search component..." oninput="filterComps(this.value)" autocomplete="off">
+    <div id="comp-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:2px;">
+      {% for comp in all_components %}
+      <div class="comp-option"
+           data-comp-id="{{ comp.id }}"
+           data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }}"
+           onclick="assignCell(this)"
+           style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px;align-items:center;">
+        <span class="bid" style="font-size:10px;">{{ comp.barcode_id }}</span>
+        <span>{{ comp.name }}</span>
+        <span class="muted">{{ comp.value or '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn btn-danger btn-sm" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.grid-cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+.grid-cell.empty {
+  background: var(--bg3);
+}
+.grid-cell.empty:hover {
+  border-color: var(--green2);
+  background: var(--bg4);
+}
+.grid-cell.filled {
+  background: var(--bg2);
+  border-color: var(--border2);
+}
+.grid-cell.filled:hover {
+  border-color: var(--green);
+}
+.grid-cell.drag-over {
+  border-color: var(--green);
+  background: rgba(61,220,132,0.08);
+}
+.grid-cell.dragging {
+  opacity: 0.4;
+}
+.cell-img {
+  width: 70%;
+  height: 60%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.cell-label {
+  font-size: 9px;
+  color: var(--green);
+  text-align: center;
+  padding: 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  text-align: center;
+  line-height: 1.2;
+}
+.cell-empty-label {
+  font-size: 8px;
+  color: var(--text3);
+}
+.comp-option:hover { background: var(--bg3); }
+#assign-modal { display: none; }
+#assign-modal.open { display: flex; }
+</style>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const BOX_ID = "{{ box.id }}";
+let activeCellEl = null;
+let dragSrcEl = null;
+
+function cellClick(el) {
+  if (el.classList.contains('filled')) {
+    if (confirm(`Clear ${el.dataset.barcode} from ${el.dataset.cell}?`)) {
+      clearCell(el);
+    }
+  } else {
+    openModal(el);
+  }
+}
+
+async function clearCell(el) {
+  const r = await fetch(`/api/boxes/${BOX_ID}/cell/${el.dataset.cell}`, {method:'DELETE'});
+  if (r.ok) {
+    el.classList.remove('filled');
+    el.classList.add('empty');
+    el.draggable = false;
+    el.dataset.compId = '';
+    el.dataset.compName = '';
+    el.dataset.barcode = '';
+    el.innerHTML = `<div class="cell-empty-label">${el.dataset.cell}</div>`;
+    setStatus(`Cleared ${el.dataset.cell}`);
+  }
+}
+
+function openModal(el) {
+  activeCellEl = el;
+  document.getElementById('modal-cell-id').textContent = el.dataset.cell;
+  document.getElementById('comp-search').value = '';
+  filterComps('');
+  document.getElementById('assign-modal').classList.add('open');
+  document.getElementById('comp-search').focus();
+}
+
+function closeModal() {
+  document.getElementById('assign-modal').classList.remove('open');
+  activeCellEl = null;
+}
+
+function filterComps(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.comp-option').forEach(el => {
+    el.style.display = el.dataset.search.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+async function assignCell(optEl) {
+  if (!activeCellEl) return;
+  const compId = optEl.dataset.compId;
+  const fd = new FormData();
+  fd.append('cell_id', activeCellEl.dataset.cell);
+  fd.append('component_id', compId);
+  const r = await fetch(`/api/boxes/${BOX_ID}/assign`, {method:'POST', body: fd});
+  if (r.ok) {
+    // update cell visually
+    const name = optEl.querySelector('span:nth-child(2)').textContent;
+    const bid = optEl.querySelector('.bid').textContent;
+    const val = optEl.querySelector('.muted').textContent;
+    activeCellEl.classList.remove('empty');
+    activeCellEl.classList.add('filled');
+    activeCellEl.draggable = true;
+    activeCellEl.dataset.compId = compId;
+    activeCellEl.dataset.compName = name;
+    activeCellEl.dataset.barcode = bid;
+    activeCellEl.innerHTML = `<div class="cell-label">${val || bid}</div>`;
+    setStatus(`Assigned ${bid} → ${activeCellEl.dataset.cell}`);
+    closeModal();
+  }
+}
+
+// ── Drag and drop ──────────────────────────────────────────────────────────
+
+function dragStart(e) {
+  dragSrcEl = e.currentTarget;
+  dragSrcEl.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragSrcEl.dataset.cell);
+}
+
+function dragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function dragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function dropCell(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  target.classList.remove('drag-over');
+  if (!dragSrcEl || dragSrcEl === target) {
+    if (dragSrcEl) dragSrcEl.classList.remove('dragging');
+    return;
+  }
+
+  const fromCell = dragSrcEl.dataset.cell;
+  const toCell = target.dataset.cell;
+
+  const fd = new FormData();
+  fd.append('from_cell', fromCell);
+  fd.append('to_cell', toCell);
+  const r = await fetch(`/api/boxes/${BOX_ID}/swap`, {method:'POST', body: fd});
+
+  if (r.ok) {
+    // swap DOM content
+    const srcHTML = dragSrcEl.innerHTML;
+    const srcFilled = dragSrcEl.classList.contains('filled');
+    const srcData = {compId: dragSrcEl.dataset.compId, compName: dragSrcEl.dataset.compName, barcode: dragSrcEl.dataset.barcode};
+
+    const tgtHTML = target.innerHTML;
+    const tgtFilled = target.classList.contains('filled');
+    const tgtData = {compId: target.dataset.compId, compName: target.dataset.compName, barcode: target.dataset.barcode};
+
+    dragSrcEl.innerHTML = tgtHTML;
+    dragSrcEl.classList.toggle('filled', tgtFilled);
+    dragSrcEl.classList.toggle('empty', !tgtFilled);
+    dragSrcEl.draggable = tgtFilled;
+    Object.assign(dragSrcEl.dataset, tgtData);
+
+    target.innerHTML = srcHTML;
+    target.classList.toggle('filled', srcFilled);
+    target.classList.toggle('empty', !srcFilled);
+    target.draggable = srcFilled;
+    Object.assign(target.dataset, srcData);
+
+    setStatus(`Moved ${srcData.barcode || fromCell} → ${toCell}`);
+  }
+
+  dragSrcEl.classList.remove('dragging');
+  dragSrcEl = null;
+}
+
+document.addEventListener('dragend', () => {
+  document.querySelectorAll('.grid-cell').forEach(el => {
+    el.classList.remove('dragging', 'drag-over');
+  });
+  dragSrcEl = null;
+});
+
+// close modal on backdrop click
+document.getElementById('assign-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+document.getElementById('comp-search').addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+
+function setStatus(msg) {
+  document.getElementById('grid-status').textContent = msg;
+  setTimeout(() => document.getElementById('grid-status').textContent = '', 3000);
+}
+</script>
+{% endblock %}

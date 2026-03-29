@@ -103,6 +103,29 @@ async def boxes_page(request: Request, db: AsyncSession = Depends(get_db)):
     })
 
 
+
+@app.get("/boxes/{box_id}", response_class=HTMLResponse)
+async def box_grid_page(box_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.models import BinAssignment
+    box = (await db.execute(select(Box).where(Box.id == box_id))).scalar_one_or_none()
+    if not box:
+        raise HTTPException(404)
+    assignments = (await db.execute(
+        select(BinAssignment, Component)
+        .join(Component, Component.id == BinAssignment.component_id, isouter=True)
+        .where(BinAssignment.box_id == box_id, BinAssignment.active == True)
+    )).fetchall()
+    cell_map = {r.BinAssignment.cell_id: r.Component for r in assignments}
+    all_components = (await db.execute(select(Component).order_by(Component.barcode_id))).scalars().all()
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    return templates.TemplateResponse("box_grid.html", {
+        "request": request,
+        "box": box,
+        "cell_map": cell_map,
+        "all_components": all_components,
+        "profile": profile,
+    })
+
 @app.get("/projects", response_class=HTMLResponse)
 async def projects_page(request: Request, db: AsyncSession = Depends(get_db)):
     result = (await db.execute(select(Project).order_by(Project.updated_at.desc()))).scalars().all()
