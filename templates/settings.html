@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Settings :: LAB::INV{% endblock %}
+{% block content %}
+<div class="page-title">Settings</div>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Profile</div>
+      <div class="p-3">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:var(--green);">
+            {{ profile.initials if profile else 'AP' }}
+          </div>
+          <div>
+            <div style="font-size:13px;color:var(--text);">{{ profile.name if profile else '—' }}</div>
+            <div style="font-size:11px;color:var(--text3);">{{ profile.email if profile else '—' }}</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);letter-spacing:1px;">ACCOUNT ID</div>
+        <div style="font-size:11px;font-family:var(--font);color:var(--text2);margin-top:2px;">{{ profile.id[:16] if profile else '—' }}...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>API Keys</div>
+      <div class="p-3">
+        <form hx-post="/api/keys/" hx-target="#keys-table-body" hx-swap="afterbegin" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
+          <div class="input-group" style="max-width:400px;">
+            <input name="label" class="form-control" placeholder="Key label — e.g. gmail-integration" required>
+            <button type="submit" class="btn btn-primary">GENERATE</button>
+          </div>
+        </form>
+        <table class="table">
+          <thead><tr>
+            <th>Label</th><th>Key Preview</th><th>Last Used</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="keys-table-body">
+            {% for key in keys %}
+            <tr id="key-{{ key.id }}">
+              <td>{{ key.label }}</td>
+              <td style="font-family:var(--font);font-size:11px;color:var(--text2);">{{ key.key[:24] }}...</td>
+              <td class="muted">{{ key.last_used.strftime('%b %d %H:%M') if key.last_used else 'never' }}</td>
+              <td>
+                {% if key.active %}
+                <span class="status-badge status-active">active</span>
+                {% else %}
+                <span class="status-badge" style="background:rgba(85,85,85,0.2);color:var(--text3);border:1px solid var(--border2);">revoked</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if key.active %}
+                <button class="btn btn-danger btn-xs"
+                  hx-delete="/api/keys/{{ key.id }}"
+                  hx-target="#key-{{ key.id }}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Revoke this key?">REVOKE</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div style="font-size:10px;color:var(--text3);margin-top:8px;">
+          Use <code style="color:var(--green2);">X-API-Key: &lt;key&gt;</code> header for external API access.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

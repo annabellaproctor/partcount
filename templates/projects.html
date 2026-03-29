@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Projects :: LAB::INV{% endblock %}
+{% block content %}
+<div class="page-title">Projects</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>New Project</div>
+      <div class="p-3">
+        <form action="/api/projects/" method="post" enctype="multipart/form-data">
+          <div class="row g-2">
+            <div class="col-8">
+              <label class="form-label">Name</label>
+              <input name="name" class="form-control" placeholder="Gate controller v2" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Status</label>
+              <select name="status" class="form-select">
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="complete">Complete</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <input name="description" class="form-control" placeholder="Optional">
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-primary">CREATE</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header"><span class="dot"></span>All Projects</div>
+  <table class="table">
+    <thead><tr>
+      <th>Name</th><th>Status</th><th>Description</th><th>Updated</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for proj in projects %}
+      <tr>
+        <td><a href="/projects/{{ proj.id }}">{{ proj.name }}</a></td>
+        <td><span class="status-badge status-{{ proj.status }}">{{ proj.status }}</span></td>
+        <td class="muted">{{ proj.description or '—' }}</td>
+        <td class="muted">{{ proj.updated_at.strftime('%b %d') }}</td>
+        <td><a href="/projects/{{ proj.id }}" class="btn btn-primary btn-sm">OPEN</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

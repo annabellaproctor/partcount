@@ -1,58 +1,93 @@
 {% extends "base.html" %}
-{% block title %}Dashboard :: LAB INV{% endblock %}
+{% block title %}Dashboard :: LAB::INV{% endblock %}
 {% block content %}
-<div class="row g-3 mb-4">
-  <div class="col-auto">
-    <div class="stat">
-      <div class="label">Components</div>
-      <div class="value">{{ comp_count }}</div>
-    </div>
+
+<div class="stat-grid">
+  <div class="stat">
+    <div class="s-label">Components</div>
+    <div class="s-value">{{ comp_count }}</div>
   </div>
-  <div class="col-auto">
-    <div class="stat">
-      <div class="label">Boxes</div>
-      <div class="value">{{ box_count }}</div>
-    </div>
+  <div class="stat">
+    <div class="s-label">Boxes</div>
+    <div class="s-value">{{ box_count }}</div>
   </div>
-  <div class="col-auto">
-    <div class="stat" id="last-scan-stat">
-      <div class="label">Last Scan</div>
-      <div class="value" style="font-size:14px;" id="last-scan-val">—</div>
-    </div>
+  <div class="stat">
+    <div class="s-label">Projects</div>
+    <div class="s-value">{{ proj_count }}</div>
+  </div>
+  <div class="stat">
+    <div class="s-label">Last Scan</div>
+    <div class="s-value" style="font-size:14px;padding-top:4px;" id="last-scan-val">—</div>
   </div>
 </div>
 
-<div class="card mb-5">
-  <div class="card-header">Recent Components</div>
-  <table class="table">
-    <thead>
-      <tr>
-        <th>ID</th><th>Name</th><th>Value</th><th>Package</th><th>Type</th><th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for comp in recent %}
-      <tr>
-        <td><span class="badge-id">{{ comp.barcode_id }}</span></td>
-        <td>{{ comp.name }}</td>
-        <td>{{ comp.value or '—' }}</td>
-        <td>{{ comp.package or '—' }}</td>
-        <td>{{ comp.type_id or '—' }}</td>
-        <td>
-          <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">LABEL</a>
-          <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">BARCODE</a>
-        </td>
-      </tr>
+<!-- Box minimap -->
+{% if boxes %}
+<div class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Ledge Map — left to right by slot</div>
+  <div class="p-3">
+    <div class="box-map" id="box-map">
+      {% for box in boxes %}
+      {% set cell_count = box.cell_count or 144 %}
+      {% set size_class = 'box-144' if cell_count >= 144 else ('box-96' if cell_count >= 96 else ('box-48' if cell_count >= 48 else 'box-24')) %}
+      <a href="/boxes" class="box-tile {{ size_class }}" title="{{ box.label }} · {{ box.model }} · {{ cell_count }} cells">
+        <div class="bt-label">{{ box.label }}</div>
+        <div class="bt-model">{{ box.model or '—' }}</div>
+        <div class="bt-bar"><div class="bt-fill" style="width: 0%"></div></div>
+      </a>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+  </div>
 </div>
-{% endblock %}
+{% endif %}
 
+<div class="row g-3">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Recent Components</div>
+      <table class="table">
+        <thead><tr>
+          <th>ID</th><th>Name</th><th>Value</th><th>Package</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for comp in recent %}
+          <tr>
+            <td><span class="bid">{{ comp.barcode_id }}</span></td>
+            <td>{{ comp.name }}</td>
+            <td>{{ comp.value or '—' }}</td>
+            <td class="muted">{{ comp.package or '—' }}</td>
+            <td>
+              <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">EXT</a>
+              <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">INT</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Active Projects</div>
+      <div class="p-2">
+        {% for proj in projects_active %}
+        <a href="/projects/{{ proj.id }}" style="display:block;padding:7px 8px;border-bottom:1px solid var(--border);text-decoration:none;">
+          <div style="color:var(--text);font-size:12px;">{{ proj.name }}</div>
+          <div class="muted" style="font-size:10px;">{{ proj.status }}</div>
+        </a>
+        {% else %}
+        <div class="p-3 muted" style="font-size:11px;">No active projects</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
 {% block scripts %}
 <script>
 document.addEventListener('inv:scan', (e) => {
-  document.getElementById('last-scan-val').textContent = e.detail.barcode_id + ' ' + e.detail.name;
+  document.getElementById('last-scan-val').textContent = e.detail.barcode_id;
 });
 </script>
 {% endblock %}
