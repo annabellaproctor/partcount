@@ -452,6 +452,46 @@ async def fetch_and_save(
         raise HTTPException(500, str(e))
 
 
+@router.post("/proxy")
+async def proxy_image_as_base64(image_url: str = Form(...)):
+    """
+    Fetch external image and return as base64 data URL.
+    This avoids CORS issues when loading images in the crop editor.
+    """
+    import base64
+    
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True,
+                                     headers={"User-Agent": UA}) as client:
+            r = await client.get(image_url)
+            if r.status_code != 200:
+                raise HTTPException(400, f"Failed to fetch image: HTTP {r.status_code}")
+            
+            # Detect image type from content-type or URL
+            content_type = r.headers.get("content-type", "image/png")
+            if "image" not in content_type:
+                # Try to detect from URL extension
+                if image_url.endswith(".jpg") or image_url.endswith(".jpeg"):
+                    content_type = "image/jpeg"
+                elif image_url.endswith(".png"):
+                    content_type = "image/png"
+                elif image_url.endswith(".webp"):
+                    content_type = "image/webp"
+                else:
+                    content_type = "image/png"
+            
+            # Convert to base64
+            b64_data = base64.b64encode(r.content).decode('utf-8')
+            data_url = f"data:{content_type};base64,{b64_data}"
+            
+            return {"data_url": data_url, "size": len(r.content)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"proxy_image_as_base64: {e}")
+        raise HTTPException(500, f"Failed to proxy image: {str(e)}")
+
+
 @router.post("/upload/{component_id}")
 async def upload_image(
     component_id: str,

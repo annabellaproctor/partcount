@@ -285,12 +285,36 @@ function showCropModal(data) {
     return;
   }
   
-  // Only set crossOrigin for external URLs, not for local server paths
-  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-    // External URL - need CORS
-    if (!imageUrl.includes(window.location.hostname)) {
-      _img.crossOrigin = 'anonymous';
-    }
+  // Check if this is an external URL that needs proxying
+  const isExternal = (
+    imageUrl.startsWith('http://') || imageUrl.startsWith('https://')
+  ) && !imageUrl.includes(window.location.hostname) && !imageUrl.startsWith('data:');
+  
+  if (isExternal) {
+    // Proxy external images through our server to get base64 data URL
+    console.log('Proxying external image through server:', imageUrl);
+    fetch('/api/images/proxy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({image_url: imageUrl})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.data_url) {
+        _img.src = data.data_url;
+      } else {
+        throw new Error('No data_url in response');
+      }
+    })
+    .catch(err => {
+      console.error('Failed to proxy image:', err);
+      cropModal.style.display = 'none';
+      alert('Failed to load external image. Error: ' + err.message);
+    });
+  } else {
+    // Local image or data URL - load directly
+    console.log('Loading local/data image:', imageUrl.substring(0, 100));
+    _img.src = imageUrl;
   }
   
   _img.onload = () => {
