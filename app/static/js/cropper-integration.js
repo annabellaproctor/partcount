@@ -128,6 +128,45 @@ function revertBackgroundRemoval() {
   document.getElementById('bg-applied').style.display = 'none';
 }
 
+// Auto-crop function
+function cropperAutoCrop() {
+  if (!cropper) return;
+  
+  // Get canvas data
+  const canvas = cropper.getCroppedCanvas();
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  
+  // Find bounds
+  let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+  
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const i = (y * canvas.width + x) * 4;
+      const a = data[i + 3];
+      if (a > 25) { // Not transparent
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  
+  // Set crop data
+  const imageData2 = cropper.getImageData();
+  const scaleX = imageData2.naturalWidth / imageData2.width;
+  const scaleY = imageData2.naturalHeight / imageData2.height;
+  
+  cropper.setData({
+    x: minX * scaleX,
+    y: minY * scaleY,
+    width: (maxX - minX) * scaleX,
+    height: (maxY - minY) * scaleY
+  });
+}
+
 // Get final cropped/rotated image
 async function getCroppedImage() {
   if (!cropper) {
@@ -136,8 +175,8 @@ async function getCroppedImage() {
   }
   
   const canvas = cropper.getCroppedCanvas({
-    width: 1024, // Max width
-    height: 1024, // Max height
+    maxWidth: 2048,
+    maxHeight: 2048,
     imageSmoothingEnabled: true,
     imageSmoothingQuality: 'high',
   });
@@ -147,6 +186,11 @@ async function getCroppedImage() {
 
 // Save cropped image
 async function saveCroppedImage() {
+  if (!cropper) {
+    alert('No image loaded');
+    return;
+  }
+  
   const dataUrl = await getCroppedImage();
   if (!dataUrl) return;
   
@@ -160,17 +204,24 @@ async function saveCroppedImage() {
   const formData = new FormData();
   formData.append('file', blob, 'cropped.png');
   
-  // Upload
-  const uploadResponse = await fetch(`/api/images/upload/${compId}`, {
-    method: 'POST',
-    body: formData
-  });
-  
-  if (uploadResponse.ok) {
-    const result = await uploadResponse.json();
-    alert('Image saved!');
-    location.reload(); // Reload to show new image
-  } else {
-    alert('Failed to save image');
+  try {
+    // Upload
+    const uploadResponse = await fetch(`/api/images/upload/${compId}`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (uploadResponse.ok) {
+      alert('Image saved!');
+      location.reload();
+    } else {
+      const error = await uploadResponse.text();
+      console.error('Upload failed:', error);
+      alert('Failed to save image: ' + uploadResponse.status);
+    }
+  } catch (err) {
+    console.error('Save error:', err);
+    alert('Failed to save image: ' + err.message);
   }
 }
+
