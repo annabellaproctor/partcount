@@ -1,10 +1,9 @@
-import os
 """
 Lookup engine — queries DigiKey + LCSC in parallel, merges, scores, ranks.
 Never caches results with empty primary fields.
 Weights toward previously-used manufacturers.
 """
-import asyncio, json, uuid, logging
+import asyncio, hashlib, json, os, uuid, logging
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +14,10 @@ from app.services.generic_icons import get_icon_data_url, infer_type
 log = logging.getLogger("lookup_engine")
 
 CACHE_TTL = timedelta(hours=24)
+# Maximum characters of MPN/name used when building the Gemini merge cache key.
+_MERGE_KEY_MPN_CHARS = 40
+# Minimum Gemini confidence to inject the AI-merged result as the top result.
+MERGE_CONFIDENCE_THRESHOLD = 0.7
 
 
 def _is_valid_result(r: dict) -> bool:
@@ -173,7 +176,7 @@ async def search(
     fetch_labels = []
 
     if not dk_cached and source in ("auto", "digikey"):
-        fetch_tasks.append(digikey.search(query, limit=10))
+        fetch_tasks.append(digikey.search(query, limit=10, db=db))
         fetch_labels.append("digikey")
 
     if not lc_cached and source in ("auto", "lcsc"):
@@ -192,15 +195,25 @@ async def search(
             else:
                 lc_results = valid
 
-            # cache valid results
+            # cache valid results — upsert so repeated searches replace stale data
             if valid and db:
                 cache_key = cache_key_dk if label == "digikey" else cache_key_lc
                 try:
                     await db.execute(
-                        text("INSERT INTO component_lookups (id, query, source, result_json, full_text, fetched_at) "
-                             "VALUES (:id, :q, :s, :r, :ft, :t) ON CONFLICT DO NOTHING"),
-                        {"id": str(uuid.uuid4()), "q": cache_key, "s": label,
-                         "r": json.dumps(valid), "ft": json.dumps(valid), "t": datetime.utcnow()}
+                        text(
+                            "INSERT INTO component_lookups "
+                            "(id, query, source, result_json, full_text, fetched_at) "
+                            "VALUES (:id, :q, :s, :r, :ft, :t) "
+                            "ON CONFLICT (query) DO UPDATE SET "
+                            "result_json = EXCLUDED.result_json, "
+                            "full_text = EXCLUDED.full_text, "
+                            "fetched_at = EXCLUDED.fetched_at"
+                        ),
+                        {
+                            "id": str(uuid.uuid4()), "q": cache_key, "s": label,
+                            "r": json.dumps(valid), "ft": json.dumps(valid),
+                            "t": datetime.utcnow(),
+                        },
                     )
                 except Exception:
                     pass
@@ -235,20 +248,79 @@ async def search(
     final_source = "merged" if (dk_results and lc_results) else ("digikey" if dk_results else "lcsc")
     
     if dk_results and lc_results and merged and os.getenv("GEMINI_API_KEY"):
-        try:
-            from app.routers.ai_parse import merge_results, MergeRequest
-            top = merged[:3]
-            merged_top = await merge_results(MergeRequest(results=top, query=query))
-            if merged_top.get("confidence", 0) > 0.7:
-                # inject the AI-merged result as the first result with special flag
+        # Guard: skip merge if top results are clearly different components.
+        # Compare inferred types — if all top-3 share the same type, merge is meaningful.
+        top = merged[:3]
+        top_types = {r.get("inferred_type", "default") for r in top}
+        top_mpns = sorted(
+            (r.get("mpn") or r.get("name", ""))[:_MERGE_KEY_MPN_CHARS]
+            for r in top
+            if r.get("mpn") or r.get("name")
+        )
+        if len(top_types) > 1 and "default" not in top_types:
+            log.debug(f"Skipping Gemini merge — mixed component types: {top_types}")
+        else:
+            # Build a stable cache key from the sorted MPNs of the top candidates.
+            merge_key = "gemini_merge:" + hashlib.md5(
+                json.dumps(top_mpns).encode()
+            ).hexdigest()
+
+            merged_top = None
+
+            # Check cache first
+            if db:
+                try:
+                    r = await db.execute(
+                        text(
+                            "SELECT result_json, fetched_at FROM component_lookups "
+                            "WHERE query = :q ORDER BY fetched_at DESC LIMIT 1"
+                        ),
+                        {"q": merge_key},
+                    )
+                    row = r.fetchone()
+                    if row and row.fetched_at and (datetime.utcnow() - row.fetched_at) < CACHE_TTL:
+                        merged_top = json.loads(row.result_json)
+                        log.debug("Gemini merge result served from cache")
+                except Exception:
+                    pass
+
+            if merged_top is None:
+                try:
+                    from app.routers.ai_parse import merge_results, MergeRequest
+                    merged_top = await merge_results(MergeRequest(results=top, query=query))
+                    # Cache the merge result
+                    if merged_top and db:
+                        try:
+                            await db.execute(
+                                text(
+                                    "INSERT INTO component_lookups "
+                                    "(id, query, source, result_json, full_text, fetched_at) "
+                                    "VALUES (:id, :q, :s, :r, :ft, :t) "
+                                    "ON CONFLICT (query) DO UPDATE SET "
+                                    "result_json = EXCLUDED.result_json, "
+                                    "full_text = EXCLUDED.full_text, "
+                                    "fetched_at = EXCLUDED.fetched_at"
+                                ),
+                                {
+                                    "id": str(uuid.uuid4()), "q": merge_key,
+                                    "s": "gemini_merged",
+                                    "r": json.dumps(merged_top),
+                                    "ft": json.dumps(merged_top),
+                                    "t": datetime.utcnow(),
+                                },
+                            )
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log.warning(f"Gemini merge failed (non-fatal): {e}")
+
+            if merged_top and merged_top.get("confidence", 0) > MERGE_CONFIDENCE_THRESHOLD:
                 merged_top["_ai_merged"] = True
                 merged_top["source"] = "gemini_merged"
                 merged_top = _enrich(merged_top)
                 merged_top["_score"] = 1.0
                 merged_top["high_confidence"] = True
                 merged = [merged_top] + [r for r in merged if r.get("mpn") != merged_top.get("mpn")]
-        except Exception as e:
-            log.warning(f"Gemini merge failed (non-fatal): {e}")
 
     return {
         "results": merged[:limit],

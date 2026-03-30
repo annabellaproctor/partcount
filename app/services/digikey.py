@@ -12,14 +12,65 @@ CLIENT_SECRET = os.getenv("DIGIKEY_CLIENT_SECRET", "")
 TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"
 BASE_URL = "https://api.digikey.com/products/v4"
 
+# Refresh the token this many seconds before it actually expires to avoid
+# using a token that expires mid-request.
+TOKEN_EXPIRY_BUFFER = 60
+
+# In-memory cache — used as fast path; DB is authoritative across restarts.
 _token: Optional[str] = None
 _token_expiry: float = 0
 
+_SETTING_TOKEN = "digikey_token"
+_SETTING_EXPIRY = "digikey_token_expiry"
 
-async def _get_token() -> str:
+
+async def _load_token_from_db(db) -> None:
+    """Populate in-memory cache from system_settings if a valid token exists."""
     global _token, _token_expiry
-    if _token and time.time() < _token_expiry - 60:
+    try:
+        from sqlalchemy import text
+        r = await db.execute(
+            text("SELECT key, value FROM system_settings WHERE key IN (:tk, :te)"),
+            {"tk": _SETTING_TOKEN, "te": _SETTING_EXPIRY},
+        )
+        rows = {row.key: row.value for row in r.fetchall()}
+        stored_token = rows.get(_SETTING_TOKEN)
+        stored_expiry = float(rows.get(_SETTING_EXPIRY, 0))
+        if stored_token and stored_expiry and time.time() < stored_expiry - TOKEN_EXPIRY_BUFFER:
+            _token = stored_token
+            _token_expiry = stored_expiry
+    except Exception as e:
+        log.debug(f"Could not load DigiKey token from DB: {e}")
+
+
+async def _save_token_to_db(db) -> None:
+    """Persist the current in-memory token to system_settings."""
+    if not _token:
+        return
+    try:
+        from sqlalchemy import text
+        for key, val in ((_SETTING_TOKEN, _token), (_SETTING_EXPIRY, str(_token_expiry))):
+            await db.execute(
+                text(
+                    "INSERT INTO system_settings (key, value, updated_at) VALUES (:k, :v, NOW()) "
+                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
+                ),
+                {"k": key, "v": val},
+            )
+    except Exception as e:
+        log.debug(f"Could not save DigiKey token to DB: {e}")
+
+
+async def _get_token(db=None) -> str:
+    global _token, _token_expiry
+    # Fast path: valid in-memory token
+    if _token and time.time() < _token_expiry - TOKEN_EXPIRY_BUFFER:
         return _token
+    # Try restoring from DB before doing a network round-trip
+    if db is not None:
+        await _load_token_from_db(db)
+        if _token and time.time() < _token_expiry - TOKEN_EXPIRY_BUFFER:
+            return _token
     if not CLIENT_ID or not CLIENT_SECRET:
         raise RuntimeError("DIGIKEY_CLIENT_ID / DIGIKEY_CLIENT_SECRET not configured")
     async with httpx.AsyncClient(timeout=15) as client:
@@ -32,6 +83,8 @@ async def _get_token() -> str:
         data = r.json()
         _token = data["access_token"]
         _token_expiry = time.time() + data.get("expires_in", 1800)
+        if db is not None:
+            await _save_token_to_db(db)
         return _token
 
 
@@ -47,9 +100,9 @@ def _headers(token: str) -> dict:
     }
 
 
-async def search(query: str, limit: int = 10) -> list[dict]:
+async def search(query: str, limit: int = 10, db=None) -> list[dict]:
     try:
-        token = await _get_token()
+        token = await _get_token(db)
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
                 f"{BASE_URL}/search/keyword",
@@ -66,9 +119,9 @@ async def search(query: str, limit: int = 10) -> list[dict]:
         return []
 
 
-async def get_part(digikey_pn: str) -> Optional[dict]:
+async def get_part(digikey_pn: str, db=None) -> Optional[dict]:
     try:
-        token = await _get_token()
+        token = await _get_token(db)
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(
                 f"{BASE_URL}/search/{digikey_pn}/productdetails",
@@ -83,9 +136,9 @@ async def get_part(digikey_pn: str) -> Optional[dict]:
         return None
 
 
-async def debug_raw(query: str) -> dict:
+async def debug_raw(query: str, db=None) -> dict:
     try:
-        token = await _get_token()
+        token = await _get_token(db)
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
                 f"{BASE_URL}/search/keyword",

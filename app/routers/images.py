@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import httpx, os, shutil, re, io, logging
+from typing import Optional
+import asyncio, httpx, os, shutil, re, io, logging
 from app.models.database import get_db
 from app.models.models import Component
 from app.services.barcode_svc import autocrop_image
@@ -13,7 +14,44 @@ router = APIRouter(prefix="/api/images", tags=["images"])
 os.makedirs(f"{IMAGE_DIR}/components", exist_ok=True)
 
 
+async def prewarm_rembg():
+    """Run rembg import + model load off the event loop so the first real request is fast."""
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _prewarm_rembg_sync)
+        log.info("rembg pre-warm complete")
+    except Exception as e:
+        log.warning(f"rembg pre-warm failed (non-fatal): {e}")
+
+
+def _prewarm_rembg_sync():
+    from rembg import remove
+    from PIL import Image
+    import io as _io
+    # Feed a 1×1 white pixel to load the model into memory.
+    img = Image.new("RGBA", (1, 1), (255, 255, 255, 255))
+    buf = _io.BytesIO()
+    img.save(buf, "PNG")
+    remove(buf.getvalue())
+
+
 # ── Image search ──────────────────────────────────────────────────────────────
+
+# Ordered list of patterns tried against the DDG HTML response to extract vqd.
+_VQD_PATTERNS = [
+    re.compile(r'vqd=["\']?([\d-]+)["\']?'),
+    re.compile(r'"vqd"\s*:\s*"([\d-]+)"'),
+    re.compile(r'vqd=([\d-]+)'),
+]
+
+
+def _extract_vqd(html: str) -> Optional[str]:
+    for pat in _VQD_PATTERNS:
+        m = pat.search(html)
+        if m:
+            return m.group(1)
+    return None
+
 
 @router.get("/search")
 async def search_images(q: str, limit: int = 9):
@@ -21,11 +59,10 @@ async def search_images(q: str, limit: int = 9):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         async with httpx.AsyncClient(timeout=10, headers=headers, follow_redirects=True) as client:
             r = await client.get("https://duckduckgo.com/", params={"q": q, "iax": "images", "ia": "images"})
-            vqd_match = re.search(r'vqd=["\']?([\d-]+)["\']?', r.text)
-            if not vqd_match:
-                log.warning("DDG vqd not found")
+            vqd = _extract_vqd(r.text)
+            if not vqd:
+                log.warning("DDG vqd not found in response")
                 return []
-            vqd = vqd_match.group(1)
             r2 = await client.get(
                 "https://duckduckgo.com/i.js",
                 params={"l": "us-en", "o": "json", "q": q, "vqd": vqd, "f": ",,,,,", "p": "1"},
@@ -44,6 +81,7 @@ def _remove_background(src_path: str, dest_path: str):
     """
     Remove image background using rembg if available, fallback to white-edge crop.
     Output is always PNG with transparency.
+    Runs synchronously — call via run_in_executor to avoid blocking the event loop.
     """
     try:
         from rembg import remove
@@ -55,7 +93,6 @@ def _remove_background(src_path: str, dest_path: str):
         img.save(dest_path, "PNG")
         return True
     except ImportError:
-        # rembg not installed — fall back to autocrop only
         pass
     except Exception as e:
         log.warning(f"rembg failed: {e}")
@@ -64,7 +101,6 @@ def _remove_background(src_path: str, dest_path: str):
     try:
         from PIL import Image
         img = Image.open(src_path).convert("RGBA")
-        # make near-white pixels transparent
         data = img.getdata()
         new_data = []
         for r, g, b, a in data:
@@ -84,13 +120,15 @@ def _remove_background(src_path: str, dest_path: str):
 
 
 def _process_image(src_path: str, dest_path: str, remove_bg: bool = False):
-    """Full pipeline: download → optionally remove bg → autocrop → save as PNG."""
+    """
+    Full pipeline: download → optionally remove bg → autocrop → save as PNG.
+    Runs synchronously — call via run_in_executor to avoid blocking the event loop.
+    """
     try:
         from PIL import Image
         if remove_bg:
             _remove_background(src_path, dest_path)
         else:
-            # just convert to PNG and autocrop
             img = Image.open(src_path).convert("RGBA")
             bbox = img.getbbox()
             if bbox:
@@ -131,7 +169,8 @@ async def fetch_and_save(
             with open(tmp_path, "wb") as f:
                 f.write(r.content)
 
-        _process_image(tmp_path, dest, remove_bg=remove_bg)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _process_image, tmp_path, dest, remove_bg)
         os.unlink(tmp_path)
 
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
@@ -169,7 +208,8 @@ async def upload_image(
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        _process_image(tmp_path, dest, remove_bg=remove_bg)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _process_image, tmp_path, dest, remove_bg)
         os.unlink(tmp_path)
 
         comp.image_path = f"/images/components/{comp.barcode_id}.png"

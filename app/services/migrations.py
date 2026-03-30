@@ -187,6 +187,18 @@ MIGRATIONS = [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS description TEXT",
         "ALTER TABLE boxes ADD COLUMN IF NOT EXISTS slot_index INTEGER DEFAULT 0",
     ]),
+
+    (3, "system_settings table, component_lookups full_text + unique index", [
+        """CREATE TABLE IF NOT EXISTS system_settings (
+            key VARCHAR PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "ALTER TABLE component_lookups ADD COLUMN IF NOT EXISTS full_text TEXT",
+        # Unique index on query so ON CONFLICT (query) works for upserts.
+        # If index already exists the CREATE INDEX IF NOT EXISTS is a no-op.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_component_lookups_query ON component_lookups (query)",
+    ]),
 ]
 
 

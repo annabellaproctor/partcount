@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.database import get_db
@@ -191,4 +193,55 @@ async def update_stock(
     write_stock_change(barcode_id, comp.name if comp else barcode_id, delta, fp.quantity, footprint_id)
     await manager.broadcast("stock_change", {"barcode_id": barcode_id, "footprint_id": footprint_id, "quantity": fp.quantity, "delta": delta})
     return {"quantity": fp.quantity}
+
+
+class StockUpdateRequest(BaseModel):
+    delta: int
+    footprint_id: Optional[str] = None
+
+
+@router.post("/{component_id}/stock")
+async def update_stock_by_id(
+    component_id: str,
+    req: StockUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Atomically increment or decrement stock for a component identified by UUID.
+    If footprint_id is omitted, the first footprint for the component is used.
+    Quantity is clamped to >= 0.
+    """
+    comp_result = await db.execute(select(Component).where(Component.id == component_id))
+    comp = comp_result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    if req.footprint_id:
+        fp_result = await db.execute(
+            select(Footprint).where(
+                Footprint.id == req.footprint_id,
+                Footprint.component_id == component_id,
+            )
+        )
+    else:
+        fp_result = await db.execute(
+            select(Footprint).where(Footprint.component_id == component_id).limit(1)
+        )
+    fp = fp_result.scalar_one_or_none()
+    if not fp:
+        raise HTTPException(404, "No footprint found for this component")
+
+    fp.quantity = max(0, fp.quantity + req.delta)
+    write_stock_change(comp.barcode_id, comp.name, req.delta, fp.quantity, fp.id)
+    await manager.broadcast(
+        "stock_change",
+        {
+            "barcode_id": comp.barcode_id,
+            "component_id": component_id,
+            "footprint_id": fp.id,
+            "quantity": fp.quantity,
+            "delta": req.delta,
+        },
+    )
+    return {"quantity": fp.quantity, "footprint_id": fp.id}
 

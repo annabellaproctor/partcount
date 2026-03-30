@@ -41,16 +41,26 @@ async def lookup_part(
 
     result = None
     if source == "digikey":
-        result = await digikey.get_part(pn)
+        result = await digikey.get_part(pn, db=db)
     elif source == "lcsc":
         result = await lcsc.get_part(pn)
 
     if result:
         try:
             await db.execute(
-                text("INSERT INTO component_lookups (id, query, source, result_json, full_text, fetched_at) VALUES (:id, :q, :s, :r, :ft, :t)"),
-                {"id": str(uuid.uuid4()), "q": cache_key, "s": source,
-                 "r": json.dumps(result), "ft": json.dumps(result), "t": datetime.utcnow()}
+                text(
+                    "INSERT INTO component_lookups "
+                    "(id, query, source, result_json, full_text, fetched_at) "
+                    "VALUES (:id, :q, :s, :r, :ft, :t) "
+                    "ON CONFLICT (query) DO UPDATE SET "
+                    "result_json = EXCLUDED.result_json, "
+                    "full_text = EXCLUDED.full_text, "
+                    "fetched_at = EXCLUDED.fetched_at"
+                ),
+                {
+                    "id": str(uuid.uuid4()), "q": cache_key, "s": source,
+                    "r": json.dumps(result), "ft": json.dumps(result), "t": datetime.utcnow(),
+                },
             )
         except Exception:
             pass
