@@ -1,7 +1,11 @@
 """
 AI parsing via Gemini using official google-genai SDK.
-Used for: component data extraction, aggregate result merging, confidence scoring.
-https://ai.google.dev/gemini-api/docs/quickstart
+FREE TIER (no billing): 
+- gemini-1.5-flash-8b: 15 RPM, 1M TPM, 1500 RPD
+- gemini-1.5-flash: 15 RPM, 1M TPM, 1500 RPD  
+- gemini-1.5-pro: 2 RPM, 32K TPM, 50 RPD
+Using flash-8b for best free tier performance.
+https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -91,17 +95,18 @@ MERGE_SCHEMA = {
 
 
 async def _gemini(prompt: str, schema: dict) -> dict:
-    """Call Gemini API using official SDK"""
+    """Call Gemini API using official SDK - Free tier optimized"""
     if not client:
         raise HTTPException(
             503, 
-            "Gemini AI is not configured. Add GEMINI_API_KEY to .env and ensure API key has proper permissions at https://aistudio.google.com/apikey"
+            "Gemini AI is not configured. Add GEMINI_API_KEY to .env (free tier: no billing required)"
         )
     
     try:
-        # Use gemini-1.5-flash - documented working model
+        # Use gemini-1.5-flash-8b - best free tier model
+        # Free tier: 15 RPM, 1M TPM, 1500 RPD (no billing required)
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-1.5-flash-8b',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -118,13 +123,24 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         log_failed_request("sdk_error", {
             "error": error_msg,
             "type": type(e).__name__,
+            "model": "gemini-1.5-flash-8b",
         })
         
         # Better error message for 403
         if '403' in error_msg or 'Forbidden' in error_msg:
             raise HTTPException(
                 403,
-                "Gemini API key forbidden. Go to https://aistudio.google.com/apikey to enable the API and check permissions."
+                "Gemini API key forbidden. Disable billing in Google Cloud to use free tier. "
+                "Free tier: 1500 requests/day, no credit card needed. "
+                "https://aistudio.google.com/apikey"
+            )
+        
+        # Handle 404 model not found
+        if '404' in error_msg or 'not found' in error_msg:
+            raise HTTPException(
+                404,
+                f"Gemini model not available. Using: gemini-1.5-flash-8b (free tier). "
+                f"Error: {error_msg[:200]}"
             )
         
         raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
@@ -215,6 +231,8 @@ async def get_failed_requests(limit: int = 50):
     return {
         "failed_requests": _failed_requests[-limit:],
         "total_failures": len(_failed_requests),
-        "model": "gemini-2.0-flash-exp",
+        "model": "gemini-1.5-flash-8b",
+        "tier": "free (no billing)",
+        "limits": "15 RPM, 1M TPM, 1500 RPD",
         "sdk": "google-genai",
     }
