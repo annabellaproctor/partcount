@@ -534,29 +534,6 @@ async function openCropEditor() {
   showCropModal(img.src);  // Pass URL directly
 }
 
-function openImageSearch() {
-  document.getElementById('img-modal').style.display = 'block';
-  _selectedImageUrl = null;
-  _selectedImageSource = null;
-  document.getElementById('selected-preview-bottom').style.display = 'none';
-  document.getElementById('floating-continue-btn').style.display = 'none';
-  
-  // Setup scroll handler for floating button
-  const modal = document.getElementById('img-modal');
-  modal.onscroll = () => {
-    const bottomBanner = document.getElementById('selected-preview-bottom');
-    const floatingBtn = document.getElementById('floating-continue-btn');
-    
-    if (_selectedImageUrl && bottomBanner.style.display !== 'none') {
-      const rect = bottomBanner.getBoundingClientRect();
-      // Show floating button if bottom banner is below viewport
-      floatingBtn.style.display = (rect.top > window.innerHeight) ? 'block' : 'none';
-    }
-  };
-  
-  doImageSearch();
-}
-
 function closeImageSearch() {
   document.getElementById('img-modal').style.display = 'none';
 }
