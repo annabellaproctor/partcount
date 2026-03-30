@@ -168,6 +168,7 @@
         <div id="component-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <div id="component-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
           <div id="component-ai-assumptions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
+          <div id="component-ai-suggestions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--blue);"></div>
           <pre id="component-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
           <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="applyComponentAiPatch()">Apply Suggested Changes</button>
         </div>
@@ -605,6 +606,17 @@ async function analyzeComponentText(action) {
   } else {
     assumptions.style.display = 'none';
     assumptions.textContent = '';
+  }
+  const suggestions = document.getElementById('component-ai-suggestions');
+  const suggestionItems = Array.isArray(data.suggested_add_fields) ? data.suggested_add_fields : [];
+  if (suggestionItems.length) {
+    suggestions.style.display = 'block';
+    suggestions.textContent = 'Suggested adds: ' + suggestionItems
+      .map(s => `${s.field}: ${s.value}`)
+      .join(' | ');
+  } else {
+    suggestions.style.display = 'none';
+    suggestions.textContent = '';
   }
   document.getElementById('component-ai-patch').textContent = JSON.stringify(_componentAiPatch, null, 2);
   status.textContent = `confidence ${(data.confidence || 0).toFixed(2)}`;

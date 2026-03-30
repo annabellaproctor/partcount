@@ -116,6 +116,51 @@ TYPE_HIERARCHY = {
         "potentiometer": {"fields": ["resistance", "taper", "power_rating"]},
     },
     "modules": {
+        "development-board": {
+            "fields": [
+                "mcu_family",
+                "core_count",
+                "clock_speed_mhz",
+                "ram_size_kb",
+                "flash_size_mb",
+                "pin_count",
+                "wireless",
+                "usb_bridge",
+                "interface",
+                "form_factor",
+            ],
+            "subcategories": {
+                "microcontroller": {
+                    "fields": ["architecture", "wireless", "peripherals"],
+                },
+                "single-board-computer": {
+                    "fields": ["cpu", "ram_size_gb", "storage", "os_support"],
+                },
+            },
+        },
+        "mcu-module": {
+            "fields": [
+                "mcu_family",
+                "core_count",
+                "clock_speed_mhz",
+                "ram_size_kb",
+                "flash_size_mb",
+                "wireless",
+                "antenna_type",
+                "interface",
+            ],
+            "subcategories": {
+                "esp32": {
+                    "fields": ["variant", "wifi", "bluetooth", "adc_channels", "dac_channels"],
+                },
+                "stm32": {
+                    "fields": ["variant", "series", "package", "io_count"],
+                },
+                "nrf": {
+                    "fields": ["variant", "bluetooth", "radio_protocols"],
+                },
+            },
+        },
         "sensor": {
             "fields": ["measurement_type", "interface", "voltage_range", "accuracy"],
             "subcategories": {

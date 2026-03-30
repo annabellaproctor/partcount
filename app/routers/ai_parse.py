@@ -380,6 +380,115 @@ def _extract_urls(blob: str) -> list[str]:
     return out[:40]
 
 
+def _infer_component_type_path(text: str, existing: dict, patch_fields: dict) -> str:
+    txt = (text or "").lower()
+    current = (patch_fields.get("type_path") or existing.get("type_path") or "").strip()
+    if current:
+        return current
+
+    if any(k in txt for k in ["esp32", "esp8266", "stm32", "nrf52", "nrf528"]):
+        if any(k in txt for k in ["development board", "dev board", "devkit", "development kit"]):
+            return "modules/development-board/microcontroller"
+        return "modules/mcu-module"
+
+    if "microcontroller" in txt:
+        return "actives/ic/microcontroller"
+
+    if "module" in txt and any(k in txt for k in ["wifi", "bluetooth", "lora"]):
+        return "modules/communication/wifi"
+
+    return ""
+
+
+def _extract_component_type_data_from_text(text: str) -> dict:
+    txt = text or ""
+    lower = txt.lower()
+    out: dict = {}
+
+    mhz = [int(x) for x in re.findall(r"(\d{2,4})\s*mhz", lower)]
+    if mhz:
+        out["clock_speed_mhz"] = max(mhz)
+
+    ram = re.findall(r"(\d+(?:\.\d+)?)\s*(kb|kib|mb|mib|gb|gib)\s*ram", lower)
+    if ram:
+        val, unit = ram[0]
+        f = float(val)
+        mult = {"kb": 1, "kib": 1, "mb": 1024, "mib": 1024, "gb": 1024 * 1024, "gib": 1024 * 1024}
+        out["ram_size_kb"] = int(f * mult.get(unit, 1))
+
+    flash = re.findall(r"(\d+(?:\.\d+)?)\s*(mb|mib|kb|kib)\s*(?:flash|rom)", lower)
+    if flash:
+        val, unit = flash[0]
+        f = float(val)
+        out["flash_size_mb"] = int(f) if unit.startswith("m") else round(f / 1024, 2)
+
+    pin_match = re.search(r"(\d{1,3})(?:\s*(?:or|/)\s*(\d{1,3}))?\s*pins?", lower)
+    if pin_match:
+        a = int(pin_match.group(1))
+        b = int(pin_match.group(2)) if pin_match.group(2) else None
+        out["pin_count"] = f"{a}/{b}" if b else a
+
+    if "dual core" in lower:
+        out["core_count"] = 2
+    elif "quad core" in lower:
+        out["core_count"] = 4
+
+    wireless = []
+    if "wifi" in lower:
+        out["wifi"] = True
+        wireless.append("WiFi")
+    if "bluetooth" in lower:
+        out["bluetooth"] = True
+        wireless.append("Bluetooth")
+    if wireless:
+        out["wireless"] = "+".join(wireless)
+
+    interfaces = [x.upper() for x in ["uart", "spi", "i2c", "adc", "dac"] if x in lower]
+    if interfaces:
+        out["interface"] = ", ".join(interfaces)
+        out["peripherals"] = ", ".join(interfaces)
+
+    if "esp32" in lower:
+        out.setdefault("mcu_family", "ESP32")
+        out.setdefault("variant", "ESP32")
+    if "tensilica" in lower:
+        out.setdefault("architecture", "Tensilica LX6")
+
+    if any(k in lower for k in ["development board", "dev board", "devkit"]):
+        out.setdefault("form_factor", "Development Board")
+
+    bridge = re.search(r"(cp2102|ch340|ft232|pl2303)", lower)
+    if bridge:
+        out["usb_bridge"] = bridge.group(1).upper()
+
+    return out
+
+
+def _build_suggested_add_fields(existing: dict, patch_fields: dict) -> list[dict]:
+    suggestions: list[dict] = []
+    existing = existing or {}
+
+    for k, v in (patch_fields or {}).items():
+        if k == "type_data":
+            continue
+        if v in (None, "", []):
+            continue
+        cur = existing.get(k)
+        if cur in (None, "", []):
+            suggestions.append({"field": k, "value": v, "reason": "inferred update"})
+
+    type_data_patch = patch_fields.get("type_data") if isinstance(patch_fields, dict) else None
+    existing_type_data = existing.get("type_data") if isinstance(existing.get("type_data"), dict) else {}
+    if isinstance(type_data_patch, dict):
+        for k, v in type_data_patch.items():
+            if v in (None, "", []):
+                continue
+            if existing_type_data.get(k) in (None, "", []):
+                suggestions.append({"field": f"type_data.{k}", "value": v, "reason": "archetype detail"})
+
+    return suggestions[:20]
+
+
 @router.post("/parse")
 async def parse_component(req: ParseRequest):
     """Extract structured component data from any text."""
@@ -465,11 +574,12 @@ async def enrich_record(req: EnrichRequest):
             "patch_fields": {"type": "object"},
             "remove_fields": {"type": "array", "items": {"type": "string"}},
             "assumptions": {"type": "array", "items": {"type": "string"}},
+            "suggested_add_fields": {"type": "array", "items": {"type": "object"}},
             "supplier_hints": {"type": "array", "items": {"type": "object"}},
             "order_hints": {"type": "array", "items": {"type": "object"}},
             "component_candidates": {"type": "array", "items": {"type": "object"}},
         },
-        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields", "assumptions"],
+        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields", "assumptions", "suggested_add_fields"],
     }
 
     prompt = f"""You are a data-repair assistant for an electronics inventory database.
@@ -484,9 +594,10 @@ Return JSON with:
 1) patch_fields: only high-confidence fields to add/update.
 2) remove_fields: fields that look wrong or should be cleared.
 3) assumptions: concise list of what you inferred/guessed when data is ambiguous.
-4) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
-5) order_hints: optional order number, quantities, line-items, totals, dates.
-6) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
+4) suggested_add_fields: explicit list of key/value fields you propose adding.
+5) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
+6) order_hints: optional order number, quantities, line-items, totals, dates.
+7) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
 
 IMPORTANT:
 - Do not ask follow-up questions, do not ask for confirmation, and do not request more user input.
@@ -506,9 +617,36 @@ Noisy text:
     result["patch_fields"] = result.get("patch_fields") or {}
     result["remove_fields"] = result.get("remove_fields") or []
     result["assumptions"] = [str(x).strip() for x in (result.get("assumptions") or []) if str(x).strip()]
+    result["suggested_add_fields"] = result.get("suggested_add_fields") or []
+
+    # Deterministic fallback enrichment for common module/dev-board texts.
+    if req.mode == "component":
+        existing = req.existing_data or {}
+        patch_fields = result["patch_fields"]
+        inferred_type_path = _infer_component_type_path(req.text, existing, patch_fields)
+        if inferred_type_path and not patch_fields.get("type_path"):
+            patch_fields["type_path"] = inferred_type_path
+
+        inferred_type_data = _extract_component_type_data_from_text(req.text)
+        if inferred_type_data:
+            existing_td = patch_fields.get("type_data") if isinstance(patch_fields.get("type_data"), dict) else {}
+            patch_fields["type_data"] = {**existing_td, **inferred_type_data}
+
+            # Map a few common fields upward for existing form compatibility.
+            if not patch_fields.get("package") and inferred_type_data.get("form_factor"):
+                patch_fields["package"] = inferred_type_data.get("form_factor")
+
+        result["patch_fields"] = patch_fields
+        if not result["suggested_add_fields"]:
+            result["suggested_add_fields"] = _build_suggested_add_fields(existing, patch_fields)
+
     if not result["assumptions"] and not result["patch_fields"] and not result["remove_fields"]:
         hints = _suggest_needed_details(req.mode, req.existing_data)
         result["assumptions"] = [f"Best-effort inference; unresolved ambiguity around: {', '.join(hints[:3])}"] if hints else ["Best-effort inference from noisy text."]
+
+    if not result["suggested_add_fields"] and req.mode == "component":
+        result["suggested_add_fields"] = _build_suggested_add_fields(req.existing_data or {}, result["patch_fields"])
+
     result["source"] = "gemini_enrich"
     return result
 

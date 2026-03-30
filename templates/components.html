@@ -20,12 +20,12 @@
     <thead>
       <tr>
         <th>ID</th><th>Image</th><th>Name</th><th>Value</th><th>Package</th>
-        <th>Manufacturer</th><th>Tolerance</th><th>Type</th><th>Total Stock</th><th>Labels</th>
+        <th>Manufacturer</th><th>Tolerance</th><th>Type</th><th>Type Path</th><th>Archetype</th><th>Total Stock</th><th>Labels</th>
       </tr>
     </thead>
     <tbody id="comp-table-body">
-      {% for comp, ctype, total_stock, kit_refs in rows %}
-      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }}"
+      {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
+      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }}"
           data-is-generic="{{ 'true' if comp.is_generic else 'false' }}">
         <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
         <td>
@@ -55,6 +55,8 @@
         <td class="muted">{{ comp.mpn or '—' }}</td>
         <td class="muted">{{ comp.tolerance or '—' }}</td>
         <td class="muted">{{ ctype.name if ctype else '—' }}</td>
+        <td class="muted" style="font-size:11px;">{{ comp.type_path or '—' }}</td>
+        <td class="muted" style="font-size:10px;max-width:220px;">{{ archetype_summary or '—' }}</td>
         <td style="color:{% if total_stock is not none and total_stock <= 10 %}var(--red){% elif total_stock %}var(--green){% else %}var(--text3){% endif %}">
           {{ total_stock if total_stock is not none else '—' }}
           {% if comp.is_generic %}<span class="muted" style="font-size:9px;"> all</span>{% endif %}

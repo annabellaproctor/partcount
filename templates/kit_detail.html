@@ -29,6 +29,7 @@
     <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
       <div id="kit-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
       <div id="kit-ai-assumptions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
+      <div id="kit-ai-suggestions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--blue);"></div>
       <pre id="kit-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
         <label style="font-size:10px;color:var(--text3);display:flex;gap:6px;align-items:center;">
@@ -114,6 +115,17 @@ async function analyzeKitText(action) {
   } else {
     assumptions.style.display = 'none';
     assumptions.textContent = '';
+  }
+  const suggestions = document.getElementById('kit-ai-suggestions');
+  const suggestionItems = Array.isArray(_kitAiData.suggested_add_fields) ? _kitAiData.suggested_add_fields : [];
+  if (suggestionItems.length) {
+    suggestions.style.display = 'block';
+    suggestions.textContent = 'Suggested adds: ' + suggestionItems
+      .map(s => `${s.field}: ${s.value}`)
+      .join(' | ');
+  } else {
+    suggestions.style.display = 'none';
+    suggestions.textContent = '';
   }
   document.getElementById('kit-ai-patch').textContent = JSON.stringify(patch, null, 2);
   document.getElementById('kit-ai-preview').style.display = 'block';

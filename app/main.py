@@ -148,7 +148,17 @@ async def components_page(request: Request, db: AsyncSession = Depends(get_db)):
     for r in raw_rows:
         own_stock = int(r.total_stock or 0)
         total = (own_stock + child_stock.get(r.Component.id, 0)) if r.Component.is_generic else own_stock
-        rows.append((r.Component, r.ComponentType, total, int(r.kit_refs or 0)))
+        td = r.Component.type_data if isinstance(r.Component.type_data, dict) else {}
+        td_keys = [
+            "mcu_family", "variant", "clock_speed_mhz", "ram_size_kb", "flash_size_mb",
+            "pin_count", "wireless", "interface", "core_count",
+        ]
+        bits = []
+        for k in td_keys:
+            if k in td and td[k] not in (None, "", []):
+                bits.append(f"{k}={td[k]}")
+        archetype_summary = ", ".join(bits[:3])
+        rows.append((r.Component, r.ComponentType, total, int(r.kit_refs or 0), archetype_summary))
 
     types = (await db.execute(select(ComponentType).order_by(ComponentType.name))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
