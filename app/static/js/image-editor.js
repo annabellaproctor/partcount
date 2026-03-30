@@ -254,6 +254,28 @@ function showCropModal(data) {
   }
   cropModal.style.display = 'block';
   
+  // Get image URL
+  const imageUrl = typeof data === 'string' ? data : (data.preview || data);
+  if (!imageUrl) {
+    console.error('No image URL provided to showCropModal');
+    alert('No image URL provided');
+    return;
+  }
+  
+  // Initialize Cropper.js with this image
+  initCropper(imageUrl);
+}
+  // Close image search modal if it's open
+  const imgModal = document.getElementById('img-modal');
+  if (imgModal) imgModal.style.display = 'none';
+  
+  const cropModal = document.getElementById('crop-modal');
+  if (!cropModal) {
+    console.error('crop-modal element not found in DOM');
+    return;
+  }
+  cropModal.style.display = 'block';
+  
   // Show/hide bg removal UI only if elements exist
   const bgApplied = document.getElementById('bg-applied');
   const bgNotApplied = document.getElementById('bg-not-applied');
@@ -460,6 +482,8 @@ function findTightBounds(img) {
   return {left, top, right, bottom};
 }
 
+let _cropInImageCoords = null; // Store crop in image pixel coordinates
+
 function redrawCanvas() {
   if (!_canvas || !_ctx || !_img) return;
   
@@ -474,9 +498,45 @@ function redrawCanvas() {
   const canvasWidth = Math.ceil(rotatedWidth * 1.1);
   const canvasHeight = Math.ceil(rotatedHeight * 1.1);
   
-  if (_canvas.width !== canvasWidth || _canvas.height !== canvasHeight) {
+  const canvasSizeChanged = (_canvas.width !== canvasWidth || _canvas.height !== canvasHeight);
+  
+  if (canvasSizeChanged) {
+    // Before resizing, save crop in image coordinates
+    if (_cropInImageCoords === null) {
+      // First time - initialize from sliders
+      const cropLeft = document.getElementById('crop-left');
+      const cropTop = document.getElementById('crop-top');
+      const cropRight = document.getElementById('crop-right');
+      const cropBottom = document.getElementById('crop-bottom');
+      
+      if (cropLeft && cropTop && cropRight && cropBottom) {
+        _cropInImageCoords = {
+          left: parseFloat(cropLeft.value),
+          top: parseFloat(cropTop.value),
+          right: parseFloat(cropRight.value),
+          bottom: parseFloat(cropBottom.value)
+        };
+      }
+    }
+    
     _canvas.width = canvasWidth;
     _canvas.height = canvasHeight;
+    
+    // Update sliders to maintain same visual crop
+    if (_cropInImageCoords) {
+      const cropLeft = document.getElementById('crop-left');
+      const cropTop = document.getElementById('crop-top');
+      const cropRight = document.getElementById('crop-right');
+      const cropBottom = document.getElementById('crop-bottom');
+      
+      if (cropLeft && cropTop && cropRight && cropBottom) {
+        // Crop stays as same percentage (they're already in %)
+        cropLeft.value = _cropInImageCoords.left.toFixed(1);
+        cropTop.value = _cropInImageCoords.top.toFixed(1);
+        cropRight.value = _cropInImageCoords.right.toFixed(1);
+        cropBottom.value = _cropInImageCoords.bottom.toFixed(1);
+      }
+    }
   }
   
   // Clear canvas

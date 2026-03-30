@@ -2,6 +2,10 @@
 {% block title %}{{ comp.barcode_id }} :: LAB::INV{% endblock %}
 {% block content %}
 
+<!-- Cropper.js CDN -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+
 <script>
 // Define functions that are called from inline onclick handlers
 // These must be available before the HTML loads
@@ -357,29 +361,14 @@ function uploadImage(input) {
       <button onclick="closeCropModal()" class="btn btn-danger btn-sm">✕</button>
     </div>
     
-    <!-- Main layout: canvas on left, controls on right -->
+    <!-- Main layout: image on left, controls on right -->
     <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;">
-      <!-- Canvas container with transparency checkerboard -->
+      <!-- Cropper.js container with checkerboard background -->
       <div style="position:relative;min-height:600px;display:flex;align-items:center;justify-content:center;border-radius:2px;overflow:hidden;
                   background-image: repeating-conic-gradient(#f0f 0% 25%, #9f9 0% 50%);
                   background-size: 20px 20px;
                   background-position: 0 0, 10px 10px;">
-        <canvas id="crop-canvas" style="display:block;max-width:100%;max-height:600px;cursor:move;"></canvas>
-        
-        <!-- Rotation handle (bottom-right corner of canvas, tracks with canvas) -->
-        <div id="rotation-handle" 
-             style="position:absolute;width:50px;height:50px;background:var(--green);border-radius:50%;
-                    cursor:grab;display:flex;align-items:center;justify-content:center;
-                    color:#000;font-size:24px;font-weight:bold;user-select:none;
-                    box-shadow:0 2px 8px rgba(0,0,0,0.3);border:3px solid #000;">
-          ↻
-        </div>
-        
-        <!-- Dragging minimap loupe -->
-        <canvas id="minimap-loupe" style="display:none;position:absolute;width:120px;height:120px;border:2px solid var(--green);border-radius:50%;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></canvas>
-        
-        <!-- Slider drag loupe (for crop bounds) -->
-        <canvas id="slider-loupe" style="display:none;position:absolute;width:150px;height:150px;border:2px solid var(--amber);pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></canvas>
+        <img id="crop-image" style="max-width:100%;display:block;" />
       </div>
       
       <!-- Controls sidebar -->
@@ -410,58 +399,28 @@ function uploadImage(input) {
         <div style="margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Rotation</div>
           <div style="display:flex;gap:6px;margin-bottom:8px;">
-            <button class="btn btn-primary btn-sm" onclick="rotatePreview(-90)" style="flex:1;">↺ 90°</button>
-            <button class="btn btn-primary btn-sm" onclick="rotatePreview(90)" style="flex:1;">↻ 90°</button>
-            <button class="btn btn-primary btn-sm" onclick="rotatePreview(180)" style="flex:1;">180°</button>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <input type="number" id="rotation-degrees" min="0" max="359" step="0.1" value="0" 
-                   style="width:70px;padding:4px;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:2px;"
-                   oninput="setRotationDegrees(this.value)">
-            <span style="font-size:10px;color:var(--text3);">° (drag corner handle)</span>
+            <button class="btn btn-primary btn-sm" onclick="cropperRotate(-90)" style="flex:1;">↺ 90°</button>
+            <button class="btn btn-primary btn-sm" onclick="cropperRotate(90)" style="flex:1;">↻ 90°</button>
+            <button class="btn btn-primary btn-sm" onclick="cropperRotate(180)" style="flex:1;">180°</button>
           </div>
         </div>
         
-        <!-- Auto-adjust button -->
-        <div style="margin-bottom:16px;">
-          <button class="btn btn-primary w-100" onclick="autoAdjust()">🪄 Auto-Rotate & Crop</button>
-        </div>
-        
-        <!-- Crop sliders -->
+        <!-- Zoom controls -->
         <div style="margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Crop Bounds</div>
-          
-          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
-            <label style="font-size:10px;color:var(--text3);">Left</label>
-            <input type="range" id="crop-left" min="-25" max="100" value="0" step="0.1" style="width:100%;" 
-                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'left')" onmouseup="endSliderDrag()">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Zoom</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-primary btn-sm" onclick="cropperZoom(0.1)" style="flex:1;">Zoom In</button>
+            <button class="btn btn-primary btn-sm" onclick="cropperZoom(-0.1)" style="flex:1;">Zoom Out</button>
+            <button class="btn btn-secondary btn-sm" onclick="cropperReset()" style="flex:1;">Reset</button>
           </div>
-          
-          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
-            <label style="font-size:10px;color:var(--text3);">Top</label>
-            <input type="range" id="crop-top" min="-25" max="100" value="0" step="0.1" style="width:100%;" 
-                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'top')" onmouseup="endSliderDrag()">
-          </div>
-          
-          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
-            <label style="font-size:10px;color:var(--text3);">Right</label>
-            <input type="range" id="crop-right" min="0" max="125" value="100" step="0.1" style="width:100%;" 
-                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'right')" onmouseup="endSliderDrag()">
-          </div>
-          
-          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
-            <label style="font-size:10px;color:var(--text3);">Bottom</label>
-            <input type="range" id="crop-bottom" min="0" max="125" value="100" step="0.1" style="width:100%;" 
-                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'bottom')" onmouseup="endSliderDrag()">
-          </div>
-          
-          <div style="font-size:9px;color:var(--text3);margin-top:4px;">Drag image to reposition. Sliders allow +25% overscan.</div>
         </div>
+        
+        <!-- Crop handled by Cropper.js UI - remove sliders -->
         
         <!-- Actions -->
         <div style="display:flex;flex-direction:column;gap:8px;">
           <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset Crop</button>
-          <button class="btn btn-primary" onclick="confirmCrop()">Save Image</button>
+          <button class="btn btn-primary" onclick="saveCroppedImage()">Save Image</button>
         </div>
         <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
       </div>
@@ -493,6 +452,7 @@ function uploadImage(input) {
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/cropper-integration.js"></script>
 <script src="/static/js/image-editor.js"></script>
 <script>
 const COMP_ID = "{{ comp.id }}";
