@@ -30,7 +30,7 @@ async def get_component(barcode_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/")
 async def create_component(
     name: str = Form(...),
-    value: str = Form(...),
+    value: str = Form(None),
     unit: str = Form(None),
     package: str = Form(None),
     voltage_rating: float = Form(None),
@@ -38,6 +38,12 @@ async def create_component(
     type_id: str = Form(...),
     notes: str = Form(None),
     datasheet_url: str = Form(None),
+    mpn: str = Form(None),
+    digikey_pn: str = Form(None),
+    lcsc_pn: str = Form(None),
+    description: str = Form(None),
+    manufacturer_name: str = Form(None),
+    image_url: str = Form(None),
     image: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -61,6 +67,33 @@ async def create_component(
         autocrop_image(dest)
         image_path = f"/images/components/{fname}"
 
+    # resolve manufacturer
+    mfr_id = None
+    if manufacturer_name:
+        from app.models.models import Manufacturer
+        mr = await db.execute(select(Manufacturer).where(
+            Manufacturer.name.ilike(f"%{manufacturer_name}%")
+        ).limit(1))
+        mfr = mr.scalar_one_or_none()
+        if mfr:
+            mfr_id = mfr.id
+
+    # fetch image from URL if provided and no file uploaded
+    if image_url and not image_path:
+        try:
+            import httpx, shutil
+            ext = ".jpg"
+            fname = f"{barcode_id}{ext}"
+            dest = f"{IMAGE_DIR}/components/{fname}"
+            async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+                r = await client.get(image_url, headers={"User-Agent": "Mozilla/5.0"})
+                with open(dest, "wb") as f:
+                    f.write(r.content)
+            autocrop_image(dest)
+            image_path = f"/images/components/{fname}"
+        except Exception:
+            pass
+
     comp = Component(
         barcode_id=barcode_id,
         name=name,
@@ -73,6 +106,11 @@ async def create_component(
         notes=notes,
         datasheet_url=datasheet_url,
         image_path=image_path,
+        mpn=mpn,
+        digikey_pn=digikey_pn,
+        lcsc_pn=lcsc_pn,
+        description=description,
+        manufacturer_id=mfr_id,
     )
     db.add(comp)
     await db.flush()
@@ -126,3 +164,10 @@ async def update_stock(
     write_stock_change(barcode_id, comp.name if comp else barcode_id, delta, fp.quantity, footprint_id)
     await manager.broadcast("stock_change", {"barcode_id": barcode_id, "footprint_id": footprint_id, "quantity": fp.quantity, "delta": delta})
     return {"quantity": fp.quantity}
+
+
+@router.get("/types")
+async def list_types(db: AsyncSession = Depends(get_db)):
+    from app.models.models import ComponentType
+    result = await db.execute(select(ComponentType).order_by(ComponentType.name))
+    return [{"id": r.id, "name": r.name} for r in result.scalars().all()]

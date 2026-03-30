@@ -196,28 +196,83 @@ function filterComps(q) {
   });
 }
 
+// pending assignment — preview before save
+let _pendingCell = null;
+let _pendingComp = null;
+
 async function assignCell(optEl) {
   if (!activeCellEl) return;
   const compId = optEl.dataset.compId;
+  const name = optEl.querySelector('span:nth-child(2)').textContent.trim();
+  const bid = optEl.querySelector('.bid').textContent.trim();
+  const val = optEl.querySelector('.muted').textContent.trim();
+
+  // store pending
+  _pendingCell = activeCellEl;
+  _pendingComp = {id: compId, name, bid, val};
+
+  // show preview highlight on cell
+  activeCellEl.style.borderColor = 'var(--amber)';
+  activeCellEl.style.background = 'rgba(240,165,0,0.08)';
+  activeCellEl.innerHTML = `<div class="cell-label" style="color:var(--amber);">${val||bid}</div><div style="font-size:7px;color:var(--amber);">PREVIEW</div>`;
+
+  closeModal();
+  showPendingBar();
+}
+
+function showPendingBar() {
+  let bar = document.getElementById('pending-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'pending-bar';
+    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--amber);border-radius:3px;padding:8px 16px;display:flex;gap:12px;align-items:center;z-index:300;font-size:12px;';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="color:var(--amber);">Preview: <strong>${_pendingComp.bid}</strong> → Cell ${_pendingCell.dataset.cell}</span>
+    <button onclick="confirmAssign()" class="btn btn-primary btn-sm">✓ Confirm</button>
+    <button onclick="cancelAssign()" class="btn btn-danger btn-sm">✕ Cancel</button>
+  `;
+  bar.style.display = 'flex';
+}
+
+async function confirmAssign() {
+  if (!_pendingCell || !_pendingComp) return;
   const fd = new FormData();
-  fd.append('cell_id', activeCellEl.dataset.cell);
-  fd.append('component_id', compId);
+  fd.append('cell_id', _pendingCell.dataset.cell);
+  fd.append('component_id', _pendingComp.id);
   const r = await fetch(`/api/boxes/${BOX_ID}/assign`, {method:'POST', body: fd});
   if (r.ok) {
-    // update cell visually
-    const name = optEl.querySelector('span:nth-child(2)').textContent;
-    const bid = optEl.querySelector('.bid').textContent;
-    const val = optEl.querySelector('.muted').textContent;
-    activeCellEl.classList.remove('empty');
-    activeCellEl.classList.add('filled');
-    activeCellEl.draggable = true;
-    activeCellEl.dataset.compId = compId;
-    activeCellEl.dataset.compName = name;
-    activeCellEl.dataset.barcode = bid;
-    activeCellEl.innerHTML = `<div class="cell-label">${val || bid}</div>`;
-    setStatus(`Assigned ${bid} → ${activeCellEl.dataset.cell}`);
-    closeModal();
+    _pendingCell.style.borderColor = '';
+    _pendingCell.style.background = '';
+    _pendingCell.classList.remove('empty');
+    _pendingCell.classList.add('filled');
+    _pendingCell.draggable = true;
+    _pendingCell.dataset.compId = _pendingComp.id;
+    _pendingCell.dataset.compName = _pendingComp.name;
+    _pendingCell.dataset.barcode = _pendingComp.bid;
+    _pendingCell.innerHTML = `<div class="cell-label">${_pendingComp.val || _pendingComp.bid}</div>`;
+    setStatus(`Assigned ${_pendingComp.bid} → ${_pendingCell.dataset.cell}`);
   }
+  clearPending();
+}
+
+function cancelAssign() {
+  if (_pendingCell) {
+    _pendingCell.style.borderColor = '';
+    _pendingCell.style.background = '';
+    _pendingCell.classList.remove('filled');
+    _pendingCell.classList.add('empty');
+    _pendingCell.draggable = false;
+    _pendingCell.innerHTML = `<div class="cell-empty-label">${_pendingCell.dataset.cell}</div>`;
+  }
+  clearPending();
+}
+
+function clearPending() {
+  _pendingCell = null; _pendingComp = null;
+  const bar = document.getElementById('pending-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 // ── Drag and drop ──────────────────────────────────────────────────────────

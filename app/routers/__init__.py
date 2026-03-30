@@ -1,1 +1,1 @@
-from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate
+from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers

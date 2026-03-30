@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Add Component :: LAB::INV{% endblock %}
+{% block content %}
+<div class="page-title">Add Component</div>
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>New Component — Full Form</div>
+      <div class="p-4">
+        <!-- Lookup bar -->
+        <div class="mb-4" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <label class="form-label">Search DigiKey / LCSC to autofill</label>
+          <div style="display:flex;gap:6px;">
+            <input id="lookup-input" class="form-control" placeholder="Search by name, MPN, value..."
+                   oninput="debounceLookup(this.value)" autocomplete="off" style="flex:1;">
+            <select id="lookup-source" class="form-select" style="width:100px;">
+              <option value="auto">Auto</option>
+              <option value="digikey">DigiKey</option>
+              <option value="lcsc">LCSC</option>
+            </select>
+          </div>
+          <div id="lookup-results" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:2px;max-height:200px;overflow-y:auto;background:var(--bg2);"></div>
+          <div id="lookup-preview" style="display:none;margin-top:10px;"></div>
+        </div>
+
+        <form id="add-comp-form" onsubmit="submitAddForm(event)">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">Name *</label>
+              <input name="name" id="f-name" class="form-control" required placeholder="10kΩ 0805">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Type *</label>
+              <select name="type_id" id="f-type" class="form-select" required>
+                <option value="">— select —</option>
+                {% for t in types %}
+                <option value="{{ t.id }}">{{ t.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Value</label>
+              <input name="value" id="f-value" class="form-control" placeholder="10k">
+            </div>
+            <div class="col-4">
+              <label class="form-label">Unit</label>
+              <select name="unit" id="f-unit-sel" class="form-select" onchange="if(this.value==='custom'){this.name='';document.getElementById('f-unit-custom').style.display='';document.getElementById('f-unit-custom').name='unit';}else{document.getElementById('f-unit-custom').style.display='none';document.getElementById('f-unit-custom').name='';}">
+                <option value="">—</option>
+                <option value="Ω">Ω</option><option value="F">F</option>
+                <option value="H">H</option><option value="V">V</option>
+                <option value="A">A</option><option value="W">W</option>
+                <option value="Hz">Hz</option><option value="custom">Custom…</option>
+              </select>
+              <input id="f-unit-custom" class="form-control mt-1" placeholder="Custom unit" style="display:none;" name="">
+            </div>
+            <div class="col-4">
+              <label class="form-label">Package</label>
+              <input name="package" id="f-package" class="form-control" list="package-list" placeholder="0805">
+              <datalist id="package-list">
+                <option value="0201"><option value="0402"><option value="0603"><option value="0805">
+                <option value="1206"><option value="SOT-23"><option value="TO-92"><option value="DIP-8">
+              </datalist>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Tolerance</label>
+              <input name="tolerance" id="f-tolerance" class="form-control" list="tol-list" placeholder="1%">
+              <datalist id="tol-list">
+                <option value="0.1%"><option value="1%"><option value="5%"><option value="10%">
+              </datalist>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Voltage Rating</label>
+              <input name="voltage_rating" id="f-voltage" type="number" step="0.1" class="form-control" placeholder="50">
+            </div>
+            <div class="col-4">
+              <label class="form-label">Manufacturer</label>
+              <input name="manufacturer_name" id="f-mfr" class="form-control" list="mfr-list" placeholder="Bojack">
+              <datalist id="mfr-list">
+                {% for m in manufacturers %}
+                <option value="{{ m.name }}">
+                {% endfor %}
+              </datalist>
+            </div>
+            <div class="col-6">
+              <label class="form-label">MPN</label>
+              <input name="mpn" id="f-mpn" class="form-control" placeholder="Manufacturer Part Number">
+            </div>
+            <div class="col-6">
+              <label class="form-label">DigiKey PN</label>
+              <input name="digikey_pn" id="f-dkpn" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Datasheet URL</label>
+              <input name="datasheet_url" id="f-datasheet" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <input name="description" id="f-desc" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <input name="notes" id="f-notes" class="form-control">
+            </div>
+            <input type="hidden" name="lcsc_pn" id="f-lcsc">
+            <input type="hidden" name="image_url" id="f-imgurl">
+            <div class="col-12">
+              <button type="submit" class="btn btn-primary">ADD COMPONENT</button>
+              <span id="add-form-status" style="margin-left:12px;font-size:12px;"></span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// reuse same lookup/submit functions from base.html
+</script>
+{% endblock %}

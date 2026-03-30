@@ -304,6 +304,7 @@
   <a href="/scan" class="nav-link {% if '/scan' in request.url.path %}active{% endif %}">Scan</a>
   <a href="/settings" class="nav-link {% if '/settings' in request.url.path %}active{% endif %}">Settings</a>
   <div class="topbar-right">
+    <button onclick="openAddPopup()" class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 10px;letter-spacing:1px;" title="Add component (A)">+ ADD</button>
     <div class="ws-dot" id="ws-dot" title="WebSocket"></div>
     <div class="profile-badge" title="{{ profile.name if profile else 'AP' }}">
       {{ profile.initials if profile else 'AP' }}
@@ -367,6 +368,184 @@ document.addEventListener('keydown', (e) => {
 });
 </script>
 
+{% include "add_popup.html" %}
+
 {% block scripts %}{% endblock %}
+
+<script>
+// ── Add Popup ──────────────────────────────────────────────────────────────
+let _types = [], _manufacturers = [];
+
+async function _loadFormData() {
+  if (_types.length) return;
+  const [t, m] = await Promise.all([
+    fetch('/api/components/types').then(r=>r.json()).catch(()=>[]),
+    fetch('/api/manufacturers').then(r=>r.json()).catch(()=>[]),
+  ]);
+  _types = t;
+  _manufacturers = m;
+  const sel = document.getElementById('f-type');
+  if (sel) {
+    _types.forEach(type => {
+      const opt = document.createElement('option');
+      opt.value = type.id; opt.textContent = type.name;
+      sel.appendChild(opt);
+    });
+  }
+  const dl = document.getElementById('mfr-list');
+  if (dl) {
+    _manufacturers.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.name; dl.appendChild(opt);
+    });
+  }
+}
+
+function openAddPopup(e) {
+  if (e && e.shiftKey) { window.open('/add', '_blank'); return; }
+  document.getElementById('add-popup').style.display = 'flex';
+  _loadFormData();
+  setTimeout(() => document.getElementById('lookup-input').focus(), 100);
+}
+
+function closeAddPopup() {
+  document.getElementById('add-popup').style.display = 'none';
+}
+
+function unitSelChange(sel) {
+  const inp = document.getElementById('f-unit');
+  const hidden = document.querySelector('[name=unit]');
+  if (sel.value === 'custom') {
+    inp.style.display = ''; inp.focus();
+    if (hidden) hidden.value = '';
+  } else {
+    inp.style.display = 'none';
+    if (hidden) hidden.value = sel.value;
+    // set the actual name field value
+    const nameInput = document.querySelector('input[name=unit]');
+    if (!nameInput) {
+      // unit is the select value
+    }
+  }
+}
+
+// wire unit select to hidden input
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('f-unit-sel');
+  const inp = document.getElementById('f-unit');
+  if (sel && inp) {
+    sel.addEventListener('change', () => {
+      if (sel.value !== 'custom') {
+        inp.name = '';
+        inp.style.display = 'none';
+        sel.name = 'unit';
+      } else {
+        sel.name = '';
+        inp.name = 'unit';
+        inp.style.display = '';
+      }
+    });
+    sel.name = 'unit';
+  }
+});
+
+// Lookup debounce
+let _lookupTimer;
+function debounceLookup(val) {
+  clearTimeout(_lookupTimer);
+  if (val.length < 2) { document.getElementById('lookup-results').style.display='none'; return; }
+  _lookupTimer = setTimeout(() => runLookup(val), 400);
+}
+
+async function runLookup(q) {
+  const source = document.getElementById('lookup-source').value;
+  const res = document.getElementById('lookup-results');
+  res.style.display = 'block';
+  res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Searching...</div>';
+  const data = await fetch(`/api/lookup/search?q=${encodeURIComponent(q)}&source=${source}`).then(r=>r.json()).catch(()=>({results:[]}));
+  if (!data.results.length) {
+    res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No results</div>'; return;
+  }
+  res.innerHTML = data.results.map(r => `
+    <div class="lookup-result-item" onclick='selectLookupResult(${JSON.stringify(r)})'>
+      <span class="lr-source ${r.source==="digikey"?"lr-dk":"lr-lc"}">${r.source}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.name}</span>
+      <span style="color:var(--text3);font-size:10px;white-space:nowrap;">${r.mpn||''}</span>
+      ${r.unit_price ? `<span style="color:var(--amber);font-size:10px;">$${parseFloat(r.unit_price).toFixed(3)}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+function selectLookupResult(r) {
+  // fill form fields
+  if (r.name) document.getElementById('f-name').value = r.name;
+  if (r.mpn) document.getElementById('f-mpn').value = r.mpn;
+  if (r.digikey_pn) document.getElementById('f-dkpn').value = r.digikey_pn;
+  if (r.lcsc_pn) document.getElementById('f-lcsc').value = r.lcsc_pn;
+  if (r.package) document.getElementById('f-package').value = r.package;
+  if (r.tolerance) document.getElementById('f-tolerance').value = r.tolerance;
+  if (r.voltage_rating) document.getElementById('f-voltage').value = r.voltage_rating;
+  if (r.datasheet_url) document.getElementById('f-datasheet').value = r.datasheet_url;
+  if (r.manufacturer) document.getElementById('f-mfr').value = r.manufacturer;
+  if (r.value) document.getElementById('f-value').value = r.value;
+  if (r.image_url) document.getElementById('f-imgurl').value = r.image_url;
+
+  // show preview
+  document.getElementById('preview-name').textContent = r.name || '';
+  document.getElementById('preview-mpn').textContent = [r.mpn, r.digikey_pn, r.lcsc_pn].filter(Boolean).join(' · ');
+  document.getElementById('preview-desc').textContent = r.description || '';
+  document.getElementById('preview-price').textContent = r.unit_price ? `$${parseFloat(r.unit_price).toFixed(4)}` : '';
+  document.getElementById('preview-source').textContent = r.source || '';
+  if (r.image_url) {
+    document.getElementById('preview-img').src = r.image_url;
+    document.getElementById('preview-img').style.display = '';
+  }
+  document.getElementById('lookup-preview').style.display = 'block';
+  document.getElementById('lookup-results').style.display = 'none';
+  document.getElementById('lookup-input').value = '';
+}
+
+function clearPreview() {
+  document.getElementById('lookup-preview').style.display = 'none';
+  document.getElementById('f-imgurl').value = '';
+}
+
+async function submitAddForm(e) {
+  e.preventDefault();
+  const btn = document.getElementById('add-submit-btn');
+  const status = document.getElementById('add-form-status');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  const fd = new FormData(document.getElementById('add-comp-form'));
+  const r = await fetch('/api/components/', {method:'POST', body: fd});
+  if (r.ok) {
+    const data = await r.json();
+    status.style.color = 'var(--green)';
+    status.textContent = `✓ Created ${data.barcode_id}`;
+    resetAddForm();
+    btn.disabled = false; btn.textContent = 'ADD COMPONENT';
+    // if on components page, reload table
+    if (window.location.pathname === '/components') location.reload();
+  } else {
+    const err = await r.text();
+    status.style.color = 'var(--red)';
+    status.textContent = `Error: ${err.slice(0,80)}`;
+    btn.disabled = false; btn.textContent = 'ADD COMPONENT';
+  }
+}
+
+function resetAddForm() {
+  document.getElementById('add-comp-form').reset();
+  clearPreview();
+  document.getElementById('lookup-results').style.display = 'none';
+  document.getElementById('add-form-status').textContent = '';
+}
+
+// keyboard shortcut: A to open add popup
+document.addEventListener('keydown', e => {
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT') return;
+  if (e.key === 'a' || e.key === 'A') openAddPopup();
+  if (e.key === 'Escape') closeAddPopup();
+});
+</script>
 </body>
 </html>

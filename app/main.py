@@ -7,9 +7,9 @@ from sqlalchemy import select, func
 from contextlib import asynccontextmanager
 import os
 
-from app.models.database import init_db, get_db
+from app.models.database import get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem
-from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate
+from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers
 from app.services.ws_manager import manager
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -17,14 +17,10 @@ IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    # seed default profile if not exists
-    from app.models.database import AsyncSessionLocal
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Profile).limit(1))
-        if not result.scalar_one_or_none():
-            db.add(Profile(name="Annabella", email="annabellaproctor@gmail.com", initials="AP"))
-            await db.commit()
+    from app.services.migrations import run_migrations
+    from app.services.seed import seed_all
+    await run_migrations()
+    await seed_all()
     yield
 
 
@@ -38,6 +34,8 @@ app.include_router(apikeys.router)
 app.include_router(suppliers.router)
 app.include_router(images.router)
 app.include_router(migrate.router)
+app.include_router(lookup.router)
+app.include_router(manufacturers.router)
 
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")
@@ -78,6 +76,18 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
         "projects_active": projects_active,
     })
 
+
+
+@app.get("/add", response_class=HTMLResponse)
+async def add_page(request: Request, db: AsyncSession = Depends(get_db)):
+    """Standalone full-page add form — opened via Shift+click or new tab"""
+    types = (await db.execute(select(ComponentType).order_by(ComponentType.name))).scalars().all()
+    from app.models.models import Manufacturer
+    manufacturers = (await db.execute(select(Manufacturer).order_by(Manufacturer.name))).scalars().all()
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    return templates.TemplateResponse("add_component.html", {
+        "request": request, "types": types, "manufacturers": manufacturers, "profile": profile,
+    })
 
 @app.get("/components", response_class=HTMLResponse)
 async def components_page(request: Request, db: AsyncSession = Depends(get_db)):

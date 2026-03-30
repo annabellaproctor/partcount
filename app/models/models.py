@@ -106,6 +106,11 @@ class Component(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     type_id = Column(String, ForeignKey("component_types.id"))
+    manufacturer_id = Column(String, ForeignKey("manufacturers.id"), nullable=True)
+    mpn = Column(String)
+    digikey_pn = Column(String)
+    lcsc_pn = Column(String)
+    description = Column(Text)
     component_type = relationship("ComponentType", back_populates="components")
     footprints = relationship("Footprint", back_populates="component")
     bins = relationship("BinAssignment", back_populates="component")
@@ -152,6 +157,16 @@ class BinAssignment(Base):
     box = relationship("Box", back_populates="bins")
     component = relationship("Component", back_populates="bins")
     footprint = relationship("Footprint", back_populates="bin_assignments")
+
+
+class Manufacturer(Base):
+    __tablename__ = "manufacturers"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    name = Column(String, nullable=False, unique=True)
+    aliases = Column(Text)
+    url = Column(String)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------

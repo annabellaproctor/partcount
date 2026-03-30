@@ -1,0 +1,221 @@
+<!-- Global Add Popup — included in base.html, triggered by + button or keyboard shortcut -->
+<div id="add-popup" class="add-popup-overlay" style="display:none;" onclick="if(event.target===this)closeAddPopup()">
+  <div class="add-popup-panel">
+
+    <div class="add-popup-header">
+      <span id="add-popup-title" style="letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:var(--text2);">Add Component</span>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
+        <a id="open-full-add" href="/add" target="_blank" style="font-size:10px;color:var(--text3);" title="Open full page (Shift+click)">↗ Full page</a>
+        <button onclick="closeAddPopup()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+      </div>
+    </div>
+
+    <!-- Lookup bar -->
+    <div class="add-popup-lookup">
+      <div style="display:flex;gap:6px;">
+        <input id="lookup-input" class="form-control" placeholder="Search by name, MPN, value... (e.g. 10k resistor 0805)"
+               oninput="debounceLookup(this.value)" autocomplete="off" style="flex:1;">
+        <select id="lookup-source" class="form-select" style="width:100px;">
+          <option value="auto">Auto</option>
+          <option value="digikey">DigiKey</option>
+          <option value="lcsc">LCSC</option>
+        </select>
+      </div>
+      <div id="lookup-results" style="display:none;"></div>
+    </div>
+
+    <!-- Preview card (shown after selecting a lookup result) -->
+    <div id="lookup-preview" style="display:none;" class="add-popup-preview">
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <img id="preview-img" style="width:60px;height:60px;object-fit:contain;border:1px solid var(--border);border-radius:2px;background:var(--bg3);" src="" onerror="this.style.display='none'">
+        <div style="flex:1;min-width:0;">
+          <div id="preview-name" style="font-size:13px;color:var(--text);font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+          <div id="preview-mpn" style="font-size:10px;color:var(--text3);margin:2px 0;"></div>
+          <div id="preview-desc" style="font-size:11px;color:var(--text2);max-height:40px;overflow:hidden;"></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div id="preview-price" style="font-size:13px;color:var(--amber);"></div>
+          <div id="preview-source" style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;"></div>
+          <button onclick="clearPreview()" class="btn btn-danger btn-xs" style="margin-top:6px;">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <form id="add-comp-form" onsubmit="submitAddForm(event)">
+      <div class="add-popup-form">
+        <div class="row g-2">
+
+          <div class="col-6">
+            <label class="form-label">Name *</label>
+            <input name="name" id="f-name" class="form-control" required placeholder="10kΩ 0805">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Type *</label>
+            <select name="type_id" id="f-type" class="form-select" required>
+              <option value="">— select —</option>
+              <!-- populated by JS -->
+            </select>
+          </div>
+
+          <div class="col-4">
+            <label class="form-label">Value</label>
+            <input name="value" id="f-value" class="form-control" placeholder="10k">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Unit</label>
+            <div style="display:flex;gap:4px;">
+              <select id="f-unit-sel" class="form-select" onchange="unitSelChange(this)" style="flex:1;">
+                <option value="">—</option>
+                <option value="Ω">Ω (Ohm)</option>
+                <option value="F">F (Farad)</option>
+                <option value="H">H (Henry)</option>
+                <option value="V">V (Volt)</option>
+                <option value="A">A (Amp)</option>
+                <option value="W">W (Watt)</option>
+                <option value="Hz">Hz</option>
+                <option value="ppm">ppm</option>
+                <option value="custom">Custom…</option>
+              </select>
+              <input name="unit" id="f-unit" class="form-control" placeholder="unit" style="width:60px;display:none;">
+            </div>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Package</label>
+            <input name="package" id="f-package" class="form-control" list="package-list" placeholder="0805">
+            <datalist id="package-list">
+              <option value="0201"><option value="0402"><option value="0603"><option value="0805">
+              <option value="1206"><option value="1210"><option value="2010"><option value="2512">
+              <option value="SOT-23"><option value="SOT-23-5"><option value="SOT-223"><option value="SOT-89">
+              <option value="TO-92"><option value="TO-220"><option value="TO-247"><option value="TO-252">
+              <option value="DIP-8"><option value="DIP-14"><option value="DIP-16"><option value="DIP-28">
+              <option value="SOP-8"><option value="SOIC-8"><option value="TSSOP-16"><option value="QFN-32">
+              <option value="LQFP-64"><option value="BGA"><option value="Through-hole"><option value="Module">
+            </datalist>
+          </div>
+
+          <div class="col-4">
+            <label class="form-label">Tolerance</label>
+            <input name="tolerance" id="f-tolerance" class="form-control" list="tol-list" placeholder="1%">
+            <datalist id="tol-list">
+              <option value="0.1%"><option value="0.5%"><option value="1%">
+              <option value="2%"><option value="5%"><option value="10%"><option value="20%">
+            </datalist>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Voltage Rating</label>
+            <input name="voltage_rating" id="f-voltage" type="number" step="0.1" class="form-control" placeholder="50">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Manufacturer</label>
+            <input name="manufacturer_name" id="f-mfr" class="form-control" list="mfr-list" placeholder="Bojack">
+            <datalist id="mfr-list">
+              <!-- populated by JS -->
+            </datalist>
+          </div>
+
+          <div class="col-6">
+            <label class="form-label">MPN</label>
+            <input name="mpn" id="f-mpn" class="form-control" placeholder="Manufacturer Part Number">
+          </div>
+          <div class="col-6">
+            <label class="form-label">DigiKey PN</label>
+            <input name="digikey_pn" id="f-dkpn" class="form-control" placeholder="Optional">
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Datasheet URL</label>
+            <input name="datasheet_url" id="f-datasheet" class="form-control" placeholder="https://...">
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <input name="notes" id="f-notes" class="form-control" placeholder="Optional">
+          </div>
+
+          <!-- hidden fields populated by lookup -->
+          <input type="hidden" name="lcsc_pn" id="f-lcsc">
+          <input type="hidden" name="image_url" id="f-imgurl">
+
+        </div>
+      </div>
+
+      <div class="add-popup-footer">
+        <span id="add-form-status" style="font-size:11px;color:var(--text3);"></span>
+        <div style="display:flex;gap:8px;margin-left:auto;">
+          <button type="button" onclick="resetAddForm()" class="btn btn-danger btn-sm">Reset</button>
+          <button type="submit" id="add-submit-btn" class="btn btn-primary btn-sm">ADD COMPONENT</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.add-popup-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.add-popup-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  width: 100%; max-width: 640px;
+  max-height: 90vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.add-popup-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.add-popup-lookup {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.add-popup-preview {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+  flex-shrink: 0;
+}
+.add-popup-form {
+  padding: 12px 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+.add-popup-footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#lookup-results {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg2);
+}
+.lookup-result-item {
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center;
+  font-size: 12px;
+}
+.lookup-result-item:hover { background: var(--bg3); }
+.lookup-result-item:last-child { border-bottom: none; }
+.lr-source { font-size: 9px; padding: 1px 5px; border-radius: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+.lr-dk { background: rgba(255,100,0,0.15); color: #ff6400; border: 1px solid rgba(255,100,0,0.3); }
+.lr-lc { background: rgba(0,180,100,0.15); color: #00b464; border: 1px solid rgba(0,180,100,0.3); }
+</style>
