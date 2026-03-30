@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import httpx, os, shutil, io, logging, re, hashlib
+from PIL import Image
 from app.models.database import get_db
 from app.models.models import Component
 
@@ -164,7 +165,6 @@ def _mechanical_bg_remove(src: str, dest: str) -> bool:
     Fast, deterministic, no model downloads.
     """
     try:
-        from PIL import Image
         import numpy as np
         
         img = Image.open(src).convert("RGBA")
@@ -228,8 +228,6 @@ def _process(src: str, dest: str, remove_bg: bool = False, crop: tuple = None, r
     rotate: degrees clockwise (0, 90, 180, 270)
     """
     try:
-        from PIL import Image
-        
         img = Image.open(src).convert("RGBA")
         
         # Rotate first if requested
