@@ -458,17 +458,14 @@ function findTightBounds(img) {
 function redrawCanvas() {
   if (!_canvas || !_ctx || !_img) return;
   
-  // Calculate canvas size needed for rotated image
-  const angle = (_rotationDegrees * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(angle));
-  const sin = Math.abs(Math.sin(angle));
-  const rotatedWidth = Math.ceil(_img.width * cos + _img.height * sin);
-  const rotatedHeight = Math.ceil(_img.width * sin + _img.height * cos);
+  // Calculate canvas size for current rotation
+  // Use max(width, height) for square canvas that fits any rotation
+  const maxDim = Math.max(_img.width, _img.height);
+  const canvasSize = Math.ceil(maxDim * 1.5); // 1.5x for safety margin
   
-  // Resize canvas if needed to fit rotated image
-  if (_canvas.width !== rotatedWidth || _canvas.height !== rotatedHeight) {
-    _canvas.width = rotatedWidth;
-    _canvas.height = rotatedHeight;
+  if (_canvas.width !== canvasSize || _canvas.height !== canvasSize) {
+    _canvas.width = canvasSize;
+    _canvas.height = canvasSize;
   }
   
   // Clear canvas
@@ -491,6 +488,7 @@ function redrawCanvas() {
   _ctx.translate(_canvas.width / 2, _canvas.height / 2);
   
   // Apply rotation
+  const angle = (_rotationDegrees * Math.PI) / 180;
   _ctx.rotate(angle);
   
   // Apply offset (for dragging)
@@ -502,7 +500,7 @@ function redrawCanvas() {
   // Restore context
   _ctx.restore();
   
-  // Draw crop overlay (red dashed lines)
+  // Draw crop overlay (red dashed lines) - draggable
   const cropLeft = document.getElementById('crop-left');
   const cropTop = document.getElementById('crop-top');
   const cropRight = document.getElementById('crop-right');
@@ -514,12 +512,81 @@ function redrawCanvas() {
     const right = parseFloat(cropRight.value) / 100 * _canvas.width;
     const bottom = parseFloat(cropBottom.value) / 100 * _canvas.height;
     
+    // Crop rectangle
     _ctx.strokeStyle = '#ff0000';
     _ctx.lineWidth = 2;
     _ctx.setLineDash([5, 5]);
     _ctx.strokeRect(left, top, right - left, bottom - top);
     _ctx.setLineDash([]);
+    
+    // Draw corner handles for resizing
+    const handleSize = 10;
+    _ctx.fillStyle = '#ff0000';
+    // Top-left
+    _ctx.fillRect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
+    // Top-right
+    _ctx.fillRect(right - handleSize/2, top - handleSize/2, handleSize, handleSize);
+    // Bottom-left
+    _ctx.fillRect(left - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
+    // Bottom-right
+    _ctx.fillRect(right - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
+    
+    // Draw rotation handle (top-right corner, offset)
+    const rotateHandleX = right + 30;
+    const rotateHandleY = top - 30;
+    _ctx.beginPath();
+    _ctx.arc(rotateHandleX, rotateHandleY, 8, 0, 2 * Math.PI);
+    _ctx.fillStyle = '#00ff00';
+    _ctx.fill();
+    _ctx.strokeStyle = '#000';
+    _ctx.lineWidth = 2;
+    _ctx.stroke();
+    
+    // Store handle position for mouse detection
+    _rotationHandle = {x: rotateHandleX, y: rotateHandleY, radius: 8};
   }
+}
+
+let _rotationHandle = null;
+let _isDraggingRotate = false;
+let _dragStartAngle = 0;
+
+function getCursorForPosition(x, y) {
+  // Check if near rotation handle
+  if (_rotationHandle) {
+    const dx = x - _rotationHandle.x;
+    const dy = y - _rotationHandle.y;
+    if (Math.sqrt(dx*dx + dy*dy) <= _rotationHandle.radius + 10) {
+      return 'crosshair'; // rotation cursor
+    }
+  }
+  
+  // Check if on crop edges
+  const cropLeft = parseFloat(document.getElementById('crop-left').value) / 100 * _canvas.width;
+  const cropTop = parseFloat(document.getElementById('crop-top').value) / 100 * _canvas.height;
+  const cropRight = parseFloat(document.getElementById('crop-right').value) / 100 * _canvas.width;
+  const cropBottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * _canvas.height;
+  
+  const threshold = 5;
+  
+  // Left edge
+  if (Math.abs(x - cropLeft) < threshold && y >= cropTop && y <= cropBottom) {
+    return 'ew-resize';
+  }
+  // Right edge
+  if (Math.abs(x - cropRight) < threshold && y >= cropTop && y <= cropBottom) {
+    return 'ew-resize';
+  }
+  // Top edge
+  if (Math.abs(y - cropTop) < threshold && x >= cropLeft && x <= cropRight) {
+    return 'ns-resize';
+  }
+  // Bottom edge
+  if (Math.abs(y - cropBottom) < threshold && x >= cropLeft && x <= cropRight) {
+    return 'ns-resize';
+  }
+  
+  return 'move'; // default for panning
 }
 
 function updateCropPreview() {
@@ -536,20 +603,119 @@ function resetCrop() {
   updateCropPreview();
 }
 
+let _isDraggingCrop = false;
+let _cropDragEdge = null;
+
 function startDrag(e) {
+  const rect = _canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  // Check rotation handle first
+  if (_rotationHandle) {
+    const dx = x - _rotationHandle.x;
+    const dy = y - _rotationHandle.y;
+    if (Math.sqrt(dx*dx + dy*dy) <= _rotationHandle.radius + 10) {
+      _isDraggingRotate = true;
+      const centerX = _canvas.width / 2;
+      const centerY = _canvas.height / 2;
+      _dragStartAngle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI - _rotationDegrees;
+      e.preventDefault();
+      return;
+    }
+  }
+  
+  // Check crop edges
+  const cropLeft = parseFloat(document.getElementById('crop-left').value) / 100 * _canvas.width;
+  const cropTop = parseFloat(document.getElementById('crop-top').value) / 100 * _canvas.height;
+  const cropRight = parseFloat(document.getElementById('crop-right').value) / 100 * _canvas.width;
+  const cropBottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * _canvas.height;
+  
+  const threshold = 5;
+  
+  if (Math.abs(x - cropLeft) < threshold && y >= cropTop - threshold && y <= cropBottom + threshold) {
+    _isDraggingCrop = true;
+    _cropDragEdge = 'left';
+    e.preventDefault();
+    return;
+  }
+  if (Math.abs(x - cropRight) < threshold && y >= cropTop - threshold && y <= cropBottom + threshold) {
+    _isDraggingCrop = true;
+    _cropDragEdge = 'right';
+    e.preventDefault();
+    return;
+  }
+  if (Math.abs(y - cropTop) < threshold && x >= cropLeft - threshold && x <= cropRight + threshold) {
+    _isDraggingCrop = true;
+    _cropDragEdge = 'top';
+    e.preventDefault();
+    return;
+  }
+  if (Math.abs(y - cropBottom) < threshold && x >= cropLeft - threshold && x <= cropRight + threshold) {
+    _isDraggingCrop = true;
+    _cropDragEdge = 'bottom';
+    e.preventDefault();
+    return;
+  }
+  
+  // Default: pan image
   _isDragging = true;
   _dragStart = {x: e.offsetX, y: e.offsetY};
 }
 
 function doDrag(e) {
-  if (!_isDragging) return;
-  _imgOffset.x += e.offsetX - _dragStart.x;
-  _imgOffset.y += e.offsetY - _dragStart.y;
-  _dragStart = {x: e.offsetX, y: e.offsetY};
-  redrawCanvas();
+  const rect = _canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  // Update cursor
+  _canvas.style.cursor = getCursorForPosition(x, y);
+  
+  if (_isDraggingRotate) {
+    // Rotate around center
+    const centerX = _canvas.width / 2;
+    const centerY = _canvas.height / 2;
+    const currentAngle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI;
+    _rotationDegrees = (currentAngle - _dragStartAngle + 360) % 360;
+    const degInput = document.getElementById('rotation-degrees');
+    if (degInput) degInput.value = _rotationDegrees.toFixed(1);
+    redrawCanvas();
+    return;
+  }
+  
+  if (_isDraggingCrop) {
+    // Drag crop edges
+    const pctX = (x / _canvas.width * 100);
+    const pctY = (y / _canvas.height * 100);
+    
+    if (_cropDragEdge === 'left') {
+      document.getElementById('crop-left').value = Math.max(0, Math.min(pctX, parseFloat(document.getElementById('crop-right').value) - 1)).toFixed(1);
+    } else if (_cropDragEdge === 'right') {
+      document.getElementById('crop-right').value = Math.min(100, Math.max(pctX, parseFloat(document.getElementById('crop-left').value) + 1)).toFixed(1);
+    } else if (_cropDragEdge === 'top') {
+      document.getElementById('crop-top').value = Math.max(0, Math.min(pctY, parseFloat(document.getElementById('crop-bottom').value) - 1)).toFixed(1);
+    } else if (_cropDragEdge === 'bottom') {
+      document.getElementById('crop-bottom').value = Math.min(100, Math.max(pctY, parseFloat(document.getElementById('crop-top').value) + 1)).toFixed(1);
+    }
+    redrawCanvas();
+    return;
+  }
+  
+  if (_isDragging) {
+    // Pan image
+    _imgOffset.x += e.offsetX - _dragStart.x;
+    _imgOffset.y += e.offsetY - _dragStart.y;
+    _dragStart = {x: e.offsetX, y: e.offsetY};
+    redrawCanvas();
+  }
 }
 
 function endDrag() {
+  _isDragging = false;
+  _isDraggingRotate = false;
+  _isDraggingCrop = false;
+  _cropDragEdge = null;
+}
   _isDragging = false;
 }
 

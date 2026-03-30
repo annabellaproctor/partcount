@@ -802,8 +802,60 @@ function closeCropModal() {
   // Don't automatically open img-modal - user may have opened crop from dropdown
 }
 
+let _originalImageSrc = null; // Store original before BG removal
+
 function applyMechanicalBg() {
+  if (!_img || !_canvas || !_ctx) {
+    alert('No image loaded');
+    return;
+  }
+  
+  // Store original if not already stored
+  if (!_originalImageSrc) {
+    _originalImageSrc = _img.src;
+  }
+  
   _removeBgChoice = 'mechanical';
+  
+  // Apply background removal to the image in real-time
+  // Create a temporary canvas to process the original image
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = _img.width;
+  tempCanvas.height = _img.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.drawImage(_img, 0, 0);
+  
+  // Get image data
+  const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+  const data = imageData.data;
+  
+  // Remove white/light backgrounds (mechanical approach)
+  // Threshold: RGB values all > 200 = likely background
+  const threshold = 200;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    
+    // If pixel is light (close to white), make it transparent
+    if (r > threshold && g > threshold && b > threshold) {
+      data[i + 3] = 0; // Set alpha to 0 (transparent)
+    }
+  }
+  
+  // Put processed data back
+  tempCtx.putImageData(imageData, 0, 0);
+  
+  // Replace _img with processed version
+  const processedImg = new Image();
+  processedImg.onload = () => {
+    _img = processedImg;
+    redrawCanvas();
+  };
+  processedImg.src = tempCanvas.toDataURL();
+  
+  // Update UI
   const bgApplied = document.getElementById('bg-applied');
   const bgNotApplied = document.getElementById('bg-not-applied');
   const bgMethod = document.getElementById('bg-method');
@@ -824,6 +876,17 @@ function applyAiBg() {
 
 function revertBackgroundRemoval() {
   _removeBgChoice = null;
+  
+  // Restore original image if we have it
+  if (_originalImageSrc && _img) {
+    const restoredImg = new Image();
+    restoredImg.onload = () => {
+      _img = restoredImg;
+      redrawCanvas();
+    };
+    restoredImg.src = _originalImageSrc;
+  }
+  
   const bgApplied = document.getElementById('bg-applied');
   const bgNotApplied = document.getElementById('bg-not-applied');
   
