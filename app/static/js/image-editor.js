@@ -245,16 +245,19 @@ function applyColorPick() {
 function showCropModal(data) {
   document.getElementById('crop-modal').style.display = 'block';
   
-  // Show/hide bg removal UI
+  // Show/hide bg removal UI only if elements exist
   const bgApplied = document.getElementById('bg-applied');
   const bgNotApplied = document.getElementById('bg-not-applied');
-  if (_removeBgChoice === 'mechanical' || _removeBgChoice === 'ai') {
-    bgNotApplied.style.display = 'none';
-    bgApplied.style.display = 'block';
-    document.getElementById('bg-method').textContent = _removeBgChoice;
-  } else {
-    bgNotApplied.style.display = 'block';
-    bgApplied.style.display = 'none';
+  if (bgApplied && bgNotApplied) {
+    if (_removeBgChoice === 'mechanical' || _removeBgChoice === 'ai') {
+      bgNotApplied.style.display = 'none';
+      bgApplied.style.display = 'block';
+      const bgMethod = document.getElementById('bg-method');
+      if (bgMethod) bgMethod.textContent = _removeBgChoice;
+    } else {
+      bgNotApplied.style.display = 'block';
+      bgApplied.style.display = 'none';
+    }
   }
   
   _canvas = document.getElementById('crop-canvas');

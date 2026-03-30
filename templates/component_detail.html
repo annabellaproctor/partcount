@@ -20,14 +20,14 @@
           <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
           <!-- Dropdown menu overlay -->
           <div style="position:absolute;top:8px;right:8px;">
-            <button class="btn btn-sm" style="background:rgba(0,0,0,0.7);color:#fff;padding:6px 10px;border:none;border-radius:3px;" onclick="toggleImageMenu(event)">⋮</button>
-            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:160px;z-index:10;margin-top:4px;">
-              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);padding:8px 12px;" onclick="openCropEditor()">✂️ Crop & Edit</button>
-              <label class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer;margin:0;padding:8px 12px;">
+            <button class="btn btn-sm" style="background:rgba(0,0,0,0.8);color:#fff;padding:6px 10px;border:none;border-radius:4px;font-weight:600;" onclick="toggleImageMenu(event)">⋮</button>
+            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;box-shadow:0 6px 16px rgba(0,0,0,0.4);min-width:170px;z-index:10;margin-top:6px;overflow:hidden;">
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openCropEditor()">✂️ Crop & Edit</button>
+              <label class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);border-bottom:1px solid var(--border);cursor:pointer;margin:0;font-size:13px;transition:background 0.15s;display:block;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
                 📤 Upload New
                 <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
               </label>
-              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;padding:8px 12px;" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:13px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
             </div>
           </div>
         </div>
