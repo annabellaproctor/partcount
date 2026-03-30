@@ -1,6 +1,6 @@
 """
-AI parsing endpoint using Claude Haiku via Anthropic API.
-Extracts structured component data from arbitrary text (Amazon listings, datasheets, etc).
+AI parsing via Gemini 2.0 Flash with response schema enforcement.
+Used for: component data extraction, aggregate result merging, confidence scoring.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -9,133 +9,166 @@ import httpx, os, json, logging
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+# JSON schema enforced by Gemini — no cleaning needed
+COMPONENT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "name":           {"type": "STRING"},
+        "manufacturer":   {"type": "STRING"},
+        "mpn":            {"type": "STRING"},
+        "value":          {"type": "STRING"},
+        "unit":           {"type": "STRING"},
+        "package":        {"type": "STRING"},
+        "voltage_rating": {"type": "NUMBER"},
+        "tolerance":      {"type": "STRING"},
+        "description":    {"type": "STRING"},
+        "type":           {"type": "STRING",
+                           "enum": ["resistor","capacitor","diode","transistor","mosfet",
+                                    "ic","inductor","connector","relay","led","module",
+                                    "sensor","crystal","fuse","switch","default"]},
+        "datasheet_url":  {"type": "STRING"},
+        "image_url":      {"type": "STRING"},
+        "confidence":     {"type": "NUMBER"},
+        "notes":          {"type": "STRING"},
+    },
+    "required": ["name", "type", "confidence"]
+}
+
+MERGE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "name":           {"type": "STRING"},
+        "manufacturer":   {"type": "STRING"},
+        "mpn":            {"type": "STRING"},
+        "value":          {"type": "STRING"},
+        "unit":           {"type": "STRING"},
+        "package":        {"type": "STRING"},
+        "voltage_rating": {"type": "NUMBER"},
+        "tolerance":      {"type": "STRING"},
+        "description":    {"type": "STRING"},
+        "type":           {"type": "STRING"},
+        "datasheet_url":  {"type": "STRING"},
+        "image_url":      {"type": "STRING"},
+        "confidence":     {"type": "NUMBER"},
+        "reasoning":      {"type": "STRING"},
+    },
+    "required": ["name", "confidence", "reasoning"]
+}
+
+
+async def _gemini(prompt: str, schema: dict) -> dict:
+    if not GEMINI_KEY:
+        raise HTTPException(503, "GEMINI_API_KEY not configured")
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+            "temperature": 0.1,
+            "maxOutputTokens": 1024,
+        }
+    }
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{GEMINI_URL}?key={GEMINI_KEY}",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        if r.status_code != 200:
+            log.error(f"Gemini error {r.status_code}: {r.text[:300]}")
+            raise HTTPException(502, f"Gemini API error: {r.status_code}")
+        data = r.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(text)
 
 
 class ParseRequest(BaseModel):
     text: str
 
 
+class MergeRequest(BaseModel):
+    results: list[dict]
+    query: str = ""
+
+
 @router.post("/parse")
 async def parse_component(req: ParseRequest):
     """
-    Send arbitrary text (Amazon listing, datasheet snippet, etc.) to Claude Haiku.
-    Returns structured component fields.
+    Extract structured component data from any text.
+    Amazon listing, datasheet snippet, product description, etc.
     """
     if not req.text or len(req.text.strip()) < 5:
         raise HTTPException(400, "Text too short")
 
-    if not ANTHROPIC_KEY:
-        # return best-effort regex parse if no API key
-        return _regex_fallback(req.text)
+    prompt = f"""You are an electronics component database assistant.
+Extract structured component information from the following text.
+Be precise. If a field is not present, omit it or use an empty string.
+Set confidence 0.0-1.0 based on how certain you are of the extracted data.
+For 'type', pick the best matching electronic component category.
+For 'value', extract the electrical value (e.g. 10k, 100nF, 5V).
+For 'unit', extract the SI unit (Ω, F, H, V, A, W, Hz).
 
-    prompt = f"""Extract electronic component data from this text. Return ONLY valid JSON with these fields (use null for unknown):
+Text:
+{req.text[:4000]}"""
 
-{{
-  "name": "short part name or MPN",
-  "manufacturer": "manufacturer name",
-  "mpn": "manufacturer part number",
-  "value": "electrical value (e.g. 10k, 100nF, 1N4148)",
-  "unit": "Ω, F, H, V, A, etc",
-  "package": "physical package (e.g. 0805, TO-92, DIP-8)",
-  "voltage_rating": number or null,
-  "tolerance": "e.g. 1%, 5%",
-  "description": "one sentence description",
-  "type": "resistor|capacitor|diode|transistor|mosfet|ic|inductor|connector|relay|led|module|sensor|crystal",
-  "datasheet_url": "URL if present",
-  "image_url": "URL of product image if present"
-}}
-
-Text to parse:
-{req.text[:3000]}"""
-
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if r.status_code != 200:
-                log.error(f"Anthropic API error {r.status_code}: {r.text[:200]}")
-                return _regex_fallback(req.text)
-
-            content = r.json()["content"][0]["text"].strip()
-            # strip markdown fences if present
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1]
-                content = content.rsplit("```", 1)[0]
-            parsed = json.loads(content)
-            parsed["source"] = "ai"
-            return parsed
-    except json.JSONDecodeError:
-        log.warning("AI returned non-JSON, using regex fallback")
-        return _regex_fallback(req.text)
-    except Exception as e:
-        log.error(f"AI parse error: {e}")
-        return _regex_fallback(req.text)
-
-
-def _regex_fallback(text: str) -> dict:
-    """Best-effort extraction without AI."""
-    import re
-    result = {"source": "regex", "name": None, "manufacturer": None, "mpn": None,
-              "value": None, "unit": None, "package": None, "voltage_rating": None,
-              "tolerance": None, "description": None, "type": None,
-              "datasheet_url": None, "image_url": None}
-
-    # URLs
-    urls = re.findall(r'https?://\S+', text)
-    for url in urls:
-        if any(x in url.lower() for x in ['pdf', 'datasheet']):
-            result["datasheet_url"] = url
-        elif any(x in url.lower() for x in ['jpg', 'jpeg', 'png', 'image', 'media', 'photo']):
-            result["image_url"] = url
-
-    # Resistance
-    m = re.search(r'(\d+(?:\.\d+)?)\s*(k|M|m)?\s*[Ωohm]', text, re.IGNORECASE)
-    if m:
-        result["value"] = m.group(0).strip()
-        result["unit"] = "Ω"
-        result["type"] = "resistor"
-
-    # Capacitance
-    m = re.search(r'(\d+(?:\.\d+)?)\s*(p|n|u|µ|m)?F', text)
-    if m:
-        result["value"] = m.group(0).strip()
-        result["unit"] = "F"
-        result["type"] = "capacitor"
-
-    # Package
-    for pkg in ['0201','0402','0603','0805','1206','1210','SOT-23','TO-92','TO-220','DIP-8','DIP-16','SOIC','QFN','BGA']:
-        if pkg.lower() in text.lower():
-            result["package"] = pkg
-            break
-
-    # Tolerance
-    m = re.search(r'[±±]?\s*(\d+(?:\.\d+)?)\s*%', text)
-    if m:
-        result["tolerance"] = m.group(0).strip()
-
-    # Voltage
-    m = re.search(r'(\d+(?:\.\d+)?)\s*V(?:DC|AC|olt)?', text, re.IGNORECASE)
-    if m:
-        try:
-            result["voltage_rating"] = float(re.search(r'[\d.]+', m.group(0)).group())
-        except Exception:
-            pass
-
-    # First line as name fallback
-    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
-    if lines:
-        result["name"] = lines[0][:80]
-
+    result = await _gemini(prompt, COMPONENT_SCHEMA)
+    result["source"] = "gemini"
     return result
+
+
+@router.post("/merge")
+async def merge_results(req: MergeRequest):
+    """
+    Given multiple lookup results from different sources (DigiKey, LCSC, etc.),
+    use Gemini to intelligently merge them into the best single record.
+    Resolves conflicts, picks best image, combines descriptions.
+    """
+    if not req.results:
+        raise HTTPException(400, "No results to merge")
+
+    results_json = json.dumps(req.results[:5], indent=2)
+    prompt = f"""You are an electronics component database assistant.
+I have {len(req.results)} search results for the query "{req.query}" from different sources (DigiKey, LCSC).
+Merge them into the single best component record by:
+1. Preferring DigiKey for MPN, package, datasheet, manufacturer
+2. Using the most complete description
+3. Taking the lowest unit price
+4. Picking the best image URL (real product photo over generic)
+5. Resolving any conflicting values by choosing the most specific/authoritative one
+
+Set confidence 0.0-1.0. In 'reasoning', briefly explain key decisions made.
+
+Results to merge:
+{results_json}"""
+
+    result = await _gemini(prompt, MERGE_SCHEMA)
+    result["source"] = "gemini_merged"
+    return result
+
+
+@router.post("/classify")
+async def classify_component(req: ParseRequest):
+    """
+    Given a component name/description, return the best type classification
+    and suggest barcode ID prefix.
+    """
+    CLASSIFY_SCHEMA = {
+        "type": "OBJECT",
+        "properties": {
+            "type":        {"type": "STRING"},
+            "prefix":      {"type": "STRING"},
+            "confidence":  {"type": "NUMBER"},
+            "reasoning":   {"type": "STRING"},
+        },
+        "required": ["type", "prefix", "confidence"]
+    }
+    prompt = f"""Classify this electronic component and suggest a single-letter barcode prefix.
+Common prefixes: R=resistor, C=capacitor, D=diode, Q=transistor/mosfet, U=IC, L=inductor, 
+J=connector, K=relay, LED=led, M=module, S=sensor, Y=crystal, F=fuse, SW=switch.
+
+Component: {req.text[:500]}"""
+
+    return await _gemini(prompt, CLASSIFY_SCHEMA)

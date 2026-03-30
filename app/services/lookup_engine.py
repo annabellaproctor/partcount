@@ -1,3 +1,4 @@
+import os
 """
 Lookup engine — queries DigiKey + LCSC in parallel, merges, scores, ranks.
 Never caches results with empty primary fields.
@@ -229,9 +230,29 @@ async def search(
             bool(r.get("datasheet_url") or r.get("mpn"))
         )
 
+    # If we got results from both sources, use Gemini to merge the top result
+    # for maximum data quality on the best match
+    final_source = "merged" if (dk_results and lc_results) else ("digikey" if dk_results else "lcsc")
+    
+    if dk_results and lc_results and merged and os.getenv("GEMINI_API_KEY"):
+        try:
+            from app.routers.ai_parse import merge_results, MergeRequest
+            top = merged[:3]
+            merged_top = await merge_results(MergeRequest(results=top, query=query))
+            if merged_top.get("confidence", 0) > 0.7:
+                # inject the AI-merged result as the first result with special flag
+                merged_top["_ai_merged"] = True
+                merged_top["source"] = "gemini_merged"
+                merged_top = _enrich(merged_top)
+                merged_top["_score"] = 1.0
+                merged_top["high_confidence"] = True
+                merged = [merged_top] + [r for r in merged if r.get("mpn") != merged_top.get("mpn")]
+        except Exception as e:
+            log.warning(f"Gemini merge failed (non-fatal): {e}")
+
     return {
         "results": merged[:limit],
-        "source": "merged" if (dk_results and lc_results) else ("digikey" if dk_results else "lcsc"),
+        "source": final_source,
         "cached": dk_cached or lc_cached,
         "dk_count": len(dk_results),
         "lc_count": len(lc_results),

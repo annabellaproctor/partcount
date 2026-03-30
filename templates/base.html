@@ -521,20 +521,41 @@ function selectLookupResult(idx) {
   set('f-imgurl', r.image_url);
   set('f-desc', r.description);
 
-  // auto-select type from name heuristics
+  // auto-select type — local heuristic first, Gemini classify as fallback
   if (_types.length && r.name) {
-    const nl = r.name.toLowerCase();
-    const match = _types.find(t =>
-      nl.includes(t.name) || t.name === 'resistor' && nl.includes('resist') ||
-      t.name === 'capacitor' && (nl.includes('cap') || nl.includes('ceram')) ||
-      t.name === 'diode' && nl.includes('diode') ||
-      t.name === 'transistor' && (nl.includes('transistor') || nl.includes('bjt')) ||
-      t.name === 'mosfet' && nl.includes('mosfet') ||
-      t.name === 'ic' && (nl.includes(' ic') || nl.includes('chip'))
-    );
-    if (match) {
-      const sel = document.getElementById('f-type');
-      if (sel) sel.value = match.id;
+    const nl = (r.name + ' ' + (r.description||'')).toLowerCase();
+    const HINTS = {
+      'resistor': ['resist','ohm','Ω'],
+      'capacitor': ['cap ','ceram','electrolytic','tantalum','farad','mlcc'],
+      'diode': ['diode','schottky','zener','tvs','rectifier'],
+      'led': ['led','light emit'],
+      'transistor': ['transistor','bjt','npn','pnp'],
+      'mosfet': ['mosfet','nmos','pmos','nch','pch'],
+      'ic': [' ic','chip','controller','mcu','amplifier','regulator','driver','esp32','stm32','atmega'],
+      'inductor': ['inductor','inductance','ferrite','choke','coil'],
+      'connector': ['connector','header','terminal','socket','plug'],
+      'relay': ['relay'],
+      'crystal': ['crystal','oscillator','resonator','xtal'],
+      'module': ['module','board','breakout','devkit','dev kit'],
+      'sensor': ['sensor','imu','accelerometer','gyro'],
+    };
+    let matched = null;
+    for (const [type, keywords] of Object.entries(HINTS)) {
+      if (keywords.some(k => nl.includes(k.toLowerCase()))) { matched = type; break; }
+    }
+    if (matched) {
+      const t = _types.find(t => t.name === matched);
+      if (t) { const sel = document.getElementById('f-type'); if(sel) sel.value = t.id; }
+    } else if (r.name && r.name.length > 3) {
+      // fallback to Gemini classify
+      fetch('/api/ai/classify', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text: r.name + ' ' + (r.description||'')})
+      }).then(res => res.ok ? res.json() : null).then(cls => {
+        if (!cls || cls.confidence < 0.6) return;
+        const t = _types.find(t => t.name === cls.type);
+        if (t) { const sel = document.getElementById('f-type'); if(sel) sel.value = t.id; }
+      }).catch(()=>{});
     }
   }
 
