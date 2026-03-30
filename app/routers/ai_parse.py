@@ -1,16 +1,20 @@
 """
-AI parsing via Gemini 2.0 Flash with response schema enforcement.
+AI parsing via Gemini 2 Flash Lite - cheapest model with highest free tier limits.
 Used for: component data extraction, aggregate result merging, confidence scoring.
+Free tier: 4K RPM, 4M TPM, unlimited RPD.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import httpx, os, json, logging
+import httpx, os, json, logging, asyncio
 
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_PROJECT_ID = os.getenv("GEMINI_PROJECT_ID", "gen-lang-client-0425003962")
+# Use Gemini 2 Flash Lite - highest free tier RPM (4K), unlimited RPD
+GEMINI_MODEL = "gemini-2-flash-lite"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # JSON schema enforced by Gemini — no cleaning needed
 COMPONENT_SCHEMA = {
@@ -59,9 +63,10 @@ MERGE_SCHEMA = {
 }
 
 
-async def _gemini(prompt: str, schema: dict) -> dict:
+async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
     if not GEMINI_KEY:
         raise HTTPException(503, "GEMINI_API_KEY not configured")
+    
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -71,18 +76,47 @@ async def _gemini(prompt: str, schema: dict) -> dict:
             "maxOutputTokens": 1024,
         }
     }
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.post(
-            f"{GEMINI_URL}?key={GEMINI_KEY}",
-            json=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        if r.status_code != 200:
-            log.error(f"Gemini error {r.status_code}: {r.text[:300]}")
-            raise HTTPException(502, f"Gemini API error: {r.status_code}")
-        data = r.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
+    
+    for attempt in range(retries):
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-goog-user-project": GEMINI_PROJECT_ID,
+                }
+                
+                r = await client.post(
+                    f"{GEMINI_URL}?key={GEMINI_KEY}",
+                    json=payload,
+                    headers=headers,
+                )
+                
+                if r.status_code == 429:
+                    # Rate limit hit - exponential backoff
+                    wait_time = (2 ** attempt) * 1  # 1s, 2s, 4s
+                    log.warning(f"Gemini rate limit (429), retrying in {wait_time}s (attempt {attempt + 1}/{retries})")
+                    if attempt < retries - 1:
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise HTTPException(429, "Gemini API rate limit exceeded. Try again in a moment.")
+                
+                if r.status_code != 200:
+                    log.error(f"Gemini error {r.status_code}: {r.text[:300]}")
+                    raise HTTPException(502, f"Gemini API error: {r.status_code}")
+                
+                data = r.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(text)
+                
+        except httpx.TimeoutException:
+            log.warning(f"Gemini timeout (attempt {attempt + 1}/{retries})")
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            raise HTTPException(504, "Gemini API timeout")
+    
+    raise HTTPException(502, "Gemini API failed after retries")
 
 
 class ParseRequest(BaseModel):
