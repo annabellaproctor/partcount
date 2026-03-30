@@ -379,8 +379,8 @@ function uploadImage(input) {
           
           <div id="bg-not-applied" style="display:block;">
             <div style="display:flex;gap:6px;margin-bottom:8px;">
-              <button class="btn btn-primary btn-sm" onclick="applyMechanicalBg()" style="flex:1;">Apply Mechanical</button>
-              <button class="btn btn-primary btn-sm" onclick="applyAiBg()" style="flex:1;">Try with AI</button>
+              <button class="btn btn-primary btn-sm" onclick="cropperApplyMechanicalBg()" style="flex:1;">Apply Mechanical</button>
+              <button class="btn btn-primary btn-sm" onclick="cropperApplyAiBg()" style="flex:1;">Try with AI</button>
             </div>
             <div style="font-size:9px;color:var(--text3);">Mechanical removes selected color, AI uses ML model</div>
           </div>
@@ -388,7 +388,7 @@ function uploadImage(input) {
           <div id="bg-applied" style="display:none;">
             <div style="font-size:10px;color:var(--green);margin-bottom:8px;">✓ Background removed (<span id="bg-method">mechanical</span>)</div>
             <div style="display:flex;gap:6px;margin-bottom:8px;">
-              <button class="btn btn-secondary btn-sm" onclick="revertBackgroundRemoval()" style="flex:1;">Revert</button>
+              <button class="btn btn-secondary btn-sm" onclick="cropperRevertBackgroundRemoval()" style="flex:1;">Revert</button>
               <button class="btn btn-primary btn-sm" onclick="showColorPicker()" style="flex:1;">Pick Color</button>
             </div>
             <div style="font-size:9px;color:var(--text3);">Current: <span id="bg-color-display">white/near-white</span></div>
@@ -422,7 +422,7 @@ function uploadImage(input) {
         
         <!-- Actions -->
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset Crop</button>
+          <button class="btn btn-secondary btn-sm" onclick="cropperReset()">Reset Crop</button>
           <button class="btn btn-primary" onclick="saveCroppedImage()">Save Image</button>
         </div>
         <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>

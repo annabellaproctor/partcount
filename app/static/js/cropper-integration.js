@@ -3,6 +3,103 @@
 
 let cropper = null;
 let _originalImageSrcForBg = null;
+let _bgRemovalApplied = false;
+let _bgRemovalMethod = null;
+
+function _sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function _computeWhiteRatio(canvas, threshold = 245) {
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let white = 0;
+  let total = 0;
+  for (let i = 0; i < imgData.length; i += 4) {
+    const a = imgData[i + 3];
+    if (a < 16) continue;
+    total += 1;
+    const r = imgData[i], g = imgData[i + 1], b = imgData[i + 2];
+    if (r >= threshold && g >= threshold && b >= threshold) {
+      white += 1;
+    }
+  }
+  return total ? (white / total) : 1;
+}
+
+function _suggestAutoRotation() {
+  if (!cropper) return 0;
+  const img = document.getElementById('crop-image');
+  if (!img) return 0;
+
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) return 0;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = srcW;
+  canvas.height = srcH;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, srcW, srcH);
+  const data = ctx.getImageData(0, 0, srcW, srcH).data;
+
+  let minX = srcW, minY = srcH, maxX = 0, maxY = 0;
+  let found = false;
+  for (let y = 0; y < srcH; y++) {
+    for (let x = 0; x < srcW; x++) {
+      const i = (y * srcW + x) * 4;
+      const a = data[i + 3];
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (a > 25 && (r < 240 || g < 240 || b < 240)) {
+        found = true;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!found) return 0;
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  return h > w ? 90 : 0;
+}
+
+function _autoScaleToContent() {
+  if (!cropper) return;
+  const container = cropper.getContainerData();
+  const cropBox = cropper.getCropBoxData();
+  const imageData = cropper.getImageData();
+  if (!container || !cropBox || !imageData || !cropBox.width || !cropBox.height) return;
+
+  const currentRatio = imageData.width / Math.max(1, imageData.naturalWidth);
+  const factor = Math.min(
+    (container.width * 0.9) / cropBox.width,
+    (container.height * 0.9) / cropBox.height
+  );
+
+  if (factor > 1.03 || factor < 0.97) {
+    cropper.zoomTo(currentRatio * factor);
+    cropperAutoCrop();
+  }
+}
+
+async function _runAutomaticPreprocessOnLoad() {
+  if (!cropper) return;
+
+  const suggestedRotate = _suggestAutoRotation();
+  if (suggestedRotate) {
+    cropper.rotate(suggestedRotate);
+    await _sleep(50);
+  }
+
+  _cropperApplyMechanicalBg(true);
+  await _sleep(70);
+
+  cropperAutoCrop();
+  _autoScaleToContent();
+}
 
 // Initialize Cropper.js when image is loaded
 function initCropper(imageUrl) {
@@ -55,9 +152,15 @@ function initCropper(imageUrl) {
       background: false,
       responsive: true,
       checkCrossOrigin: false,
+      ready: () => {
+        // Automatically improve orientation/background/crop when editor opens.
+        _runAutomaticPreprocessOnLoad();
+      },
     });
     
     _originalImageSrcForBg = img.src;
+    _bgRemovalApplied = false;
+    _bgRemovalMethod = null;
     console.log('Cropper initialized');
   };
 }
@@ -110,11 +213,19 @@ function cropperReset() {
 }
 
 // Background removal - apply to cropper image
-function applyMechanicalBg() {
+function _cropperApplyMechanicalBg(silent = false) {
   if (!cropper) return;
-  
-  const canvas = cropper.getCroppedCanvas();
+
+  const img = document.getElementById('crop-image');
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = srcW;
+  canvas.height = srcH;
   const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, srcW, srcH);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   
@@ -132,21 +243,52 @@ function applyMechanicalBg() {
   const newDataUrl = canvas.toDataURL();
   document.getElementById('crop-image').src = newDataUrl;
   cropper.replace(newDataUrl);
+
+  _bgRemovalApplied = true;
+  _bgRemovalMethod = 'mechanical';
   
   // Update UI
-  document.getElementById('bg-not-applied').style.display = 'none';
-  document.getElementById('bg-applied').style.display = 'block';
-  document.getElementById('bg-method').textContent = 'mechanical';
+  const bgNot = document.getElementById('bg-not-applied');
+  const bgYes = document.getElementById('bg-applied');
+  const bgMethod = document.getElementById('bg-method');
+  if (bgNot && bgYes && bgMethod) {
+    bgNot.style.display = 'none';
+    bgYes.style.display = 'block';
+    bgMethod.textContent = 'mechanical';
+  }
+
+  if (!silent) {
+    const status = document.getElementById('crop-status');
+    if (status) {
+      status.style.color = 'var(--green)';
+      status.textContent = 'Background removal applied (mechanical)';
+    }
+  }
 }
 
-function revertBackgroundRemoval() {
+function _cropperApplyAiBg() {
+  const status = document.getElementById('crop-status');
+  if (status) {
+    status.style.color = 'var(--amber)';
+    status.textContent = 'AI isolation not available yet. Use Mechanical background removal for now.';
+  }
+}
+
+function _cropperRevertBackgroundRemoval() {
   if (!cropper || !_originalImageSrcForBg) return;
   
   document.getElementById('crop-image').src = _originalImageSrcForBg;
   cropper.replace(_originalImageSrcForBg);
   
-  document.getElementById('bg-not-applied').style.display = 'block';
-  document.getElementById('bg-applied').style.display = 'none';
+  _bgRemovalApplied = false;
+  _bgRemovalMethod = null;
+
+  const bgNot = document.getElementById('bg-not-applied');
+  const bgYes = document.getElementById('bg-applied');
+  if (bgNot && bgYes) {
+    bgNot.style.display = 'block';
+    bgYes.style.display = 'none';
+  }
 }
 
 // Auto-crop function
@@ -249,6 +391,22 @@ async function saveCroppedImage() {
     return;
   }
   
+  const previewCanvas = cropper.getCroppedCanvas({
+    maxWidth: 1200,
+    maxHeight: 1200,
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high',
+  });
+  const whiteRatio = _computeWhiteRatio(previewCanvas, 245);
+  if (whiteRatio > 0.6 && !_bgRemovalApplied) {
+    const status = document.getElementById('crop-status');
+    if (status) {
+      status.style.color = 'var(--amber)';
+      status.textContent = 'Image background looks mostly white. Please apply Mechanical removal or Try with AI isolation before saving.';
+    }
+    return;
+  }
+
   const dataUrl = await getCroppedImage();
   if (!dataUrl) return;
   
@@ -273,7 +431,11 @@ async function saveCroppedImage() {
     });
     
     if (uploadResponse.ok) {
-      alert('Image saved!');
+      const status = document.getElementById('crop-status');
+      if (status) {
+        status.style.color = 'var(--green)';
+        status.textContent = 'Image saved';
+      }
       location.reload();
     } else {
       const error = await uploadResponse.text();
@@ -285,4 +447,9 @@ async function saveCroppedImage() {
     alert('Failed to save image: ' + err.message);
   }
 }
+
+// Expose uniquely named handlers to avoid collisions with legacy page functions.
+window.cropperApplyMechanicalBg = function() { return _cropperApplyMechanicalBg(false); };
+window.cropperApplyAiBg = _cropperApplyAiBg;
+window.cropperRevertBackgroundRemoval = _cropperRevertBackgroundRemoval;
 
