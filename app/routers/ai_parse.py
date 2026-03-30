@@ -1,8 +1,10 @@
 """
 AI parsing via Gemini using official google-genai SDK.
-FREE TIER (no billing): 
-- gemini-flash-latest: 15 RPM, 1M TPM, 1500 RPD (stable pointer to latest)
-Using gemini-flash-latest for best compatibility.
+FREE TIER (no billing) - Updated March 2026: 
+- gemini-3.1-flash-lite: 15 RPM, 250K TPM, 500 RPD (BEST - highest daily quota)
+- gemini-2.5-flash-lite: 10 RPM, 250K TPM, 20 RPD
+- gemini-3-flash: 5 RPM, 250K TPM, 20 RPD
+Using gemini-3.1-flash-lite for maximum free tier quota (500 requests/day).
 https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException
@@ -101,10 +103,10 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         )
     
     try:
-        # Use gemini-flash-latest - stable pointer to latest flash model
-        # Free tier: 15 RPM, 1M TPM, 1500 RPD (no billing required)
+        # Use gemini-3.1-flash-lite-preview - best free tier quota
+        # Free tier: 15 RPM, 250K TPM, 500 RPD (no billing required)
         response = client.models.generate_content(
-            model='gemini-flash-latest',
+            model='gemini-3.1-flash-lite-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -121,7 +123,7 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         log_failed_request("sdk_error", {
             "error": error_msg,
             "type": type(e).__name__,
-            "model": "gemini-flash-latest",
+            "model": "gemini-3.1-flash-lite-preview",
         })
         
         # Better error message for 403
@@ -135,7 +137,7 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         if '404' in error_msg or 'not found' in error_msg:
             raise HTTPException(
                 404,
-                f"Gemini model not available. Using: gemini-flash-latest. "
+                f"Gemini model not available. Using: gemini-3.1-flash-lite-preview. "
                 f"Error: {error_msg[:200]}"
             )
         
@@ -227,8 +229,8 @@ async def get_failed_requests(limit: int = 50):
     return {
         "failed_requests": _failed_requests[-limit:],
         "total_failures": len(_failed_requests),
-        "model": "gemini-flash-latest",
+        "model": "gemini-3.1-flash-lite-preview",
         "tier": "free (no billing)",
-        "limits": "15 RPM, 1M TPM, 1500 RPD",
+        "limits": "15 RPM, 250K TPM, 500 RPD",
         "sdk": "google-genai",
     }
