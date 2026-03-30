@@ -301,6 +301,7 @@
   <div class="brand">LAB<span>::</span>INV</div>
   <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
   <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}">Components</a>
+  <a href="/kits" class="nav-link {% if '/kits' in request.url.path %}active{% endif %}">Kits</a>
   <a href="/boxes" class="nav-link {% if '/boxes' in request.url.path %}active{% endif %}">Boxes</a>
   <a href="/projects" class="nav-link {% if '/projects' in request.url.path %}active{% endif %}">Projects</a>
   <a href="/scan" class="nav-link {% if '/scan' in request.url.path %}active{% endif %}">Scan</a>
@@ -374,17 +375,19 @@ document.addEventListener('keydown', (e) => {
 
 <script>
 // ── Add Popup ──────────────────────────────────────────────────────────────
-let _types = [], _manufacturers = [], _formLoaded = false;
+let _types = [], _manufacturers = [], _typePaths = [], _formLoaded = false;
 
 async function _loadFormData() {
   if (_formLoaded) return;
   try {
-    const [t, m] = await Promise.all([
+    const [t, m, tp] = await Promise.all([
       fetch('/api/components/types').then(r => r.ok ? r.json() : []),
       fetch('/api/manufacturers').then(r => r.ok ? r.json() : []),
+      fetch('/api/components/type-paths').then(r => r.ok ? r.json() : {paths: []}),
     ]);
     _types = Array.isArray(t) ? t : [];
     _manufacturers = Array.isArray(m) ? m : [];
+    _typePaths = Array.isArray(tp?.paths) ? tp.paths : [];
 
     const sel = document.getElementById('f-type');
     if (sel && _types.length) {
@@ -405,6 +408,22 @@ async function _loadFormData() {
         opt.value = mfr.name;
         dl.appendChild(opt);
       });
+    }
+
+    const pathSel = document.getElementById('f-type-path');
+    if (pathSel && _typePaths.length) {
+      _typePaths.forEach(path => {
+        if (!pathSel.querySelector(`option[value="${path}"]`)) {
+          const opt = document.createElement('option');
+          opt.value = path;
+          opt.textContent = path;
+          pathSel.appendChild(opt);
+        }
+      });
+    }
+
+    if (document.getElementById('kit-components-list')?.children.length === 0) {
+      addKitRow();
     }
     _formLoaded = true;
 
@@ -442,6 +461,125 @@ function openAddPopup(e) {
 
 function closeAddPopup() {
   document.getElementById('add-popup').style.display = 'none';
+}
+
+function toggleEntryMode() {
+  const mode = document.getElementById('entry-type')?.value || 'single';
+  const single = document.getElementById('single-entry-mode');
+  const kit = document.getElementById('kit-entry-mode');
+  if (single) single.style.display = mode === 'single' ? '' : 'none';
+  if (kit) kit.style.display = mode === 'kit' ? '' : 'none';
+}
+
+async function onTypePathChanged() {
+  const path = document.getElementById('f-type-path')?.value;
+  const wrap = document.getElementById('type-fields-wrap');
+  const hint = document.getElementById('f-type-fields-hint');
+  const typeData = document.getElementById('f-type-data');
+  if (!path) {
+    if (wrap) wrap.style.display = 'none';
+    return;
+  }
+  if (wrap) wrap.style.display = '';
+
+  try {
+    const r = await fetch('/api/components/type-fields?type_path=' + encodeURIComponent(path));
+    if (!r.ok) return;
+    const d = await r.json();
+    const fields = d.fields || [];
+    const required = d.required || [];
+    const defaults = d.defaults || {};
+    if (hint) {
+      hint.textContent = 'Fields: ' + fields.join(', ') + (required.length ? ' | Required: ' + required.join(', ') : '');
+    }
+    if (typeData && Object.keys(defaults).length && !typeData.value.trim()) {
+      typeData.value = JSON.stringify(defaults);
+    }
+
+    // Keep legacy type selector in sync.
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const typeName = parts[1];
+      const match = _types.find(t => t.name === typeName);
+      if (match) {
+        const sel = document.getElementById('f-type');
+        if (sel) sel.value = match.id;
+      }
+    }
+  } catch (_) {
+    // Non-critical metadata call.
+  }
+}
+
+function _kitTypeOptionsHtml() {
+  const paths = _typePaths.length ? _typePaths : [
+    'passives/resistor/film', 'passives/capacitor/ceramic', 'passives/inductor/coil',
+    'actives/diode/rectifier', 'actives/ic/microcontroller', 'modules/sensor/temperature'
+  ];
+  return paths.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
+function addKitRow(prefill = {}) {
+  const list = document.getElementById('kit-components-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.style.display = 'grid';
+  row.style.gridTemplateColumns = '2.5fr 2fr 0.8fr auto';
+  row.style.gap = '6px';
+  row.innerHTML = `
+    <select class="form-select kit-type-path">${_kitTypeOptionsHtml()}</select>
+    <input class="form-control kit-name" placeholder="Component name">
+    <input class="form-control kit-qty" type="number" min="1" value="1">
+    <button type="button" class="btn btn-danger btn-xs" onclick="removeKitRow(this)">×</button>
+  `;
+  list.appendChild(row);
+  if (prefill.type_path) row.querySelector('.kit-type-path').value = prefill.type_path;
+  if (prefill.name) row.querySelector('.kit-name').value = prefill.name;
+  if (prefill.quantity) row.querySelector('.kit-qty').value = prefill.quantity;
+}
+
+function removeKitRow(btn) {
+  const row = btn?.parentElement;
+  if (row) row.remove();
+}
+
+async function saveKit() {
+  const status = document.getElementById('kit-form-status');
+  const name = document.getElementById('kit-name')?.value?.trim();
+  const description = document.getElementById('kit-description')?.value?.trim();
+  if (!name) {
+    if (status) status.textContent = 'Kit name is required';
+    return;
+  }
+
+  const rows = Array.from(document.querySelectorAll('#kit-components-list > div'));
+  const components = rows.map(row => ({
+    name: row.querySelector('.kit-name')?.value?.trim(),
+    type_path: row.querySelector('.kit-type-path')?.value,
+    quantity: parseInt(row.querySelector('.kit-qty')?.value || '1', 10),
+  })).filter(c => c.name);
+
+  if (!components.length) {
+    if (status) status.textContent = 'Add at least one component row';
+    return;
+  }
+
+  if (status) status.textContent = 'Saving kit...';
+  try {
+    const r = await fetch('/api/kits/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, description, components}),
+    });
+    if (!r.ok) {
+      if (status) status.textContent = 'Save failed';
+      return;
+    }
+    if (status) status.textContent = 'Kit saved';
+    setTimeout(() => location.reload(), 500);
+  } catch (e) {
+    if (status) status.textContent = 'Network error';
+  }
 }
 
 // wire unit select
@@ -541,6 +679,10 @@ function selectLookupResult(idx) {
   set('f-value', r.value);
   set('f-imgurl', r.image_url);
   set('f-desc', r.description);
+  if (r.type_path) {
+    set('f-type-path', r.type_path);
+    onTypePathChanged();
+  }
 
   // auto-select type — local heuristic first, Gemini classify as fallback
   if (_types.length && r.name) {
@@ -646,6 +788,8 @@ function resetAddForm() {
   clearPreview();
   const res = document.getElementById('lookup-results');
   if(res) res.style.display='none';
+  const wrap = document.getElementById('type-fields-wrap');
+  if (wrap) wrap.style.display = 'none';
 }
 
 
@@ -663,6 +807,20 @@ async function runAIParse() {
     if (!r.ok) { if(status) status.textContent = 'Parse failed'; return; }
     const d = await r.json();
     const set = (id, val) => { const el = document.getElementById(id); if(el && val && val !== 'null') el.value = val; };
+
+    if (d.is_kit) {
+      const mode = document.getElementById('entry-type');
+      if (mode) mode.value = 'kit';
+      toggleEntryMode();
+      set('kit-name', d.name);
+      set('kit-description', d.description);
+      const container = document.getElementById('kit-components-list');
+      if (container) container.innerHTML = '';
+      (d.kit_components || []).forEach(item => addKitRow(item));
+      if(status) status.textContent = '✓ Parsed kit';
+      return;
+    }
+
     set('f-name', d.name);
     set('f-mpn', d.mpn);
     set('f-value', d.value);
@@ -671,6 +829,12 @@ async function runAIParse() {
     set('f-mfr', d.manufacturer);
     set('f-datasheet', d.datasheet_url);
     set('f-imgurl', d.image_url);
+    set('f-type-path', d.type_path);
+    if (d.type_data) {
+      const td = document.getElementById('f-type-data');
+      if (td) td.value = JSON.stringify(d.type_data);
+    }
+    if (d.type_path) onTypePathChanged();
     if(d.voltage_rating) set('f-voltage', d.voltage_rating);
     // auto-select type
     if (d.type && _types.length) {

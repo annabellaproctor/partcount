@@ -46,6 +46,13 @@ What was needed: a system that tracks every component by barcode, maps it to a p
 - Excludes confusable characters (0/O, 1/I/L) for reliable scanning
 - Code 128 barcodes — scanner-compatible at small label sizes
 - Label system: Code 128 on inside lid, human-readable on outside lid
+- Hierarchical type paths supported, e.g. `passives/capacitor/ceramic`
+
+### Kit System
+- Dedicated kit records with `K###` IDs (`K001`, `K002`, ...)
+- Kit-to-component join table with quantity and position ordering
+- Add popup supports `Single Component` and `Kit / Pack` entry modes
+- API endpoints: `POST /api/kits/`, `GET /api/kits/`, `GET /api/kits/{kit_id}`, `DELETE /api/kits/{kit_id}`
 
 ### Lookup Engine
 - DigiKey v4 API + LCSC `wwwapi.lcsc.com` queried **in parallel**
@@ -57,6 +64,7 @@ What was needed: a system that tracks every component by barcode, maps it to a p
 
 ### AI Integration (Gemini 2.0 Flash, schema-enforced)
 - **Parse**: paste any Amazon listing, datasheet snippet, product description → structured component record, all fields autofilled
+- **Parse kits**: detects multi-item text (e.g. `10x 10k + 5x 100nF`) and returns `is_kit=true` with `kit_components[]`
 - **Merge**: when DigiKey + LCSC both return results, Gemini picks best name, image, description, resolves conflicts
 - **Classify**: type detection (resistor/capacitor/IC/module/etc.) + barcode prefix suggestion, fires as async fallback when local keyword heuristics fail
 - Uses `responseMimeType: application/json` + `responseSchema` — guaranteed valid JSON, zero cleaning
@@ -108,7 +116,8 @@ app/
 │   ├── database.py            # AsyncSession, engine
 │   └── models.py              # SQLAlchemy models
 ├── routers/
-│   ├── components.py          # /api/components/ — CRUD, types, search, scan
+│   ├── components.py          # /api/components/ — CRUD, types, type paths, scan
+│   ├── kits.py                # /api/kits/ — CRUD for kit records
 │   ├── boxes.py               # /api/boxes/ — grid, assign, swap, slot
 │   ├── lookup.py              # /api/lookup/ — search, part detail, cache clear
 │   ├── images.py              # /api/images/ — DDG search, fetch, upload, bg removal
@@ -118,7 +127,7 @@ app/
 │   ├── suppliers.py           # /api/suppliers/ — orders, component_suppliers
 │   └── manufacturers.py       # /api/manufacturers/
 └── services/
-    ├── migrations.py          # Versioned schema migrations v1-v5
+    ├── migrations.py          # Versioned schema migrations v1-v6
     ├── digikey.py             # DigiKey v4 API, client credentials, cut-tape preference
     ├── lcsc.py                # LCSC wwwapi.lcsc.com/v1, field mapping
     ├── lookup_engine.py       # Parallel fetch, dedupe, score, Gemini merge
@@ -129,6 +138,8 @@ app/
 templates/
 ├── base.html                  # Layout, nav, WebSocket, add popup JS, Gemini classify
 ├── add_popup.html             # Global add popup — lookup, AI paste, form
+├── kits.html                  # Kit list page
+├── kit_detail.html            # Kit detail page
 ├── scan.html                  # Scan / Search / Order three-mode page
 ├── boxes.html                 # Box registry with visual mini-grids
 ├── box_grid.html              # Full grid — top/bottom split, drag-drop

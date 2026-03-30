@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Kit Detail :: LAB::INV{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Kit Detail</div>
+  <span class="bid">{{ kit.barcode_id }}</span>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><span class="dot"></span>{{ kit.name }}</div>
+  <div class="p-3">
+    <div class="muted" style="margin-bottom:6px;">{{ kit.description or 'No description' }}</div>
+    {% if kit.notes %}
+    <div style="font-size:12px;color:var(--text2);">{{ kit.notes }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header"><span class="dot"></span>Components</div>
+  <table class="table">
+    <thead>
+      <tr><th>Barcode</th><th>Name</th><th>Value</th><th>Type Path</th><th>Qty</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      {% for link, comp in rows %}
+      <tr>
+        <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
+        <td>{{ comp.name }}</td>
+        <td>{{ comp.value or '—' }} {{ comp.unit or '' }}</td>
+        <td class="muted">{{ comp.type_path or '—' }}</td>
+        <td>{{ link.quantity }}</td>
+        <td class="muted">{{ link.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

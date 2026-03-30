@@ -8,8 +8,10 @@ from app.models.models import Component, ComponentType, Footprint, BinAssignment
 from app.services.barcode_svc import generate_code128_svg, generate_qr, autocrop_image, next_barcode_id
 from app.services.influx import write_scan_event, write_stock_change
 from app.services.ws_manager import manager
+from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
 from datetime import datetime
 import os, shutil, uuid
+import json
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/components", tags=["components"])
@@ -51,6 +53,16 @@ async def list_types(db: AsyncSession = Depends(get_db)):
     return [{"id": r.id, "name": r.name} for r in result.scalars().all()]
 
 
+@router.get("/type-paths")
+async def list_type_paths():
+    return {"paths": flatten_type_paths()}
+
+
+@router.get("/type-fields")
+async def get_type_fields(type_path: str):
+    return get_fields_for_type(type_path)
+
+
 
 @router.get("/{barcode_id}")
 async def get_component(barcode_id: str, db: AsyncSession = Depends(get_db)):
@@ -69,7 +81,9 @@ async def create_component(
     package: str = Form(None),
     voltage_rating: float = Form(None),
     tolerance: str = Form(None),
-    type_id: str = Form(...),
+    type_id: str = Form(None),
+    type_path: str = Form(None),
+    type_data: str = Form(None),
     notes: str = Form(None),
     datasheet_url: str = Form(None),
     mpn: str = Form(None),
@@ -83,9 +97,20 @@ async def create_component(
     image: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
 ):
-    # generate barcode ID based on type prefix
-    type_result = await db.execute(select(ComponentType).where(ComponentType.id == type_id))
-    ctype = type_result.scalar_one_or_none()
+    # Resolve flat type_id for backwards compatibility.
+    ctype = None
+    if type_id:
+        type_result = await db.execute(select(ComponentType).where(ComponentType.id == type_id))
+        ctype = type_result.scalar_one_or_none()
+    elif type_path:
+        parts = [p for p in type_path.split("/") if p]
+        if len(parts) >= 2:
+            type_name = parts[1]
+            type_result = await db.execute(select(ComponentType).where(ComponentType.name == type_name))
+            ctype = type_result.scalar_one_or_none()
+            if ctype:
+                type_id = ctype.id
+
     if not ctype:
         raise HTTPException(404, "ComponentType not found")
 
@@ -145,6 +170,13 @@ async def create_component(
             import logging as _lg
             _lg.getLogger("components").warning(f"Auto image fetch failed: {_e}")
 
+    parsed_type_data = None
+    if type_data:
+        try:
+            parsed_type_data = json.loads(type_data)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "type_data must be valid JSON")
+
     comp = Component(
         barcode_id=barcode_id,
         name=name,
@@ -164,6 +196,8 @@ async def create_component(
         manufacturer_id=mfr_id,
         is_generic=bool(is_generic),
         parent_id=parent_id or None,
+        type_path=type_path,
+        type_data=parsed_type_data,
     )
     db.add(comp)
     await db.flush()

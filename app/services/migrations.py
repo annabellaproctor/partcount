@@ -218,6 +218,31 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_api_usage_api_name ON api_usage (api_name)",
         "CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage (timestamp)",
     ]),
+
+    (6, "kits system + hierarchical component type fields", [
+        """CREATE TABLE IF NOT EXISTS kits (
+            id VARCHAR PRIMARY KEY,
+            barcode_id VARCHAR UNIQUE NOT NULL,
+            name VARCHAR NOT NULL,
+            description TEXT,
+            image_path VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS kit_components (
+            id VARCHAR PRIMARY KEY,
+            kit_id VARCHAR REFERENCES kits(id) ON DELETE CASCADE,
+            component_id VARCHAR REFERENCES components(id) ON DELETE CASCADE,
+            quantity INTEGER DEFAULT 1,
+            notes TEXT,
+            position INTEGER,
+            UNIQUE(kit_id, component_id)
+        )""",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS type_path VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS type_data JSONB",
+        "CREATE INDEX IF NOT EXISTS idx_components_type_path ON components (type_path)",
+    ]),
 ]
 
 

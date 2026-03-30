@@ -10,6 +10,7 @@ import os, json, logging
 from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
+from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
 
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -78,7 +79,9 @@ def log_failed_request(error_type: str, details: dict):
 COMPONENT_SCHEMA = {
     "type": "object",
     "properties": {
+        "is_kit":         {"type": "boolean"},
         "name":           {"type": "string"},
+        "type_path":      {"type": "string"},
         "manufacturer":   {"type": "string"},
         "mpn":            {"type": "string"},
         "value":          {"type": "string"},
@@ -95,8 +98,23 @@ COMPONENT_SCHEMA = {
         "image_url":      {"type": "string"},
         "confidence":     {"type": "number"},
         "notes":          {"type": "string"},
+        "type_data":      {"type": "object"},
+        "kit_components": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "type_path": {"type": "string"},
+                    "value": {"type": "string"},
+                    "unit": {"type": "string"},
+                    "quantity": {"type": "integer"},
+                    "type_data": {"type": "object"},
+                },
+            },
+        },
     },
-    "required": ["name", "type", "confidence"]
+    "required": ["name", "confidence"]
 }
 
 MERGE_SCHEMA = {
@@ -209,18 +227,56 @@ async def parse_component(req: ParseRequest):
     if not req.text or len(req.text.strip()) < 5:
         raise HTTPException(400, "Text too short")
 
+    available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
+
     prompt = f"""You are an electronics component database assistant.
 Extract structured component information from the following text.
 Be precise. If a field is not present, omit it or use an empty string.
 Set confidence 0.0-1.0 based on how certain you are of the extracted data.
-For 'type', pick the best matching electronic component category.
+Use 'type_path' for hierarchical type classification.
 For 'value', extract the electrical value (e.g. 10k, 100nF, 5V).
 For 'unit', extract the SI unit (Ω, F, H, V, A, W, Hz).
+
+KIT DETECTION RULES:
+- If text clearly contains multiple line-items or quantities, set is_kit=true.
+- Example: "10x 10k resistors + 5x 100nF caps" should produce kit_components.
+- For non-kit single parts, set is_kit=false.
+
+SUPPORTED TYPE PATHS (pick the closest exact path):
+{available_paths}
 
 Text:
 {req.text[:4000]}"""
 
     result = await _gemini(prompt, COMPONENT_SCHEMA)
+    type_path = result.get("type_path")
+
+    # Keep backwards compatibility for existing UI that expects flat "type".
+    if type_path and not result.get("type"):
+        parts = [p for p in type_path.split("/") if p]
+        if len(parts) >= 2:
+            result["type"] = parts[1]
+        elif parts:
+            result["type"] = parts[0]
+
+    # Normalize type_data defaults and report missing required fields.
+    if type_path:
+        rules = get_fields_for_type(type_path)
+        type_data = result.get("type_data") or {}
+        for k, v in rules.get("defaults", {}).items():
+            if k not in result and k not in type_data:
+                result[k] = v
+
+        missing = []
+        for field in rules.get("required", []):
+            val = result.get(field)
+            if val is None and isinstance(type_data, dict):
+                val = type_data.get(field)
+            if val in (None, ""):
+                missing.append(field)
+        if missing:
+            result["missing_required_fields"] = missing
+
     result["source"] = "gemini"
     return result
 

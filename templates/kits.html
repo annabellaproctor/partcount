@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Kits :: LAB::INV{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Kits</div>
+  <span style="color:var(--text3);font-size:11px;">{{ kits|length }} total</span>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header"><span class="dot"></span>Kit Registry</div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Name</th><th>Description</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for kit in kits %}
+      <tr>
+        <td><a class="bid" href="/kits/{{ kit.id }}">{{ kit.barcode_id }}</a></td>
+        <td><a href="/kits/{{ kit.id }}" style="color:var(--text);">{{ kit.name }}</a></td>
+        <td class="muted">{{ kit.description or '—' }}</td>
+        <td>
+          <button class="btn btn-danger btn-xs" onclick="deleteKit('{{ kit.id }}', '{{ kit.name }}')">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteKit(id, name) {
+  if (!confirm('Delete kit "' + name + '"?')) return;
+  const r = await fetch('/api/kits/' + id, { method: 'DELETE' });
+  if (r.ok) location.reload();
+}
+</script>
+{% endblock %}

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Boolean, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Boolean, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship, backref, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from datetime import datetime
@@ -114,6 +114,9 @@ class Component(Base):
     # Generic component support
     is_generic = Column(Boolean, default=False, nullable=False)
     parent_id = Column(String, ForeignKey("components.id"), nullable=True)
+    # Hierarchical type path and type-specific attributes
+    type_path = Column(String)
+    type_data = Column(JSON)
     component_type = relationship("ComponentType", back_populates="components")
     footprints = relationship("Footprint", back_populates="component")
     bins = relationship("BinAssignment", back_populates="component")
@@ -123,6 +126,38 @@ class Component(Base):
         "Component",
         backref=backref("parent", remote_side="Component.id"),
         foreign_keys="Component.parent_id",
+    )
+    kit_components = relationship("KitComponent", back_populates="component")
+
+
+class Kit(Base):
+    __tablename__ = "kits"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    barcode_id = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    image_path = Column(String)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    kit_components = relationship("KitComponent", back_populates="kit", cascade="all, delete-orphan")
+
+
+class KitComponent(Base):
+    __tablename__ = "kit_components"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    kit_id = Column(String, ForeignKey("kits.id", ondelete="CASCADE"), nullable=False)
+    component_id = Column(String, ForeignKey("components.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=1)
+    notes = Column(Text)
+    position = Column(Integer)
+
+    kit = relationship("Kit", back_populates="kit_components")
+    component = relationship("Component", back_populates="kit_components")
+
+    __table_args__ = (
+        UniqueConstraint("kit_id", "component_id"),
     )
 
 

@@ -4,13 +4,24 @@
 
     <!-- Header -->
     <div class="add-popup-header">
-      <span style="letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:var(--text2);">Add Component</span>
+      <span style="letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:var(--text2);">Add Component / Kit</span>
       <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
         <a href="/add" target="_blank" style="font-size:10px;color:var(--text3);">↗ Full page</a>
         <button onclick="closeAddPopup()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
       </div>
     </div>
 
+    <div class="add-popup-section" style="border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <label class="form-label" style="margin:0;">Entry Type</label>
+        <select id="entry-type" class="form-select" style="max-width:220px;" onchange="toggleEntryMode()">
+          <option value="single">Single Component</option>
+          <option value="kit">Kit / Pack</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="single-entry-mode">
     <!-- Section 1: DigiKey/Mouser search -->
     <div class="add-popup-section">
       <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Search Suppliers</div>
@@ -73,6 +84,19 @@
             <select name="type_id" id="f-type" class="form-select" required>
               <option value="">— select —</option>
             </select>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Type Path</label>
+            <select id="f-type-path" name="type_path" class="form-select" onchange="onTypePathChanged()">
+              <option value="">— optional hierarchy path —</option>
+            </select>
+          </div>
+
+          <div class="col-12" id="type-fields-wrap" style="display:none;">
+            <label class="form-label">Type-specific Fields (JSON)</label>
+            <textarea id="f-type-data" name="type_data" class="form-control" rows="2" placeholder='{"dielectric_type":"X7R"}'></textarea>
+            <div id="f-type-fields-hint" style="font-size:10px;color:var(--text3);margin-top:3px;"></div>
           </div>
 
           <div class="col-4">
@@ -161,6 +185,31 @@
         </div>
       </div>
     </form>
+    </div>
+
+    <div id="kit-entry-mode" style="display:none;">
+      <div class="add-popup-section" style="border-top:1px solid var(--border);">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label">Kit Name *</label>
+            <input id="kit-name" class="form-control" placeholder="Resistor Starter Kit">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <input id="kit-description" class="form-control" placeholder="E12 assortment for prototyping">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Components in Kit</label>
+            <div id="kit-components-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <button type="button" class="btn btn-primary btn-xs" style="margin-top:8px;" onclick="addKitRow()">+ Add Component Row</button>
+          </div>
+        </div>
+      </div>
+      <div class="add-popup-footer">
+        <span id="kit-form-status" style="font-size:11px;color:var(--text3);flex:1;"></span>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveKit()">Save Kit</button>
+      </div>
+    </div>
   </div>
 </div>
 

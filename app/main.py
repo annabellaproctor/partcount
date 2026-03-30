@@ -8,8 +8,8 @@ from contextlib import asynccontextmanager
 import asyncio, os
 
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem
-from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats
+from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent
+from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -38,6 +38,7 @@ app.include_router(lookup.router)
 app.include_router(manufacturers.router)
 app.include_router(ai_parse.router)
 app.include_router(usage_stats.router)
+app.include_router(kits.router)
 
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")
@@ -116,9 +117,15 @@ async def add_page(request: Request, db: AsyncSession = Depends(get_db)):
 async def components_page(request: Request, db: AsyncSession = Depends(get_db)):
     # Fetch each component with its type and summed footprint quantity
     result = await db.execute(
-        select(Component, ComponentType, func.coalesce(func.sum(Footprint.quantity), 0).label("total_stock"))
+        select(
+            Component,
+            ComponentType,
+            func.coalesce(func.sum(Footprint.quantity), 0).label("total_stock"),
+            func.count(func.distinct(KitComponent.kit_id)).label("kit_refs"),
+        )
         .join(ComponentType, ComponentType.id == Component.type_id, isouter=True)
         .join(Footprint, Footprint.component_id == Component.id, isouter=True)
+        .join(KitComponent, KitComponent.component_id == Component.id, isouter=True)
         .group_by(Component.id, ComponentType.id)
         .order_by(Component.barcode_id)
     )
@@ -140,7 +147,7 @@ async def components_page(request: Request, db: AsyncSession = Depends(get_db)):
     for r in raw_rows:
         own_stock = int(r.total_stock or 0)
         total = (own_stock + child_stock.get(r.Component.id, 0)) if r.Component.is_generic else own_stock
-        rows.append((r.Component, r.ComponentType, total))
+        rows.append((r.Component, r.ComponentType, total, int(r.kit_refs or 0)))
 
     types = (await db.execute(select(ComponentType).order_by(ComponentType.name))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
@@ -291,3 +298,34 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
 async def scan_page(request: Request, db: AsyncSession = Depends(get_db)):
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
     return templates.TemplateResponse("scan.html", {"request": request, "profile": profile})
+
+
+@app.get("/kits", response_class=HTMLResponse)
+async def kits_page(request: Request, db: AsyncSession = Depends(get_db)):
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    kits_rows = (await db.execute(select(Kit).order_by(Kit.barcode_id))).scalars().all()
+    return templates.TemplateResponse("kits.html", {
+        "request": request,
+        "profile": profile,
+        "kits": kits_rows,
+    })
+
+
+@app.get("/kits/{kit_id}", response_class=HTMLResponse)
+async def kit_detail_page(kit_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    kit = (await db.execute(select(Kit).where(Kit.id == kit_id))).scalar_one_or_none()
+    if not kit:
+        raise HTTPException(404)
+    rows = (await db.execute(
+        select(KitComponent, Component)
+        .join(Component, Component.id == KitComponent.component_id)
+        .where(KitComponent.kit_id == kit_id)
+        .order_by(KitComponent.position)
+    )).all()
+    return templates.TemplateResponse("kit_detail.html", {
+        "request": request,
+        "profile": profile,
+        "kit": kit,
+        "rows": rows,
+    })
