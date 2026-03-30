@@ -318,8 +318,13 @@ function showCropModal(data) {
   }
   
   _img.onload = () => {
+    // Reset canvas size
     _canvas.width = _img.width;
     _canvas.height = _img.height;
+    
+    // Reset rotation to 0 degrees
+    _rotationDegrees = 0;
+    _imgOffset = {x: 0, y: 0};
     
     const tightBounds = findTightBounds(_img);
     
@@ -333,10 +338,10 @@ function showCropModal(data) {
     if (cropTop) cropTop.value = (tightBounds.top / _img.height * 100).toFixed(1);
     if (cropRight) cropRight.value = (tightBounds.right / _img.width * 100).toFixed(1);
     if (cropBottom) cropBottom.value = (tightBounds.bottom / _img.height * 100).toFixed(1);
+    if (rotationDegrees) rotationDegrees.value = '0';
     
-    _imgOffset = {x: 0, y: 0};
-    _rotationDegrees = 0;
-    if (rotationDegrees) rotationDegrees.value = 0;
+    console.log('Image loaded:', _img.width, 'x', _img.height, 'rotation:', _rotationDegrees);
+    
     redrawCanvas();
     
     _canvas.onmousedown = startDrag;
@@ -500,7 +505,8 @@ function redrawCanvas() {
   // Restore context
   _ctx.restore();
   
-  // Draw crop overlay (red dashed lines) - draggable
+  // Draw crop overlay AFTER restoring (in canvas space, not rotated)
+  // This keeps crop lines axis-aligned with canvas
   const cropLeft = document.getElementById('crop-left');
   const cropTop = document.getElementById('crop-top');
   const cropRight = document.getElementById('crop-right');
@@ -512,7 +518,7 @@ function redrawCanvas() {
     const right = parseFloat(cropRight.value) / 100 * _canvas.width;
     const bottom = parseFloat(cropBottom.value) / 100 * _canvas.height;
     
-    // Crop rectangle
+    // Crop rectangle (always axis-aligned)
     _ctx.strokeStyle = '#ff0000';
     _ctx.lineWidth = 2;
     _ctx.setLineDash([5, 5]);
@@ -524,26 +530,43 @@ function redrawCanvas() {
     _ctx.fillStyle = '#ff0000';
     // Top-left
     _ctx.fillRect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
-    // Top-right
+    // Top-right  
     _ctx.fillRect(right - handleSize/2, top - handleSize/2, handleSize, handleSize);
     // Bottom-left
     _ctx.fillRect(left - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
     // Bottom-right
     _ctx.fillRect(right - handleSize/2, bottom - handleSize/2, handleSize, handleSize);
     
-    // Draw rotation handle (top-right corner, offset)
-    const rotateHandleX = right + 30;
-    const rotateHandleY = top - 30;
+    // Draw rotation handle (outside top-right corner)
+    const rotateHandleX = right + 40;
+    const rotateHandleY = top - 40;
+    
+    // Draw line from corner to handle
+    _ctx.strokeStyle = '#00ff00';
+    _ctx.lineWidth = 1;
     _ctx.beginPath();
-    _ctx.arc(rotateHandleX, rotateHandleY, 8, 0, 2 * Math.PI);
+    _ctx.moveTo(right, top);
+    _ctx.lineTo(rotateHandleX, rotateHandleY);
+    _ctx.stroke();
+    
+    // Draw rotation handle circle
+    _ctx.beginPath();
+    _ctx.arc(rotateHandleX, rotateHandleY, 12, 0, 2 * Math.PI);
     _ctx.fillStyle = '#00ff00';
     _ctx.fill();
     _ctx.strokeStyle = '#000';
     _ctx.lineWidth = 2;
     _ctx.stroke();
     
+    // Draw rotation icon (curved arrow)
+    _ctx.strokeStyle = '#000';
+    _ctx.lineWidth = 2;
+    _ctx.beginPath();
+    _ctx.arc(rotateHandleX, rotateHandleY, 6, -Math.PI/4, Math.PI, false);
+    _ctx.stroke();
+    
     // Store handle position for mouse detection
-    _rotationHandle = {x: rotateHandleX, y: rotateHandleY, radius: 8};
+    _rotationHandle = {x: rotateHandleX, y: rotateHandleY, radius: 12};
   }
 }
 
