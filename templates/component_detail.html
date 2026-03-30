@@ -454,21 +454,6 @@
   </div>
 </div>
 
-<!-- Background removal dialog -->
-<div id="bg-removal-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1002;align-items:center;justify-content:center;">
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:24px;max-width:400px;">
-    <div style="font-size:14px;color:var(--text);margin-bottom:12px;">Remove Background?</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:16px;">
-      Try to remove white/light background using mechanical algorithm?
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-secondary" onclick="skipBackgroundRemoval()" style="flex:1;">No, Keep Original</button>
-      <button class="btn btn-primary" onclick="tryMechanicalBgRemoval()" style="flex:1;">Yes, Try Mechanical</button>
-    </div>
-    <div id="bg-dialog-status" style="font-size:10px;color:var(--text3);margin-top:8px;text-align:center;"></div>
-  </div>
-</div>
-
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/image-editor.js"></script>
@@ -489,8 +474,6 @@ document.addEventListener('keydown', (e) => {
       closeColorPicker();
     } else if (document.getElementById('crop-modal').style.display === 'block') {
       closeCropModal();
-    } else if (document.getElementById('bg-removal-dialog').style.display === 'flex') {
-      document.getElementById('bg-removal-dialog').style.display = 'none';
     } else if (document.getElementById('img-modal').style.display === 'block') {
       closeImageSearch();
     }

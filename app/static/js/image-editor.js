@@ -146,8 +146,9 @@ async function proceedWithSelectedImage() {
     if (r.ok) {
       const data = await r.json();
       _currentImageData = data;
+      // Skip bg-removal dialog, go straight to crop
       document.getElementById('img-modal').style.display = 'none';
-      document.getElementById('bg-removal-dialog').style.display = 'flex';
+      showCropModal(data);
       status.textContent = '';
     } else {
       status.textContent = 'Preview failed: ' + r.status;
