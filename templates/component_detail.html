@@ -624,30 +624,17 @@ async function proceedWithSelectedImage() {
   if (!_selectedImageUrl) return;
   
   const status = document.getElementById('img-status');
-  status.textContent = 'Loading preview...';
+  status.textContent = 'Loading...';
   _currentImageUrl = _selectedImageUrl;
   _rotationDegrees = 0;
   _removeBgChoice = null;
   
-  try {
-    const fd = new FormData();
-    fd.append('component_id', COMP_ID);
-    fd.append('image_url', _selectedImageUrl);
-    const r = await fetch('/api/images/preview', {method:'POST', body: fd});
-    if (r.ok) {
-      const data = await r.json();
-      _currentImageData = data;
-      // Show background removal dialog first
-      document.getElementById('img-modal').style.display = 'none';
-      const dialog = document.getElementById('bg-removal-dialog');
-      dialog.style.display = 'flex';
-      status.textContent = '';
-    } else {
-      status.textContent = 'Preview failed: ' + r.status;
-    }
-  } catch(e) {
-    status.textContent = 'Error: ' + e.message;
-  }
+  // Close search modal and open crop modal directly
+  const imgModal = document.getElementById('img-modal');
+  if (imgModal) imgModal.style.display = 'none';
+  
+  status.textContent = '';
+  showCropModal(_selectedImageUrl);
 }
 
 async function tryMechanicalBgRemoval() {
@@ -813,6 +800,37 @@ function resetCrop() {
 function closeCropModal() {
   document.getElementById('crop-modal').style.display = 'none';
   // Don't automatically open img-modal - user may have opened crop from dropdown
+}
+
+function applyMechanicalBg() {
+  _removeBgChoice = 'mechanical';
+  const bgApplied = document.getElementById('bg-applied');
+  const bgNotApplied = document.getElementById('bg-not-applied');
+  const bgMethod = document.getElementById('bg-method');
+  
+  if (bgApplied && bgNotApplied && bgMethod) {
+    bgNotApplied.style.display = 'none';
+    bgApplied.style.display = 'block';
+    bgMethod.textContent = 'mechanical';
+  }
+}
+
+function applyAiBg() {
+  alert('AI background removal coming soon! Will use ML model for intelligent background detection.');
+  // TODO: Implement AI background removal
+  // _removeBgChoice = 'ai';
+  // Update UI similar to mechanical
+}
+
+function revertBackgroundRemoval() {
+  _removeBgChoice = null;
+  const bgApplied = document.getElementById('bg-applied');
+  const bgNotApplied = document.getElementById('bg-not-applied');
+  
+  if (bgApplied && bgNotApplied) {
+    bgNotApplied.style.display = 'block';
+    bgApplied.style.display = 'none';
+  }
 }
 
 async function confirmCrop() {

@@ -342,9 +342,8 @@ function autoAdjust() {
   if (cropRight) cropRight.value = (bounds.right / _img.width * 100).toFixed(1);
   if (cropBottom) cropBottom.value = (bounds.bottom / _img.height * 100).toFixed(1);
   
-  // Step 3: Reset rotation and offset
-  _rotationDegrees = 0;
-  if (rotationDegrees) rotationDegrees.value = 0;
+  // Step 3: Keep current rotation, only reset offset
+  // Don't reset rotation - user may have manually rotated
   _imgOffset = {x: 0, y: 0};
   
   // Step 4: Redraw
@@ -352,7 +351,7 @@ function autoAdjust() {
   
   const status = document.getElementById('crop-status');
   if (status) {
-    status.textContent = '✓ Auto-adjusted to tight crop';
+    status.textContent = '✓ Auto-cropped (rotation preserved)';
     setTimeout(() => {
       status.textContent = '';
     }, 2000);
@@ -424,6 +423,19 @@ function findTightBounds(img) {
 function redrawCanvas() {
   if (!_canvas || !_ctx || !_img) return;
   
+  // Calculate canvas size needed for rotated image
+  const angle = (_rotationDegrees * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(angle));
+  const sin = Math.abs(Math.sin(angle));
+  const rotatedWidth = Math.ceil(_img.width * cos + _img.height * sin);
+  const rotatedHeight = Math.ceil(_img.width * sin + _img.height * cos);
+  
+  // Resize canvas if needed to fit rotated image
+  if (_canvas.width !== rotatedWidth || _canvas.height !== rotatedHeight) {
+    _canvas.width = rotatedWidth;
+    _canvas.height = rotatedHeight;
+  }
+  
   // Clear canvas
   _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
   
@@ -444,7 +456,7 @@ function redrawCanvas() {
   _ctx.translate(_canvas.width / 2, _canvas.height / 2);
   
   // Apply rotation
-  _ctx.rotate((_rotationDegrees * Math.PI) / 180);
+  _ctx.rotate(angle);
   
   // Apply offset (for dragging)
   _ctx.translate(_imgOffset.x, _imgOffset.y);
@@ -456,16 +468,23 @@ function redrawCanvas() {
   _ctx.restore();
   
   // Draw crop overlay (red dashed lines)
-  const left = parseFloat(document.getElementById('crop-left').value) / 100 * _canvas.width;
-  const top = parseFloat(document.getElementById('crop-top').value) / 100 * _canvas.height;
-  const right = parseFloat(document.getElementById('crop-right').value) / 100 * _canvas.width;
-  const bottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * _canvas.height;
+  const cropLeft = document.getElementById('crop-left');
+  const cropTop = document.getElementById('crop-top');
+  const cropRight = document.getElementById('crop-right');
+  const cropBottom = document.getElementById('crop-bottom');
   
-  _ctx.strokeStyle = '#ff0000';
-  _ctx.lineWidth = 2;
-  _ctx.setLineDash([5, 5]);
-  _ctx.strokeRect(left, top, right - left, bottom - top);
-  _ctx.setLineDash([]);
+  if (cropLeft && cropTop && cropRight && cropBottom) {
+    const left = parseFloat(cropLeft.value) / 100 * _canvas.width;
+    const top = parseFloat(cropTop.value) / 100 * _canvas.height;
+    const right = parseFloat(cropRight.value) / 100 * _canvas.width;
+    const bottom = parseFloat(cropBottom.value) / 100 * _canvas.height;
+    
+    _ctx.strokeStyle = '#ff0000';
+    _ctx.lineWidth = 2;
+    _ctx.setLineDash([5, 5]);
+    _ctx.strokeRect(left, top, right - left, bottom - top);
+    _ctx.setLineDash([]);
+  }
 }
 
 function updateCropPreview() {
