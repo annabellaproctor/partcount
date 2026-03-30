@@ -57,8 +57,10 @@ async def search_images(q: str, limit: int = 20):
                         img = product.get("PrimaryPhoto")
                         if img:
                             _add_result(results, img, img, product.get("ProductDescription", ""), "digikey")
+                else:
+                    log.warning(f"DigiKey API returned {r.status_code}")
     except Exception as e:
-        log.debug(f"DigiKey image search: {e}")
+        log.warning(f"DigiKey image search: {e}")
 
     # Source 2: Mouser — scrape search results for image URLs
     try:
@@ -74,8 +76,10 @@ async def search_images(q: str, limit: int = 20):
                         _add_result(results, match, match, "", "mouser")
                     if len(results) >= limit:
                         break
+            else:
+                log.warning(f"Mouser returned {r.status_code}")
     except Exception as e:
-        log.debug(f"Mouser scrape: {e}")
+        log.warning(f"Mouser scrape: {e}")
 
     # Source 3: DuckDuckGo — image search scraping
     if len(results) < limit:
@@ -101,8 +105,12 @@ async def search_images(q: str, limit: int = 20):
                                 item.get("width"),
                                 item.get("height"),
                             )
+                    else:
+                        log.warning(f"DDG i.js returned {r2.status_code}")
+                else:
+                    log.warning("DDG vqd token not found")
         except Exception as e:
-            log.debug(f"DuckDuckGo: {e}")
+            log.warning(f"DuckDuckGo: {e}")
 
     # Source 4: Openverse — no license filter
     if len(results) < limit:
@@ -116,8 +124,10 @@ async def search_images(q: str, limit: int = 20):
                 if r.status_code == 200:
                     for item in r.json().get("results", []):
                         _add_result(results, item.get("url"), item.get("thumbnail"), item.get("title", ""), "openverse")
+                else:
+                    log.warning(f"Openverse returned {r.status_code}")
         except Exception as e:
-            log.debug(f"Openverse: {e}")
+            log.warning(f"Openverse: {e}")
 
     # Source 5: Wikimedia Commons
     if len(results) < limit:
@@ -153,9 +163,12 @@ async def search_images(q: str, limit: int = 20):
                                 ii.get("thumbwidth"),
                                 ii.get("thumbheight"),
                             )
+                else:
+                    log.warning(f"Wikimedia returned {r.status_code}")
         except Exception as e:
-            log.debug(f"Wikimedia: {e}")
+            log.warning(f"Wikimedia: {e}")
 
+    log.info(f"Image search '{q}' returned {len(results)} results")
     return results[:limit]
 
 
