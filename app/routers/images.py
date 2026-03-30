@@ -41,134 +41,137 @@ def _add_result(results: list, url: str, thumb: str, title: str, source: str, wi
 @router.get("/search")
 async def search_images(q: str, limit: int = 20):
     results = []
+    errors = []
 
-    # Source 1: DigiKey — product images from search API
+    # Source 1: Wikimedia Commons — most reliable for electronics
     try:
-        dk_token = os.getenv("DIGIKEY_TOKEN")
-        if dk_token:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    "https://api.digikey.com/products/v4/search/keyword",
-                    params={"keywords": q, "limit": 10},
-                    headers={"Authorization": f"Bearer {dk_token}", "X-DIGIKEY-Client-Id": os.getenv("DIGIKEY_CLIENT_ID", "")},
-                )
-                if r.status_code == 200:
-                    for product in r.json().get("Products", []):
-                        img = product.get("PrimaryPhoto")
-                        if img:
-                            _add_result(results, img, img, product.get("ProductDescription", ""), "digikey")
-                else:
-                    log.warning(f"DigiKey API returned {r.status_code}")
-    except Exception as e:
-        log.warning(f"DigiKey image search: {e}")
-
-    # Source 2: Mouser — scrape search results for image URLs
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(
-                "https://www.mouser.com/c/?q=" + q,
+                "https://commons.wikimedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "generator": "search",
+                    "gsrnamespace": "6",
+                    "gsrsearch": f"filetype:bitmap {q}",
+                    "gsrlimit": "20",
+                    "prop": "imageinfo",
+                    "iiprop": "url|thumburl|size",
+                    "iiurlwidth": "300",
+                    "format": "json",
+                },
                 headers={"User-Agent": UA},
             )
             if r.status_code == 200:
-                # Extract image URLs from HTML (Mouser uses data-img attribute)
-                for match in re.findall(r'data-img="([^"]+)"', r.text):
-                    if "mouser.com/images/" in match:
-                        _add_result(results, match, match, "", "mouser")
-                    if len(results) >= limit:
-                        break
+                data = r.json()
+                pages = data.get("query", {}).get("pages", {})
+                for page in pages.values():
+                    ii = (page.get("imageinfo") or [{}])[0]
+                    url = ii.get("url", "")
+                    if url:
+                        _add_result(
+                            results,
+                            url,
+                            ii.get("thumburl") or url,
+                            page.get("title", "").replace("File:", ""),
+                            "wikimedia",
+                            ii.get("thumbwidth", 300),
+                            ii.get("thumbheight", 300),
+                        )
+                log.info(f"Wikimedia: found {len([r for r in results if r['source'] == 'wikimedia'])} images")
             else:
-                log.warning(f"Mouser returned {r.status_code}")
+                errors.append(f"Wikimedia {r.status_code}")
     except Exception as e:
-        log.warning(f"Mouser scrape: {e}")
+        errors.append(f"Wikimedia: {str(e)[:100]}")
 
-    # Source 3: DuckDuckGo — image search scraping
+    # Source 2: DigiKey API — if token available
     if len(results) < limit:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                # Get vqd token first
-                r1 = await client.get("https://duckduckgo.com/", headers={"User-Agent": UA})
-                vqd = re.search(r'vqd="([^"]+)"', r1.text)
-                if vqd:
-                    r2 = await client.get(
-                        "https://duckduckgo.com/i.js",
-                        params={"q": f"{q} electronic component", "vqd": vqd.group(1), "l": "us-en"},
-                        headers={"User-Agent": UA},
+            dk_token = os.getenv("DIGIKEY_TOKEN")
+            dk_client_id = os.getenv("DIGIKEY_CLIENT_ID")
+            if dk_token and dk_client_id:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        "https://api.digikey.com/products/v4/search/keyword",
+                        params={"keywords": q, "limit": 10},
+                        headers={
+                            "Authorization": f"Bearer {dk_token}",
+                            "X-DIGIKEY-Client-Id": dk_client_id,
+                        },
                     )
-                    if r2.status_code == 200:
-                        for item in r2.json().get("results", [])[:limit - len(results)]:
+                    if r.status_code == 200:
+                        for product in r.json().get("Products", []):
+                            img = product.get("PrimaryPhoto")
+                            if img:
+                                _add_result(results, img, img, product.get("ProductDescription", ""), "digikey")
+                        log.info(f"DigiKey: found {len([r for r in results if r['source'] == 'digikey'])} images")
+                    else:
+                        errors.append(f"DigiKey {r.status_code}")
+            else:
+                log.debug("DigiKey token not configured")
+        except Exception as e:
+            errors.append(f"DigiKey: {str(e)[:100]}")
+
+    # Source 3: Mouser scraping
+    if len(results) < limit:
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                r = await client.get(
+                    f"https://www.mouser.com/c/?q={q}",
+                    headers={"User-Agent": UA},
+                )
+                if r.status_code == 200:
+                    # Try multiple patterns
+                    patterns = [
+                        r'data-img="([^"]+)"',
+                        r'src="(https://www\.mouser\.com/images/[^"]+)"',
+                        r'<img[^>]+src="([^"]*mouser\.com/images[^"]+)"',
+                    ]
+                    for pattern in patterns:
+                        for match in re.findall(pattern, r.text):
+                            if "mouser.com/images/" in match and match not in {x["url"] for x in results}:
+                                _add_result(results, match, match, "", "mouser")
+                                if len(results) >= limit:
+                                    break
+                        if len(results) >= limit:
+                            break
+                    log.info(f"Mouser: found {len([r for r in results if r['source'] == 'mouser'])} images")
+                else:
+                    errors.append(f"Mouser {r.status_code}")
+        except Exception as e:
+            errors.append(f"Mouser: {str(e)[:100]}")
+
+    # Source 4: Google Images proxy via SerpAPI (if configured)
+    if len(results) < limit:
+        serpapi_key = os.getenv("SERPAPI_KEY")
+        if serpapi_key:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        "https://serpapi.com/search.json",
+                        params={
+                            "engine": "google_images",
+                            "q": f"{q} electronic component",
+                            "api_key": serpapi_key,
+                            "num": str(limit - len(results)),
+                        },
+                    )
+                    if r.status_code == 200:
+                        for item in r.json().get("images_results", []):
                             _add_result(
                                 results,
-                                item.get("image"),
+                                item.get("original"),
                                 item.get("thumbnail"),
                                 item.get("title", ""),
-                                "duckduckgo",
-                                item.get("width"),
-                                item.get("height"),
+                                "google",
                             )
-                    else:
-                        log.warning(f"DDG i.js returned {r2.status_code}")
-                else:
-                    log.warning("DDG vqd token not found")
-        except Exception as e:
-            log.warning(f"DuckDuckGo: {e}")
+                        log.info(f"Google: found {len([r for r in results if r['source'] == 'google'])} images")
+            except Exception as e:
+                errors.append(f"Google: {str(e)[:100]}")
 
-    # Source 4: Openverse — no license filter
-    if len(results) < limit:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    "https://api.openverse.org/v1/images/",
-                    params={"q": f"{q} component", "page_size": limit - len(results)},
-                    headers={"User-Agent": UA},
-                )
-                if r.status_code == 200:
-                    for item in r.json().get("results", []):
-                        _add_result(results, item.get("url"), item.get("thumbnail"), item.get("title", ""), "openverse")
-                else:
-                    log.warning(f"Openverse returned {r.status_code}")
-        except Exception as e:
-            log.warning(f"Openverse: {e}")
-
-    # Source 5: Wikimedia Commons
-    if len(results) < limit:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
-                    "https://commons.wikimedia.org/w/api.php",
-                    params={
-                        "action": "query",
-                        "generator": "search",
-                        "gsrnamespace": "6",
-                        "gsrsearch": f"filetype:bitmap {q} electronic",
-                        "gsrlimit": str(limit - len(results)),
-                        "prop": "imageinfo",
-                        "iiprop": "url|thumburl|size",
-                        "iiurlwidth": "300",
-                        "format": "json",
-                    },
-                    headers={"User-Agent": UA},
-                )
-                if r.status_code == 200:
-                    pages = r.json().get("query", {}).get("pages", {})
-                    for page in pages.values():
-                        ii = (page.get("imageinfo") or [{}])[0]
-                        url = ii.get("url", "")
-                        if url:
-                            _add_result(
-                                results,
-                                url,
-                                ii.get("thumburl") or url,
-                                page.get("title", "").replace("File:", ""),
-                                "wikimedia",
-                                ii.get("thumbwidth"),
-                                ii.get("thumbheight"),
-                            )
-                else:
-                    log.warning(f"Wikimedia returned {r.status_code}")
-        except Exception as e:
-            log.warning(f"Wikimedia: {e}")
-
-    log.info(f"Image search '{q}' returned {len(results)} results")
+    if errors:
+        log.warning(f"Image search errors: {'; '.join(errors)}")
+    
+    log.info(f"Image search '{q}' returned {len(results)} total results")
     return results[:limit]
 
 
