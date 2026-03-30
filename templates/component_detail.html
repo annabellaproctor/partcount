@@ -16,7 +16,21 @@
       <div class="card-header"><span class="dot"></span>Image</div>
       <div class="p-3 text-center">
         {% if comp.image_path %}
-        <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
+        <div style="position:relative;">
+          <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
+          <!-- Dropdown menu overlay -->
+          <div style="position:absolute;top:8px;right:8px;">
+            <button class="btn btn-sm" style="background:rgba(0,0,0,0.7);color:#fff;padding:4px 8px;border:none;" onclick="toggleImageMenu(event)">⋮</button>
+            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 8px rgba(0,0,0,0.3);min-width:150px;z-index:10;">
+              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);" onclick="openCropEditor()">✂️ Crop & Edit</button>
+              <label class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer;margin:0;">
+                📤 Upload Image
+                <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
+              </label>
+              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
+            </div>
+          </div>
+        </div>
         {% else %}
         <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;" id="comp-img-placeholder">
           No image
@@ -495,6 +509,32 @@ async function touchComponent(id) {
   } catch(e) {
     status.textContent = 'Network error';
   }
+}
+
+// Image menu functions
+function toggleImageMenu(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById('image-menu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('image-menu');
+  if (menu && !e.target.closest('#image-menu') && !e.target.closest('button[onclick*="toggleImageMenu"]')) {
+    menu.style.display = 'none';
+  }
+});
+
+async function openCropEditor() {
+  toggleImageMenu();
+  // Load current image into crop editor
+  const img = document.getElementById('comp-img');
+  if (!img) return;
+  
+  _currentImageUrl = img.src;
+  _currentImageData = { preview: img.src };
+  showCropModal(_currentImageData);
 }
 
 function openImageSearch() {
