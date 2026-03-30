@@ -43,7 +43,8 @@
   <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
     <button onclick="setOrderSource('auto')" id="os-auto" class="source-btn active">Auto</button>
     <button onclick="setOrderSource('digikey')" id="os-digikey" class="source-btn">DigiKey</button>
-    <button onclick="setOrderSource('lcsc')" id="os-lcsc" class="source-btn">LCSC</button>
+    <button onclick="setOrderSource('mouser')" id="os-mouser" class="source-btn" title="Requires MOUSER_API_KEY">Mouser</button>
+    <span style="font-size:9px;color:var(--text3);align-self:center;">LCSC offline · Mouser/TrustedParts pending</span>
   </div>
   <div id="order-results" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;"></div>
   <div id="order-empty" style="display:none;color:var(--text3);font-size:12px;padding:20px 0;">No results — try a part name or MPN</div>

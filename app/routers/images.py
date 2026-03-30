@@ -1,11 +1,16 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form, Query
+"""
+Image search and management.
+Sources:
+  1. DigiKey CDN — PhotoUrl from DigiKey search results (passed directly, no request needed)
+  2. Openverse API — free, no key, Creative Commons, works server-side
+  3. Fallback: generic SVG icon from our own icon service
+"""
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Optional
-import asyncio, httpx, os, shutil, re, io, logging
+import httpx, os, shutil, io, logging
 from app.models.database import get_db
 from app.models.models import Component
-from app.services.barcode_svc import autocrop_image
 
 log = logging.getLogger("images")
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -13,76 +18,91 @@ router = APIRouter(prefix="/api/images", tags=["images"])
 
 os.makedirs(f"{IMAGE_DIR}/components", exist_ok=True)
 
-
-async def prewarm_rembg():
-    """Run rembg import + model load off the event loop so the first real request is fast."""
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _prewarm_rembg_sync)
-        log.info("rembg pre-warm complete")
-    except Exception as e:
-        log.warning(f"rembg pre-warm failed (non-fatal): {e}")
-
-
-def _prewarm_rembg_sync():
-    from rembg import remove
-    from PIL import Image
-    import io as _io
-    # Feed a 1×1 white pixel to load the model into memory.
-    img = Image.new("RGBA", (1, 1), (255, 255, 255, 255))
-    buf = _io.BytesIO()
-    img.save(buf, "PNG")
-    remove(buf.getvalue())
-
-
-# ── Image search ──────────────────────────────────────────────────────────────
-
-# Ordered list of patterns tried against the DDG HTML response to extract vqd.
-_VQD_PATTERNS = [
-    re.compile(r'vqd=["\']?([\d-]+)["\']?'),
-    re.compile(r'"vqd"\s*:\s*"([\d-]+)"'),
-    re.compile(r'vqd=([\d-]+)'),
-]
-
-
-def _extract_vqd(html: str) -> Optional[str]:
-    for pat in _VQD_PATTERNS:
-        m = pat.search(html)
-        if m:
-            return m.group(1)
-    return None
+OPENVERSE_URL = "https://api.openverse.org/v1/images/"
 
 
 @router.get("/search")
 async def search_images(q: str, limit: int = 9):
+    """
+    Search for component images via Openverse (free, no key, CC licensed).
+    For electronic components, also tries component-specific query variants.
+    """
+    results = []
+
+    # Try Openverse — works reliably server-side
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        async with httpx.AsyncClient(timeout=10, headers=headers, follow_redirects=True) as client:
-            r = await client.get("https://duckduckgo.com/", params={"q": q, "iax": "images", "ia": "images"})
-            vqd = _extract_vqd(r.text)
-            if not vqd:
-                log.warning("DDG vqd not found in response")
-                return []
-            r2 = await client.get(
-                "https://duckduckgo.com/i.js",
-                params={"l": "us-en", "o": "json", "q": q, "vqd": vqd, "f": ",,,,,", "p": "1"},
-            )
-            data = r2.json()
-            results = data.get("results", [])[:limit]
-            return [{"url": x.get("image"), "thumb": x.get("thumbnail"), "title": x.get("title", "")} for x in results]
+        queries = [
+            f"{q} electronic component",
+            f"{q} electronics",
+            q,
+        ]
+        async with httpx.AsyncClient(timeout=10) as client:
+            for query in queries:
+                if len(results) >= limit:
+                    break
+                r = await client.get(
+                    OPENVERSE_URL,
+                    params={
+                        "q": query,
+                        "license_type": "commercial",
+                        "page_size": limit,
+                        "mature": "false",
+                    },
+                    headers={"User-Agent": "LabInventory/1.0 (educational project)"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    for item in data.get("results", []):
+                        url = item.get("url", "")
+                        if url and url not in [x["url"] for x in results]:
+                            results.append({
+                                "url": url,
+                                "thumb": item.get("thumbnail", url),
+                                "title": item.get("title", ""),
+                                "source": "openverse",
+                            })
+                if results:
+                    break
     except Exception as e:
-        log.warning(f"DDG image search failed: {e}")
-        return []
+        log.warning(f"Openverse search failed: {e}")
+
+    # Always pad with Wikimedia commons search if short
+    if len(results) < 3:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(
+                    "https://commons.wikimedia.org/w/api.php",
+                    params={
+                        "action": "query",
+                        "generator": "search",
+                        "gsrnamespace": "6",
+                        "gsrsearch": f"filetype:bitmap {q} electronic",
+                        "gsrlimit": limit,
+                        "prop": "imageinfo",
+                        "iiprop": "url|thumburl",
+                        "iiurlwidth": 200,
+                        "format": "json",
+                    },
+                )
+                if r.status_code == 200:
+                    pages = r.json().get("query", {}).get("pages", {})
+                    for page in pages.values():
+                        ii = page.get("imageinfo", [{}])[0]
+                        url = ii.get("url", "")
+                        if url and url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            results.append({
+                                "url": url,
+                                "thumb": ii.get("thumburl", url),
+                                "title": page.get("title", ""),
+                                "source": "wikimedia",
+                            })
+        except Exception as e:
+            log.warning(f"Wikimedia search failed: {e}")
+
+    return results[:limit]
 
 
-# ── Background removal ────────────────────────────────────────────────────────
-
-def _remove_background(src_path: str, dest_path: str):
-    """
-    Remove image background using rembg if available, fallback to white-edge crop.
-    Output is always PNG with transparency.
-    Runs synchronously — call via run_in_executor to avoid blocking the event loop.
-    """
+def _remove_background(src_path: str, dest_path: str) -> bool:
     try:
         from rembg import remove
         from PIL import Image
@@ -97,37 +117,34 @@ def _remove_background(src_path: str, dest_path: str):
     except Exception as e:
         log.warning(f"rembg failed: {e}")
 
-    # Fallback: just autocrop whitespace
+    # Fallback: near-white → transparent
     try:
         from PIL import Image
         img = Image.open(src_path).convert("RGBA")
-        data = img.getdata()
-        new_data = []
-        for r, g, b, a in data:
-            if r > 230 and g > 230 and b > 230:
-                new_data.append((r, g, b, 0))
-            else:
-                new_data.append((r, g, b, a))
-        img.putdata(new_data)
+        pixels = img.getdata()
+        new_pixels = [
+            (r, g, b, 0) if (r > 230 and g > 230 and b > 230) else (r, g, b, a)
+            for r, g, b, a in pixels
+        ]
+        img.putdata(new_pixels)
         bbox = img.getbbox()
         if bbox:
             img = img.crop(bbox)
         img.save(dest_path, "PNG")
         return True
     except Exception as e:
-        log.warning(f"fallback bg removal failed: {e}")
+        log.warning(f"Fallback bg removal failed: {e}")
         return False
 
 
 def _process_image(src_path: str, dest_path: str, remove_bg: bool = False):
-    """
-    Full pipeline: download → optionally remove bg → autocrop → save as PNG.
-    Runs synchronously — call via run_in_executor to avoid blocking the event loop.
-    """
     try:
         from PIL import Image
         if remove_bg:
-            _remove_background(src_path, dest_path)
+            success = _remove_background(src_path, dest_path)
+            if not success:
+                img = Image.open(src_path).convert("RGBA")
+                img.save(dest_path, "PNG")
         else:
             img = Image.open(src_path).convert("RGBA")
             bbox = img.getbbox()
@@ -135,11 +152,9 @@ def _process_image(src_path: str, dest_path: str, remove_bg: bool = False):
                 img = img.crop(bbox)
             img.save(dest_path, "PNG")
     except Exception as e:
-        log.warning(f"_process_image failed, using source: {e}")
+        log.warning(f"_process_image failed, copying as-is: {e}")
         shutil.copy(src_path, dest_path)
 
-
-# ── Fetch from URL ────────────────────────────────────────────────────────────
 
 @router.post("/fetch")
 async def fetch_and_save(
@@ -148,7 +163,6 @@ async def fetch_and_save(
     remove_bg: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download image from URL, optionally remove background, autocrop, save."""
     result = await db.execute(select(Component).where(Component.id == component_id))
     comp = result.scalar_one_or_none()
     if not comp:
@@ -159,7 +173,7 @@ async def fetch_and_save(
 
     try:
         async with httpx.AsyncClient(
-            timeout=15,
+            timeout=20,
             follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
         ) as client:
@@ -169,25 +183,23 @@ async def fetch_and_save(
             with open(tmp_path, "wb") as f:
                 f.write(r.content)
 
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _process_image, tmp_path, dest, remove_bg)
-        os.unlink(tmp_path)
+        _process_image(tmp_path, dest, remove_bg=remove_bg)
+
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
+
     except HTTPException:
         raise
     except Exception as e:
-        log.error(f"fetch_and_save error: {e}")
         if os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            try: os.unlink(tmp_path)
+            except: pass
+        log.error(f"fetch_and_save: {e}")
         raise HTTPException(500, str(e))
 
-
-# ── Upload from computer ──────────────────────────────────────────────────────
 
 @router.post("/upload/{component_id}")
 async def upload_image(
@@ -201,24 +213,20 @@ async def upload_image(
     if not comp:
         raise HTTPException(404, "Component not found")
 
-    tmp_path = f"{IMAGE_DIR}/components/_tmp_upload_{component_id}"
+    tmp_path = f"{IMAGE_DIR}/components/_tmp_up_{component_id}"
     dest = f"{IMAGE_DIR}/components/{comp.barcode_id}.png"
 
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _process_image, tmp_path, dest, remove_bg)
-        os.unlink(tmp_path)
-
+        _process_image(tmp_path, dest, remove_bg=remove_bg)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
     except Exception as e:
-        log.error(f"upload_image error: {e}")
         if os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            try: os.unlink(tmp_path)
+            except: pass
+        log.error(f"upload_image: {e}")
         raise HTTPException(500, str(e))

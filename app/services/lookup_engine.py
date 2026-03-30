@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from app.services import digikey, lcsc
+from app.services import digikey, lcsc, mouser
 from app.services.generic_icons import get_icon_data_url, infer_type
 
 log = logging.getLogger("lookup_engine")
