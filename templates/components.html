@@ -43,6 +43,12 @@
           {% if kit_refs > 0 %}
           <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(74,158,255,0.15);color:var(--blue);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(74,158,255,0.25);">KIT ×{{ kit_refs }}</span>
           {% endif %}
+          {% if comp.notes and '[UNREVIEWED]' in comp.notes %}
+          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(240,165,0,0.15);color:var(--amber);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(240,165,0,0.25);">UNREVIEWED</span>
+          {% endif %}
+          {% if comp.notes and '[CONFLICT]' in comp.notes %}
+          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(224,85,85,0.15);color:var(--red);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(224,85,85,0.25);">CONFLICT</span>
+          {% endif %}
         </td>
         <td>{{ comp.value or '—' }}</td>
         <td class="muted">{{ comp.package or '—' }}</td>

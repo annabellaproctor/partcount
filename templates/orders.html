@@ -9,6 +9,9 @@
 <div class="card mb-4">
   <div class="card-header"><span class="dot"></span>AI Order Parse (Noisy Website Copy/Paste)</div>
   <div class="p-3">
+    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Rich Paste Area (keeps links/headings/format clues)</div>
+    <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:120px;overflow:auto;"></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:5px;">Tip: paste directly from website or docs here. Plain text fallback is below.</div>
     <textarea id="order-ai-text" class="form-control" rows="7" placeholder="Paste full webpage text from any site..."></textarea>
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
       <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
@@ -94,6 +97,7 @@ function _componentOptions() {
   for (const c of ORDER_COMPONENT_DATA) {
     html += `<option value="${c.id}">${c.barcode_id} · ${c.name}</option>`;
   }
+  html += '<option value="__NEW__">➕ Add new component...</option>';
   return html;
 }
 
@@ -109,16 +113,30 @@ function addComponentOrderRow(prefill = {}) {
   const container = document.getElementById('component-order-lines');
   const row = document.createElement('div');
   row.style.display = 'grid';
-  row.style.gridTemplateColumns = '3fr 1fr 1fr auto';
+  row.style.gridTemplateColumns = '2.2fr 2fr 0.8fr 1fr auto';
   row.style.gap = '6px';
   row.innerHTML = `
     <select class="form-select order-comp">${_componentOptions()}</select>
+    <input type="text" class="form-control order-new-name" placeholder="new component name" style="display:none;">
     <input type="number" class="form-control order-qty" min="1" value="${prefill.quantity || 1}">
     <input type="number" class="form-control order-price" step="0.01" placeholder="unit $" value="${prefill.unit_price || ''}">
     <button class="btn btn-danger btn-xs" onclick="this.parentElement.remove()">×</button>
   `;
   container.appendChild(row);
-  if (prefill.component_id) row.querySelector('.order-comp').value = prefill.component_id;
+  const sel = row.querySelector('.order-comp');
+  const newName = row.querySelector('.order-new-name');
+
+  sel.onchange = () => {
+    newName.style.display = sel.value === '__NEW__' ? '' : 'none';
+  };
+
+  if (prefill.component_id) {
+    sel.value = prefill.component_id;
+  } else if (prefill.new_name) {
+    sel.value = '__NEW__';
+    newName.style.display = '';
+    newName.value = prefill.new_name;
+  }
 }
 
 function addKitOrderRow(prefill = {}) {
@@ -137,7 +155,11 @@ function addKitOrderRow(prefill = {}) {
 }
 
 async function parseOrderText() {
-  const text = document.getElementById('order-ai-text').value.trim();
+  const rich = document.getElementById('order-ai-rich');
+  const richText = (rich?.innerText || '').trim();
+  const richHtml = (rich?.innerHTML || '').trim();
+  const plain = document.getElementById('order-ai-text').value.trim();
+  const text = [richText, plain].filter(Boolean).join('\n\n');
   const status = document.getElementById('order-ai-status');
   if (!text) {
     status.textContent = 'Paste text first';
@@ -145,10 +167,29 @@ async function parseOrderText() {
   }
   status.textContent = 'Parsing...';
 
+  const urls = [];
+  const seen = new Set();
+  const collectUrl = (u) => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    urls.push(u);
+  };
+
+  if (richHtml) {
+    const doc = new DOMParser().parseFromString(richHtml, 'text/html');
+    for (const a of Array.from(doc.querySelectorAll('a[href]')).slice(0, 30)) {
+      collectUrl(a.getAttribute('href'));
+    }
+  }
+  for (const m of text.matchAll(/https?:\/\/[^\s"'<>]+/g)) {
+    collectUrl(m[0]);
+    if (urls.length >= 30) break;
+  }
+
   const r = await fetch('/api/ai/parse-order', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text}),
+    body: JSON.stringify({text, html: richHtml, source_urls: urls}),
   });
   if (!r.ok) {
     status.textContent = 'Parse failed';
@@ -193,6 +234,7 @@ async function parseOrderText() {
     }
     addComponentOrderRow({
       component_id: idx >= 0 ? ORDER_COMPONENT_DATA[idx].id : '',
+      new_name: idx < 0 ? (item.name || '') : '',
       quantity: item.quantity || 1,
       unit_price: item.unit_price || '',
     });
@@ -225,8 +267,53 @@ async function createOrderFromDraft() {
   const order = await createResp.json();
   const orderId = order.id;
 
+  const supplierName = document.getElementById('order-supplier').selectedOptions[0]?.textContent || '';
+
+  const conflictWarnings = [];
+
+  const ensureComponent = async (row) => {
+    const select = row.querySelector('.order-comp');
+    const selected = select.value;
+    if (selected && selected !== '__NEW__') return selected;
+
+    const newName = (row.querySelector('.order-new-name')?.value || '').trim();
+    if (!newName) return null;
+
+    const stubResp = await fetch('/api/components/stub', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: newName,
+        supplier_name: supplierName,
+        source_note: 'Auto-created from order draft line item',
+      }),
+    });
+    if (!stubResp.ok) return null;
+    const stub = await stubResp.json();
+
+    if (stub.conflict) {
+      conflictWarnings.push(newName);
+    }
+
+    if (stub.created) {
+      ORDER_COMPONENT_DATA.push({
+        id: stub.id,
+        barcode_id: stub.barcode_id,
+        name: newName,
+      });
+      const opt = document.createElement('option');
+      opt.value = stub.id;
+      opt.textContent = `${stub.barcode_id} · ${newName}`;
+      select.insertBefore(opt, select.querySelector('option[value="__NEW__"]'));
+    }
+
+    select.value = stub.id;
+    select.dispatchEvent(new Event('change'));
+    return stub.id;
+  };
+
   for (const row of document.querySelectorAll('#component-order-lines > div')) {
-    const compId = row.querySelector('.order-comp').value;
+    const compId = await ensureComponent(row);
     if (!compId) continue;
     const qty = parseInt(row.querySelector('.order-qty').value || '1', 10);
     const price = row.querySelector('.order-price').value || '';
@@ -257,7 +344,9 @@ async function createOrderFromDraft() {
     }
   }
 
-  status.textContent = 'Order created';
+  status.textContent = conflictWarnings.length
+    ? `Order created. Conflict-tagged components: ${conflictWarnings.join(', ')}`
+    : 'Order created';
   setTimeout(() => location.reload(), 400);
 }
 

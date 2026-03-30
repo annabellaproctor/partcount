@@ -450,6 +450,15 @@ class ComponentPatchRequest(BaseModel):
     clear_fields: list[str] = []
 
 
+class ComponentStubCreateRequest(BaseModel):
+    name: str
+    value: Optional[str] = None
+    unit: Optional[str] = None
+    package: Optional[str] = None
+    supplier_name: Optional[str] = None
+    source_note: Optional[str] = None
+
+
 @router.patch("/{component_id}/parent")
 async def set_generic_parent(
     component_id: str,
@@ -519,4 +528,84 @@ async def patch_component(
         "id": comp.id,
         "barcode_id": comp.barcode_id,
         "updated": True,
+    }
+
+
+@router.post("/stub")
+async def create_component_stub(
+    req: ComponentStubCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create minimal component for unresolved order lines and mark as UNREVIEWED/CONFLICT."""
+    name = (req.name or "").strip()
+    if len(name) < 2:
+        raise HTTPException(400, "Component name too short")
+
+    # exact-ish match first to avoid duplicates.
+    exact = (await db.execute(
+        select(Component).where(Component.name.ilike(name)).limit(1)
+    )).scalar_one_or_none()
+    if exact:
+        return {
+            "id": exact.id,
+            "barcode_id": exact.barcode_id,
+            "created": False,
+            "conflict": False,
+            "matched_existing": True,
+        }
+
+    token = name.split()[0][:24]
+    candidates = (await db.execute(
+        select(Component).where(Component.name.ilike(f"%{token}%")).limit(6)
+    )).scalars().all()
+
+    # Pick a practical default type.
+    ctype = (await db.execute(
+        select(ComponentType).where(ComponentType.name == "module").limit(1)
+    )).scalar_one_or_none()
+    if not ctype:
+        ctype = (await db.execute(select(ComponentType).limit(1))).scalar_one_or_none()
+    if not ctype:
+        raise HTTPException(400, "No component types available")
+
+    prefix = ctype.name[0].upper()
+    existing = (await db.execute(
+        select(Component.barcode_id).where(Component.barcode_id.like(f"{prefix}%"))
+    )).scalars().all()
+    barcode_id = next_barcode_id(prefix, existing)
+
+    notes = ["[UNREVIEWED]"]
+    if candidates:
+        notes.append("[CONFLICT]")
+        compact = ", ".join(f"{c.barcode_id}:{c.name}" for c in candidates[:4])
+        notes.append(f"Possible matches: {compact}")
+    if req.source_note:
+        notes.append(req.source_note[:240])
+    if req.supplier_name:
+        notes.append(f"Supplier hint: {req.supplier_name[:80]}")
+
+    comp = Component(
+        barcode_id=barcode_id,
+        name=name,
+        value=req.value,
+        unit=req.unit,
+        package=req.package,
+        type_id=ctype.id,
+        notes=" | ".join(notes),
+        description="Auto-created from order parse. Review and complete fields.",
+        type_path="modules/communication/wifi",
+    )
+    db.add(comp)
+    await db.flush()
+
+    await manager.broadcast("component_created", {"barcode_id": comp.barcode_id, "name": comp.name})
+    return {
+        "id": comp.id,
+        "barcode_id": comp.barcode_id,
+        "created": True,
+        "conflict": bool(candidates),
+        "conflict_candidates": [
+            {"id": c.id, "barcode_id": c.barcode_id, "name": c.name}
+            for c in candidates
+        ],
     }

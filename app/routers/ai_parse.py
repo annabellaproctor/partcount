@@ -6,7 +6,7 @@ https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import os, json, logging
+import os, json, logging, re
 from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
@@ -231,6 +231,8 @@ class EnrichRequest(BaseModel):
 
 class OrderParseRequest(BaseModel):
     text: str
+    html: str | None = None
+    source_urls: list[str] | None = None
 
 
 def _normalize_order_parse_result(raw) -> dict:
@@ -293,6 +295,20 @@ def _normalize_order_parse_result(raw) -> dict:
         "items": normalized_items,
         "confidence": float(raw.get("confidence", 0.0) or 0.0),
     }
+
+
+def _extract_urls(blob: str) -> list[str]:
+    if not blob:
+        return []
+    urls = re.findall(r"https?://[^\s\"'<>]+", blob)
+    out = []
+    seen = set()
+    for u in urls:
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+    return out[:40]
 
 
 @router.post("/parse")
@@ -448,6 +464,12 @@ async def parse_order_text(req: OrderParseRequest):
         "required": ["items", "confidence"],
     }
 
+    html_snippet = (req.html or "")[:12000]
+    urls = req.source_urls or []
+    if not urls:
+        urls = _extract_urls((req.text or "") + "\n" + (req.html or ""))
+    urls_txt = "\n".join(f"- {u}" for u in urls[:20])
+
     prompt = f"""Extract order line-items from noisy copy-pasted website text.
 Rules:
 - Keep only likely purchased items.
@@ -459,6 +481,12 @@ Rules:
 
 Return strict JSON object with top-level keys: summary, supplier, order_reference, currency, items[], confidence.
 Each item must include: name, quantity, unit_price (optional), line_total (optional), is_kit, type_path(optional), notes(optional).
+
+Links extracted from paste:
+{urls_txt or '- none'}
+
+Rich/HTML snippet:
+{html_snippet or '[none]'}
 
 Text:
 {req.text[:18000]}"""
