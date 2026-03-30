@@ -39,12 +39,16 @@ def _add_result(results: list, url: str, thumb: str, title: str, source: str, wi
 
 
 @router.get("/search")
-async def search_images(q: str, limit: int = 20):
+async def search_images(q: str, limit: int = 20, db: AsyncSession = Depends(get_db)):
+    from app.services.api_usage import track_api_call, check_rate_limit
+    import time
+    
     results = []
     errors = []
 
-    # Source 1: Wikimedia Commons — most reliable for electronics
+    # Source 1: Wikimedia Commons (always first, free, reliable)
     try:
+        start = time.time()
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(
                 "https://commons.wikimedia.org/w/api.php",
@@ -61,6 +65,8 @@ async def search_images(q: str, limit: int = 20):
                 },
                 headers={"User-Agent": UA},
             )
+            elapsed = int((time.time() - start) * 1000)
+            
             if r.status_code == 200:
                 data = r.json()
                 pages = data.get("query", {}).get("pages", {})
@@ -77,96 +83,157 @@ async def search_images(q: str, limit: int = 20):
                             ii.get("thumbwidth", 300),
                             ii.get("thumbheight", 300),
                         )
-                log.info(f"Wikimedia: found {len([r for r in results if r['source'] == 'wikimedia'])} images")
+                log.info(f"Wikimedia: {len([r for r in results if r['source'] == 'wikimedia'])} images ({elapsed}ms)")
             else:
                 errors.append(f"Wikimedia {r.status_code}")
     except Exception as e:
         errors.append(f"Wikimedia: {str(e)[:100]}")
 
-    # Source 2: DigiKey API — if token available
+    # Source 2: Mouser API
+    if len(results) < limit:
+        try:
+            mouser_key = os.getenv("MOUSER_API_KEY")
+            if mouser_key:
+                allowed, reason = await check_rate_limit(db, "mouser")
+                if allowed:
+                    start = time.time()
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        r = await client.get(
+                            "https://api.mouser.com/api/v1/search/keyword",
+                            params={"apiKey": mouser_key},
+                            json={"SearchByKeywordRequest": {"keyword": q, "records": 10}},
+                            headers={"Content-Type": "application/json"},
+                        )
+                        elapsed = int((time.time() - start) * 1000)
+                        success = r.status_code == 200
+                        
+                        await track_api_call(db, "mouser", "search/keyword", success, None if success else str(r.status_code), elapsed)
+                        
+                        if success:
+                            data = r.json()
+                            for part in data.get("SearchResults", {}).get("Parts", []):
+                                img = part.get("ImagePath")
+                                if img:
+                                    _add_result(results, img, img, part.get("Description", ""), "mouser")
+                            log.info(f"Mouser API: {len([r for r in results if r['source'] == 'mouser'])} images ({elapsed}ms)")
+                        else:
+                            errors.append(f"Mouser API {r.status_code}")
+                else:
+                    errors.append(f"Mouser: {reason}")
+        except Exception as e:
+            await track_api_call(db, "mouser", "search/keyword", False, str(e)[:200], None)
+            errors.append(f"Mouser API: {str(e)[:100]}")
+
+    # Source 3: DigiKey API
     if len(results) < limit:
         try:
             dk_token = os.getenv("DIGIKEY_TOKEN")
             dk_client_id = os.getenv("DIGIKEY_CLIENT_ID")
             if dk_token and dk_client_id:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    r = await client.get(
-                        "https://api.digikey.com/products/v4/search/keyword",
-                        params={"keywords": q, "limit": 10},
-                        headers={
-                            "Authorization": f"Bearer {dk_token}",
-                            "X-DIGIKEY-Client-Id": dk_client_id,
-                        },
-                    )
-                    if r.status_code == 200:
-                        for product in r.json().get("Products", []):
-                            img = product.get("PrimaryPhoto")
-                            if img:
-                                _add_result(results, img, img, product.get("ProductDescription", ""), "digikey")
-                        log.info(f"DigiKey: found {len([r for r in results if r['source'] == 'digikey'])} images")
-                    else:
-                        errors.append(f"DigiKey {r.status_code}")
-            else:
-                log.debug("DigiKey token not configured")
+                allowed, reason = await check_rate_limit(db, "digikey")
+                if allowed:
+                    start = time.time()
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        r = await client.get(
+                            "https://api.digikey.com/products/v4/search/keyword",
+                            params={"keywords": q, "limit": 10},
+                            headers={
+                                "Authorization": f"Bearer {dk_token}",
+                                "X-DIGIKEY-Client-Id": dk_client_id,
+                            },
+                        )
+                        elapsed = int((time.time() - start) * 1000)
+                        success = r.status_code == 200
+                        
+                        await track_api_call(db, "digikey", "search/keyword", success, None if success else str(r.status_code), elapsed)
+                        
+                        if success:
+                            for product in r.json().get("Products", []):
+                                img = product.get("PrimaryPhoto")
+                                if img:
+                                    _add_result(results, img, img, product.get("ProductDescription", ""), "digikey")
+                            log.info(f"DigiKey: {len([r for r in results if r['source'] == 'digikey'])} images ({elapsed}ms)")
+                        else:
+                            errors.append(f"DigiKey {r.status_code}")
+                else:
+                    errors.append(f"DigiKey: {reason}")
         except Exception as e:
+            await track_api_call(db, "digikey", "search/keyword", False, str(e)[:200], None)
             errors.append(f"DigiKey: {str(e)[:100]}")
 
-    # Source 3: Mouser scraping
+    # Source 4: Brave Search (image-specific search)
     if len(results) < limit:
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                r = await client.get(
-                    f"https://www.mouser.com/c/?q={q}",
-                    headers={"User-Agent": UA},
-                )
-                if r.status_code == 200:
-                    # Try multiple patterns
-                    patterns = [
-                        r'data-img="([^"]+)"',
-                        r'src="(https://www\.mouser\.com/images/[^"]+)"',
-                        r'<img[^>]+src="([^"]*mouser\.com/images[^"]+)"',
-                    ]
-                    for pattern in patterns:
-                        for match in re.findall(pattern, r.text):
-                            if "mouser.com/images/" in match and match not in {x["url"] for x in results}:
-                                _add_result(results, match, match, "", "mouser")
-                                if len(results) >= limit:
-                                    break
-                        if len(results) >= limit:
-                            break
-                    log.info(f"Mouser: found {len([r for r in results if r['source'] == 'mouser'])} images")
+            brave_key = os.getenv("BRAVE_API_KEY")
+            if brave_key:
+                allowed, reason = await check_rate_limit(db, "brave")
+                if allowed:
+                    start = time.time()
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        r = await client.get(
+                            "https://api.search.brave.com/res/v1/images/search",
+                            params={"q": f"{q} electronic component", "count": 20},
+                            headers={"Accept": "application/json", "X-Subscription-Token": brave_key},
+                        )
+                        elapsed = int((time.time() - start) * 1000)
+                        success = r.status_code == 200
+                        
+                        await track_api_call(db, "brave", "images/search", success, None if success else str(r.status_code), elapsed)
+                        
+                        if success:
+                            for item in r.json().get("results", [])[:limit - len(results)]:
+                                _add_result(
+                                    results,
+                                    item.get("properties", {}).get("url"),
+                                    item.get("thumbnail", {}).get("src"),
+                                    item.get("title", ""),
+                                    "brave",
+                                )
+                            log.info(f"Brave: {len([r for r in results if r['source'] == 'brave'])} images ({elapsed}ms)")
+                        else:
+                            errors.append(f"Brave {r.status_code}")
                 else:
-                    errors.append(f"Mouser {r.status_code}")
+                    errors.append(f"Brave: {reason}")
         except Exception as e:
-            errors.append(f"Mouser: {str(e)[:100]}")
+            await track_api_call(db, "brave", "images/search", False, str(e)[:200], None)
+            errors.append(f"Brave: {str(e)[:100]}")
 
-    # Source 4: Google Images proxy via SerpAPI (if configured)
+    # Source 5: Tavily (AI-powered search, good for finding product images)
     if len(results) < limit:
-        serpapi_key = os.getenv("SERPAPI_KEY")
-        if serpapi_key:
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    r = await client.get(
-                        "https://serpapi.com/search.json",
-                        params={
-                            "engine": "google_images",
-                            "q": f"{q} electronic component",
-                            "api_key": serpapi_key,
-                            "num": str(limit - len(results)),
-                        },
-                    )
-                    if r.status_code == 200:
-                        for item in r.json().get("images_results", []):
-                            _add_result(
-                                results,
-                                item.get("original"),
-                                item.get("thumbnail"),
-                                item.get("title", ""),
-                                "google",
-                            )
-                        log.info(f"Google: found {len([r for r in results if r['source'] == 'google'])} images")
-            except Exception as e:
-                errors.append(f"Google: {str(e)[:100]}")
+        try:
+            tavily_key = os.getenv("TAVILY_API_KEY")
+            if tavily_key:
+                allowed, reason = await check_rate_limit(db, "tavily")
+                if allowed:
+                    start = time.time()
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        r = await client.post(
+                            "https://api.tavily.com/search",
+                            json={
+                                "api_key": tavily_key,
+                                "query": f"{q} electronic component product image",
+                                "search_depth": "basic",
+                                "include_images": True,
+                                "max_results": 5,
+                            },
+                        )
+                        elapsed = int((time.time() - start) * 1000)
+                        success = r.status_code == 200
+                        
+                        await track_api_call(db, "tavily", "search", success, None if success else str(r.status_code), elapsed)
+                        
+                        if success:
+                            data = r.json()
+                            for img_url in data.get("images", [])[:limit - len(results)]:
+                                _add_result(results, img_url, img_url, "", "tavily")
+                            log.info(f"Tavily: {len([r for r in results if r['source'] == 'tavily'])} images ({elapsed}ms)")
+                        else:
+                            errors.append(f"Tavily {r.status_code}")
+                else:
+                    errors.append(f"Tavily: {reason}")
+        except Exception as e:
+            await track_api_call(db, "tavily", "search", False, str(e)[:200], None)
+            errors.append(f"Tavily: {str(e)[:100]}")
 
     if errors:
         log.warning(f"Image search errors: {'; '.join(errors)}")

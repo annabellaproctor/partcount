@@ -21,6 +21,17 @@
         <div style="font-size:11px;font-family:var(--font);color:var(--text2);margin-top:2px;">{{ profile.id[:16] if profile else '—' }}...</div>
       </div>
     </div>
+
+    <!-- API Usage Monitor -->
+    <div class="card">
+      <div class="card-header">
+        <span class="dot"></span>API Usage (30 days)
+        <button class="btn btn-sm btn-primary" style="margin-left:auto;float:right;font-size:10px;padding:2px 8px;" onclick="refreshUsage()">↻</button>
+      </div>
+      <div class="p-3" id="usage-stats">
+        <div style="text-align:center;color:var(--text3);font-size:11px;padding:20px;">Loading...</div>
+      </div>
+    </div>
   </div>
 
   <div class="col-md-8">
@@ -70,4 +81,48 @@
     </div>
   </div>
 </div>
+
+<script>
+async function refreshUsage() {
+  const container = document.getElementById('usage-stats');
+  container.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:11px;padding:20px;">Loading...</div>';
+  
+  try {
+    const r = await fetch('/api/usage/stats');
+    const stats = await r.json();
+    
+    let html = '';
+    for (const [key, data] of Object.entries(stats)) {
+      const pct = data.percentage_used;
+      const color = pct === null ? 'var(--text3)' : (pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--amber)' : 'var(--green)');
+      const limitText = data.limit ? `${data.total_calls} / ${data.limit}` : `${data.total_calls}`;
+      
+      html += `
+        <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border2);">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+            <span style="font-size:11px;color:var(--text2);">${data.name}</span>
+            <span style="font-size:11px;font-weight:bold;color:${color};">${limitText}</span>
+          </div>
+          ${data.limit ? `
+            <div style="height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${color};"></div>
+            </div>
+            <div style="font-size:9px;color:var(--text3);margin-top:2px;">${pct.toFixed(1)}% used · ${data.successful_calls} successful</div>
+          ` : `
+            <div style="font-size:9px;color:var(--text3);">Unlimited · ${data.successful_calls} successful</div>
+          `}
+          ${data.avg_response_ms ? `<div style="font-size:9px;color:var(--text3);">Avg: ${data.avg_response_ms}ms</div>` : ''}
+        </div>
+      `;
+    }
+    
+    container.innerHTML = html || '<div style="color:var(--text3);font-size:11px;">No API usage yet</div>';
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--red);font-size:11px;">Failed to load usage stats</div>';
+  }
+}
+
+// Load on page load
+document.addEventListener('DOMContentLoaded', refreshUsage);
+</script>
 {% endblock %}

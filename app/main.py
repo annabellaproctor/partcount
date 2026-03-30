@@ -9,7 +9,7 @@ import asyncio, os
 
 from app.models.database import get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem
-from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse
+from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats
 from app.services.ws_manager import manager
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -37,6 +37,7 @@ app.include_router(migrate.router)
 app.include_router(lookup.router)
 app.include_router(manufacturers.router)
 app.include_router(ai_parse.router)
+app.include_router(usage_stats.router)
 
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")

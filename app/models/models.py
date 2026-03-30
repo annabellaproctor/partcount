@@ -247,3 +247,15 @@ class SystemSetting(Base):
     key = Column(String, primary_key=True)
     value = Column(Text)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class APIUsage(Base):
+    """Track API usage for rate limit monitoring."""
+    __tablename__ = "api_usage"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    api_name = Column(String, nullable=False, index=True)  # 'digikey', 'mouser', 'brave', 'tavily', 'gemini', etc
+    endpoint = Column(String)  # specific endpoint called
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    success = Column(Boolean, default=True)
+    error_message = Column(Text)
+    response_time_ms = Column(Integer)  # milliseconds
