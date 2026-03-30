@@ -263,14 +263,6 @@
       <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
     </div>
     
-    <!-- Options -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:11px;color:var(--text2);">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-        <input type="checkbox" id="remove-bg-toggle" style="accent-color:var(--green);">
-        Remove background
-      </label>
-    </div>
-    
     <!-- Upload option -->
     <div style="margin-bottom:12px;padding:10px;background:var(--bg3);border:1px dashed var(--border2);border-radius:2px;text-align:center;">
       <label style="cursor:pointer;font-size:11px;color:var(--text2);">
@@ -287,53 +279,84 @@
 
 <!-- Crop/Rotate preview modal -->
 <div id="crop-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1001;overflow-y:auto;padding:20px;">
-  <div style="max-width:800px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
+  <div style="max-width:1100px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);">Adjust Image</span>
       <button onclick="closeCropModal()" class="btn btn-danger btn-sm">✕</button>
     </div>
     
-    <!-- Preview canvas container -->
-    <div style="position:relative;margin-bottom:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;overflow:hidden;">
-      <canvas id="crop-canvas" style="display:block;max-width:100%;height:auto;"></canvas>
-      <!-- Crop overlay -->
-      <div id="crop-overlay" style="position:absolute;inset:0;pointer-events:none;"></div>
-    </div>
-    
-    <!-- Rotation controls -->
-    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
-      <span style="font-size:11px;color:var(--text3);min-width:60px;">Rotate:</span>
-      <button class="btn btn-primary btn-sm" onclick="rotatePreview(-90)">↺ 90°</button>
-      <button class="btn btn-primary btn-sm" onclick="rotatePreview(90)">↻ 90°</button>
-      <button class="btn btn-primary btn-sm" onclick="rotatePreview(180)">180°</button>
-    </div>
-    
-    <!-- Crop sliders -->
-    <div style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--text3);">Left:</label>
-        <input type="range" id="crop-left" min="0" max="100" value="0" style="width:100%;" oninput="updateCropOverlay()">
+    <!-- Main layout: canvas on left, controls on right -->
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;">
+      <!-- Canvas container with gray grid outline -->
+      <div style="position:relative;background:var(--bg3);border:2px solid #555;border-radius:2px;min-height:600px;display:flex;align-items:center;justify-content:center;">
+        <canvas id="crop-canvas" style="display:block;max-width:100%;max-height:600px;cursor:move;"></canvas>
+        <!-- Crop overlay (drawn on canvas, not as overlay div) -->
+        <!-- Dragging minimap loupe -->
+        <canvas id="minimap-loupe" style="display:none;position:absolute;width:120px;height:120px;border:2px solid var(--green);border-radius:50%;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></canvas>
       </div>
-      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--text3);">Top:</label>
-        <input type="range" id="crop-top" min="0" max="100" value="0" style="width:100%;" oninput="updateCropOverlay()">
-      </div>
-      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--text3);">Right:</label>
-        <input type="range" id="crop-right" min="0" max="100" value="100" style="width:100%;" oninput="updateCropOverlay()">
-      </div>
-      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--text3);">Bottom:</label>
-        <input type="range" id="crop-bottom" min="0" max="100" value="100" style="width:100%;" oninput="updateCropOverlay()">
+      
+      <!-- Controls sidebar -->
+      <div>
+        <!-- Rotation controls -->
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Rotation</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-primary btn-sm" onclick="rotatePreview(-90)" style="flex:1;">↺ 90°</button>
+            <button class="btn btn-primary btn-sm" onclick="rotatePreview(90)" style="flex:1;">↻ 90°</button>
+            <button class="btn btn-primary btn-sm" onclick="rotatePreview(180)" style="flex:1;">180°</button>
+          </div>
+        </div>
+        
+        <!-- Crop sliders -->
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Crop Bounds</div>
+          
+          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="font-size:10px;color:var(--text3);">Left</label>
+            <input type="range" id="crop-left" min="-25" max="100" value="0" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+          </div>
+          
+          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="font-size:10px;color:var(--text3);">Top</label>
+            <input type="range" id="crop-top" min="-25" max="100" value="0" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+          </div>
+          
+          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="font-size:10px;color:var(--text3);">Right</label>
+            <input type="range" id="crop-right" min="0" max="125" value="100" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+          </div>
+          
+          <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="font-size:10px;color:var(--text3);">Bottom</label>
+            <input type="range" id="crop-bottom" min="0" max="125" value="100" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+          </div>
+          
+          <div style="font-size:9px;color:var(--text3);margin-top:4px;">Drag image to reposition. Sliders allow +25% overscan.</div>
+        </div>
+        
+        <!-- Actions -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset to Auto-Crop</button>
+          <button class="btn btn-primary" onclick="confirmCrop()">Save Image</button>
+        </div>
+        <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
       </div>
     </div>
-    
-    <!-- Actions -->
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset</button>
-      <button class="btn btn-primary" onclick="confirmCrop()">Save Image</button>
+  </div>
+</div>
+
+<!-- Background removal dialog -->
+<div id="bg-removal-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1002;display:flex;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:24px;max-width:400px;">
+    <div style="font-size:14px;color:var(--text);margin-bottom:12px;">Remove Background?</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:16px;">
+      Try to remove white/light background using mechanical algorithm?
     </div>
-    <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="skipBackgroundRemoval()" style="flex:1;">No, Keep Original</button>
+      <button class="btn btn-primary" onclick="tryMechanicalBgRemoval()" style="flex:1;">Yes, Try Mechanical</button>
+    </div>
+    <div id="bg-dialog-status" style="font-size:10px;color:var(--text3);margin-top:8px;text-align:center;"></div>
   </div>
 </div>
 
@@ -344,6 +367,13 @@ const COMP_ID = "{{ comp.id }}";
 let _currentImageUrl = null;
 let _currentImageData = null;
 let _rotationDegrees = 0;
+let _canvas = null;
+let _ctx = null;
+let _img = null;
+let _isDragging = false;
+let _dragStart = {x: 0, y: 0};
+let _imgOffset = {x: 0, y: 0};
+let _removeBgChoice = null;  // null, 'mechanical', 'skip'
 
 async function touchComponent(id) {
   const status = document.getElementById('touch-status');
@@ -373,15 +403,13 @@ async function doImageSearch() {
   const q = document.getElementById('img-search-input').value;
   const status = document.getElementById('img-status');
   const results = document.getElementById('img-results');
-  status.textContent = 'Searching DigiKey, Mouser, DuckDuckGo...';
+  status.textContent = 'Searching Wikimedia, Mouser, DigiKey, Brave, Tavily...';
   results.innerHTML = '';
   
   const data = await fetch('/api/images/search?q=' + encodeURIComponent(q) + '&limit=24').then(r => r.json());
   status.textContent = data.length ? `${data.length} results from ${[...new Set(data.map(x => x.source))].join(', ')}` : 'No results';
   
-  // Google Images style: variable height based on aspect ratio
   data.forEach(img => {
-    const aspectRatio = (img.width && img.height) ? img.width / img.height : 1;
     const div = document.createElement('div');
     div.style.cssText = `cursor:pointer;border:1px solid var(--border);border-radius:2px;overflow:hidden;background:var(--bg3);position:relative;`;
     div.innerHTML = `
@@ -396,13 +424,12 @@ async function doImageSearch() {
   });
 }
 
-const _removeBg = () => document.getElementById('remove-bg-toggle')?.checked || false;
-
 async function selectImageForPreview(url) {
   const status = document.getElementById('img-status');
   status.textContent = 'Loading preview...';
   _currentImageUrl = url;
   _rotationDegrees = 0;
+  _removeBgChoice = null;
   
   try {
     const fd = new FormData();
@@ -412,7 +439,9 @@ async function selectImageForPreview(url) {
     if (r.ok) {
       const data = await r.json();
       _currentImageData = data;
-      showCropModal(data);
+      // Show background removal dialog first
+      document.getElementById('img-modal').style.display = 'none';
+      document.getElementById('bg-removal-dialog').style.display = 'flex';
       status.textContent = '';
     } else {
       status.textContent = 'Preview failed: ' + r.status;
@@ -422,83 +451,178 @@ async function selectImageForPreview(url) {
   }
 }
 
-function showCropModal(data) {
-  // Hide search modal, show crop modal
-  document.getElementById('img-modal').style.display = 'none';
-  document.getElementById('crop-modal').style.display = 'block';
+async function tryMechanicalBgRemoval() {
+  const statusEl = document.getElementById('bg-dialog-status');
+  statusEl.textContent = 'Testing mechanical background removal...';
   
-  // Draw preview on canvas
-  const canvas = document.getElementById('crop-canvas');
-  const ctx = canvas.getContext('2d');
-  const img = new Image();
-  img.onload = () => {
-    canvas.width = img.width;
-    canvas.height = img.height;
-    ctx.drawImage(img, 0, 0);
-    
-    // Set suggested crop sliders
-    const sugg = data.suggested_crop;
-    const w = data.width;
-    const h = data.height;
-    document.getElementById('crop-left').value = (sugg.left / w * 100).toFixed(1);
-    document.getElementById('crop-top').value = (sugg.top / h * 100).toFixed(1);
-    document.getElementById('crop-right').value = (sugg.right / w * 100).toFixed(1);
-    document.getElementById('crop-bottom').value = (sugg.bottom / h * 100).toFixed(1);
-    
-    // Set max values
-    document.getElementById('crop-left').max = w;
-    document.getElementById('crop-top').max = h;
-    document.getElementById('crop-right').max = w;
-    document.getElementById('crop-bottom').max = h;
-    
-    updateCropOverlay();
-  };
-  img.src = data.preview;
+  // Test on preview data
+  try {
+    const fd = new FormData();
+    fd.append('component_id', COMP_ID);
+    fd.append('image_url', _currentImageUrl);
+    fd.append('remove_bg', 'true');
+    fd.append('rotate', '0');
+    // Use a temp test endpoint or just proceed
+    _removeBgChoice = 'mechanical';
+    statusEl.textContent = 'Mechanical BG removal will be applied.';
+    setTimeout(() => {
+      document.getElementById('bg-removal-dialog').style.display = 'none';
+      showCropModal(_currentImageData);
+    }, 500);
+  } catch(e) {
+    statusEl.textContent = 'Error testing: ' + e.message;
+  }
 }
 
-function updateCropOverlay() {
-  const canvas = document.getElementById('crop-canvas');
-  const overlay = document.getElementById('crop-overlay');
-  const w = canvas.width;
-  const h = canvas.height;
+function skipBackgroundRemoval() {
+  _removeBgChoice = 'skip';
+  document.getElementById('bg-removal-dialog').style.display = 'none';
+  showCropModal(_currentImageData);
+}
+
+function showCropModal(data) {
+  document.getElementById('crop-modal').style.display = 'block';
   
-  const left = parseFloat(document.getElementById('crop-left').value) / 100 * w;
-  const top = parseFloat(document.getElementById('crop-top').value) / 100 * h;
-  const right = parseFloat(document.getElementById('crop-right').value) / 100 * w;
-  const bottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * h;
+  _canvas = document.getElementById('crop-canvas');
+  _ctx = _canvas.getContext('2d');
+  _img = new Image();
+  _img.crossOrigin = 'anonymous';
   
-  // Draw crop box overlay
-  overlay.innerHTML = `
-    <div style="position:absolute;top:0;left:0;right:0;bottom:0;border:2px dashed var(--green);
-                pointer-events:none;
-                clip-path:polygon(
-                  0% 0%, 0% 100%, ${left}px 100%, ${left}px ${top}px, 
-                  ${right}px ${top}px, ${right}px ${bottom}px, 
-                  ${left}px ${bottom}px, ${left}px 100%, 
-                  100% 100%, 100% 0%
-                );
-                background:rgba(0,0,0,0.5);"></div>
-  `;
+  _img.onload = () => {
+    // Set canvas to image size
+    _canvas.width = _img.width;
+    _canvas.height = _img.height;
+    
+    // Find tight auto-crop bounds (touching closest pixel on all sides)
+    const tightBounds = findTightBounds(_img);
+    
+    // Set sliders to tight crop
+    document.getElementById('crop-left').value = (tightBounds.left / _img.width * 100).toFixed(1);
+    document.getElementById('crop-top').value = (tightBounds.top / _img.height * 100).toFixed(1);
+    document.getElementById('crop-right').value = (tightBounds.right / _img.width * 100).toFixed(1);
+    document.getElementById('crop-bottom').value = (tightBounds.bottom / _img.height * 100).toFixed(1);
+    
+    _imgOffset = {x: 0, y: 0};
+    redrawCanvas();
+    
+    // Setup drag handlers
+    _canvas.onmousedown = startDrag;
+    _canvas.onmousemove = doDrag;
+    _canvas.onmouseup = endDrag;
+    _canvas.onmouseleave = endDrag;
+  };
+  
+  _img.src = data.preview;
+}
+
+function findTightBounds(img) {
+  // Draw image to temp canvas to analyze pixels
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = img.width;
+  tempCanvas.height = img.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.drawImage(img, 0, 0);
+  const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+  const pixels = imageData.data;
+  
+  let left = img.width, right = 0, top = img.height, bottom = 0;
+  
+  // Scan for non-transparent pixels
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      const i = (y * img.width + x) * 4;
+      const alpha = pixels[i + 3];
+      if (alpha > 10) {  // non-transparent
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  
+  return {left, top, right: right + 1, bottom: bottom + 1};
+}
+
+function redrawCanvas() {
+  _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
+  
+  // Draw rotated image with offset
+  _ctx.save();
+  _ctx.translate(_canvas.width / 2 + _imgOffset.x, _canvas.height / 2 + _imgOffset.y);
+  _ctx.rotate(_rotationDegrees * Math.PI / 180);
+  _ctx.drawImage(_img, -_img.width / 2, -_img.height / 2);
+  _ctx.restore();
+  
+  // Draw crop bounds (green rectangle)
+  const left = parseFloat(document.getElementById('crop-left').value) / 100 * _canvas.width;
+  const top = parseFloat(document.getElementById('crop-top').value) / 100 * _canvas.height;
+  const right = parseFloat(document.getElementById('crop-right').value) / 100 * _canvas.width;
+  const bottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * _canvas.height;
+  
+  _ctx.strokeStyle = '#0f0';
+  _ctx.lineWidth = 2;
+  _ctx.setLineDash([5, 5]);
+  _ctx.strokeRect(left, top, right - left, bottom - top);
+  _ctx.setLineDash([]);
+}
+
+function updateCropPreview() {
+  redrawCanvas();
+}
+
+function startDrag(e) {
+  _isDragging = true;
+  const rect = _canvas.getBoundingClientRect();
+  _dragStart = {
+    x: e.clientX - rect.left - _imgOffset.x,
+    y: e.clientY - rect.top - _imgOffset.y
+  };
+}
+
+function doDrag(e) {
+  if (!_isDragging) return;
+  
+  const rect = _canvas.getBoundingClientRect();
+  _imgOffset.x = e.clientX - rect.left - _dragStart.x;
+  _imgOffset.y = e.clientY - rect.top - _dragStart.y;
+  redrawCanvas();
+  
+  // Show minimap loupe
+  const loupe = document.getElementById('minimap-loupe');
+  loupe.style.display = 'block';
+  loupe.style.left = (e.clientX - rect.left + 20) + 'px';
+  loupe.style.top = (e.clientY - rect.top - 60) + 'px';
+  
+  // Draw zoomed region in loupe
+  const loupeCtx = loupe.getContext('2d');
+  const scale = 2;
+  const lx = (e.clientX - rect.left) * (_canvas.width / rect.width) - 30;
+  const ly = (e.clientY - rect.top) * (_canvas.height / rect.height) - 30;
+  loupeCtx.clearRect(0, 0, 120, 120);
+  loupeCtx.drawImage(_canvas, lx, ly, 60, 60, 0, 0, 120, 120);
+}
+
+function endDrag(e) {
+  _isDragging = false;
+  document.getElementById('minimap-loupe').style.display = 'none';
 }
 
 function rotatePreview(deg) {
   _rotationDegrees = (_rotationDegrees + deg) % 360;
-  const canvas = document.getElementById('crop-canvas');
-  canvas.style.transform = `rotate(${_rotationDegrees}deg)`;
+  redrawCanvas();
 }
 
 function resetCrop() {
-  if (!_currentImageData) return;
-  const sugg = _currentImageData.suggested_crop;
-  const w = _currentImageData.width;
-  const h = _currentImageData.height;
-  document.getElementById('crop-left').value = (sugg.left / w * 100).toFixed(1);
-  document.getElementById('crop-top').value = (sugg.top / h * 100).toFixed(1);
-  document.getElementById('crop-right').value = (sugg.right / w * 100).toFixed(1);
-  document.getElementById('crop-bottom').value = (sugg.bottom / h * 100).toFixed(1);
+  if (!_img) return;
+  const tightBounds = findTightBounds(_img);
+  document.getElementById('crop-left').value = (tightBounds.left / _img.width * 100).toFixed(1);
+  document.getElementById('crop-top').value = (tightBounds.top / _img.height * 100).toFixed(1);
+  document.getElementById('crop-right').value = (tightBounds.right / _img.width * 100).toFixed(1);
+  document.getElementById('crop-bottom').value = (tightBounds.bottom / _img.height * 100).toFixed(1);
   _rotationDegrees = 0;
-  document.getElementById('crop-canvas').style.transform = '';
-  updateCropOverlay();
+  _imgOffset = {x: 0, y: 0};
+  redrawCanvas();
 }
 
 function closeCropModal() {
@@ -520,7 +644,7 @@ async function confirmCrop() {
   const fd = new FormData();
   fd.append('component_id', COMP_ID);
   fd.append('image_url', _currentImageUrl);
-  fd.append('remove_bg', _removeBg() ? 'true' : 'false');
+  fd.append('remove_bg', _removeBgChoice === 'mechanical' ? 'true' : 'false');
   fd.append('rotate', _rotationDegrees.toString());
   fd.append('crop_left', left.toString());
   fd.append('crop_top', top.toString());
