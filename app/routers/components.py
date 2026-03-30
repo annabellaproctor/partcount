@@ -6,6 +6,7 @@ from sqlalchemy import select, func
 from app.models.database import get_db
 from app.models.models import Component, ComponentType, Footprint, BinAssignment
 from app.services.barcode_svc import generate_code128_svg, generate_qr, autocrop_image, next_barcode_id
+from app.services.short_title import generate_short_title
 from app.services.influx import write_scan_event, write_stock_change
 from app.services.ws_manager import manager
 from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
@@ -39,6 +40,7 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
             "id": c.id,
             "barcode_id": c.barcode_id or "",
             "name": c.name or "",
+            "short_title": c.short_title or "",
             "value": c.value or "",
             "package": c.package or "",
             "is_generic": c.is_generic,
@@ -91,6 +93,8 @@ async def create_component(
     digikey_pn: str = Form(None),
     lcsc_pn: str = Form(None),
     description: str = Form(None),
+    short_title: str = Form(None),
+    short_title_manual: bool = Form(False),
     manufacturer_name: str = Form(None),
     image_url: str = Form(None),
     is_generic: bool = Form(False),
@@ -194,12 +198,22 @@ async def create_component(
         digikey_pn=digikey_pn,
         lcsc_pn=lcsc_pn,
         description=description,
+        short_title=(short_title.strip() if short_title else None),
+        short_title_manual=bool(short_title_manual and short_title),
         manufacturer_id=mfr_id,
         is_generic=bool(is_generic),
         parent_id=parent_id or None,
         type_path=type_path,
         type_data=parsed_type_data,
     )
+    if not comp.short_title or not comp.short_title_manual:
+        comp.short_title = generate_short_title(
+            name=comp.name,
+            value=comp.value,
+            unit=comp.unit,
+            package=comp.package,
+            type_path=comp.type_path,
+        )
     db.add(comp)
     await db.flush()
 
@@ -444,6 +458,8 @@ class ComponentPatchRequest(BaseModel):
     digikey_pn: Optional[str] = None
     lcsc_pn: Optional[str] = None
     description: Optional[str] = None
+    short_title: Optional[str] = None
+    short_title_manual: Optional[bool] = None
     type_path: Optional[str] = None
     type_data: Optional[dict] = None
     manufacturer_name: Optional[str] = None
@@ -523,6 +539,28 @@ async def patch_component(
         if hasattr(comp, field):
             setattr(comp, field, None)
 
+    if req.short_title is not None:
+        title = req.short_title.strip()
+        comp.short_title = title if title else None
+        if title:
+            comp.short_title_manual = True
+
+    if req.short_title_manual is not None:
+        comp.short_title_manual = bool(req.short_title_manual)
+
+    title_relevant_fields = {
+        "name", "value", "unit", "package", "type_path", "description"
+    }
+    changed_title_inputs = bool(title_relevant_fields.intersection(payload.keys()))
+    if not comp.short_title_manual and (changed_title_inputs or not comp.short_title):
+        comp.short_title = generate_short_title(
+            name=comp.name,
+            value=comp.value,
+            unit=comp.unit,
+            package=comp.package,
+            type_path=comp.type_path,
+        )
+
     comp.updated_at = datetime.utcnow()
     return {
         "id": comp.id,
@@ -594,6 +632,14 @@ async def create_component_stub(
         notes=" | ".join(notes),
         description="Auto-created from order parse. Review and complete fields.",
         type_path="modules/communication/wifi",
+        short_title=generate_short_title(
+            name=name,
+            value=req.value,
+            unit=req.unit,
+            package=req.package,
+            type_path="modules/communication/wifi",
+        ),
+        short_title_manual=False,
     )
     db.add(comp)
     await db.flush()

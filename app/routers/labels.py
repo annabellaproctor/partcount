@@ -19,6 +19,8 @@ async def print_label(barcode_id: str, db: AsyncSession = Depends(get_db)):
 
     barcode_svg = generate_code128_svg(barcode_id)
 
+    title = comp.short_title or comp.value or comp.name
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -38,7 +40,7 @@ async def print_label(barcode_id: str, db: AsyncSession = Depends(get_db)):
 </head>
 <body onload="window.print()">
   <div class="label">
-    <div class="value">{comp.value or comp.name}</div>
+    <div class="value">{title}</div>
     <div class="id">{barcode_id} · {comp.package or ''}</div>
   </div>
 </body>
@@ -89,9 +91,10 @@ async def print_sheet(db: AsyncSession = Depends(get_db)):
 
     labels_html = ""
     for comp in components:
+        title = comp.short_title or comp.value or comp.name
         labels_html += f"""
         <div class="label">
-          <div class="value">{comp.value or comp.name}</div>
+          <div class="value">{title}</div>
           <div class="id">{comp.barcode_id} · {comp.package or ''}</div>
         </div>"""
 

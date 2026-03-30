@@ -35,6 +35,9 @@
         </td>
         <td>
           <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
+          {% if comp.short_title %}
+          <div class="muted" style="font-size:10px;">{{ comp.short_title }}</div>
+          {% endif %}
           {% if comp.is_generic %}
           <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:1px 5px;border-radius:2px;margin-left:4px;">GENERIC</span>
           {% elif comp.parent_id %}

@@ -243,6 +243,12 @@ MIGRATIONS = [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS type_data JSONB",
         "CREATE INDEX IF NOT EXISTS idx_components_type_path ON components (type_path)",
     ]),
+
+    (7, "component label short titles", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS short_title VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS short_title_manual BOOLEAN NOT NULL DEFAULT FALSE",
+        "UPDATE components SET short_title = COALESCE(NULLIF(value, ''), name) WHERE short_title IS NULL",
+    ]),
 ]
 
 
