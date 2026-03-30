@@ -247,7 +247,12 @@ function showCropModal(data) {
   const imgModal = document.getElementById('img-modal');
   if (imgModal) imgModal.style.display = 'none';
   
-  document.getElementById('crop-modal').style.display = 'block';
+  const cropModal = document.getElementById('crop-modal');
+  if (!cropModal) {
+    console.error('crop-modal element not found in DOM');
+    return;
+  }
+  cropModal.style.display = 'block';
   
   // Show/hide bg removal UI only if elements exist
   const bgApplied = document.getElementById('bg-applied');
@@ -265,6 +270,10 @@ function showCropModal(data) {
   }
   
   _canvas = document.getElementById('crop-canvas');
+  if (!_canvas) {
+    console.error('crop-canvas element not found in DOM');
+    return;
+  }
   _ctx = _canvas.getContext('2d');
   _img = new Image();
   _img.crossOrigin = 'anonymous';
@@ -275,14 +284,20 @@ function showCropModal(data) {
     
     const tightBounds = findTightBounds(_img);
     
-    document.getElementById('crop-left').value = (tightBounds.left / _img.width * 100).toFixed(1);
-    document.getElementById('crop-top').value = (tightBounds.top / _img.height * 100).toFixed(1);
-    document.getElementById('crop-right').value = (tightBounds.right / _img.width * 100).toFixed(1);
-    document.getElementById('crop-bottom').value = (tightBounds.bottom / _img.height * 100).toFixed(1);
+    const cropLeft = document.getElementById('crop-left');
+    const cropTop = document.getElementById('crop-top');
+    const cropRight = document.getElementById('crop-right');
+    const cropBottom = document.getElementById('crop-bottom');
+    const rotationDegrees = document.getElementById('rotation-degrees');
+    
+    if (cropLeft) cropLeft.value = (tightBounds.left / _img.width * 100).toFixed(1);
+    if (cropTop) cropTop.value = (tightBounds.top / _img.height * 100).toFixed(1);
+    if (cropRight) cropRight.value = (tightBounds.right / _img.width * 100).toFixed(1);
+    if (cropBottom) cropBottom.value = (tightBounds.bottom / _img.height * 100).toFixed(1);
     
     _imgOffset = {x: 0, y: 0};
     _rotationDegrees = 0;
-    document.getElementById('rotation-degrees').value = 0;
+    if (rotationDegrees) rotationDegrees.value = 0;
     redrawCanvas();
     
     _canvas.onmousedown = startDrag;
@@ -291,8 +306,17 @@ function showCropModal(data) {
     _canvas.onmouseleave = endDrag;
   };
   
+  _img.onerror = () => {
+    console.error('Failed to load image:', typeof data === 'string' ? data : data.preview);
+    alert('Failed to load image. Please try again.');
+  };
+  
   // Handle both data.preview (from API) and direct URL string
   const imageUrl = typeof data === 'string' ? data : (data.preview || data);
+  if (!imageUrl) {
+    console.error('No image URL provided to showCropModal');
+    return;
+  }
   _img.src = imageUrl;
 }
 
