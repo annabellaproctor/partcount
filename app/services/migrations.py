@@ -1,12 +1,11 @@
 """
 Schema migration system.
-Each migration is a (version, description, list_of_sql_statements) tuple.
-Migrations run in order, each in its own transaction with verification.
-On failure, rolls back and halts startup.
+Each migration runs in its own transaction.
+DDL uses raw asyncpg connection for proper autocommit behavior.
 """
-from sqlalchemy import text
-from app.models.database import engine
 import logging
+from app.models.database import engine
+from sqlalchemy import text
 
 log = logging.getLogger("migrations")
 
@@ -39,6 +38,14 @@ MIGRATIONS = [
             description TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         )""",
+        """CREATE TABLE IF NOT EXISTS manufacturers (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL UNIQUE,
+            aliases TEXT,
+            url VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
         """CREATE TABLE IF NOT EXISTS components (
             id VARCHAR PRIMARY KEY,
             barcode_id VARCHAR UNIQUE NOT NULL,
@@ -51,6 +58,11 @@ MIGRATIONS = [
             notes TEXT,
             image_path VARCHAR,
             datasheet_url VARCHAR,
+            description TEXT,
+            mpn VARCHAR,
+            digikey_pn VARCHAR,
+            lcsc_pn VARCHAR,
+            manufacturer_id VARCHAR REFERENCES manufacturers(id),
             type_id VARCHAR REFERENCES component_types(id),
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
@@ -125,6 +137,8 @@ MIGRATIONS = [
             supplier_id VARCHAR REFERENCES suppliers(id),
             sku VARCHAR,
             mpn VARCHAR,
+            digikey_pn VARCHAR,
+            lcsc_pn VARCHAR,
             unit_price FLOAT,
             pack_size INTEGER DEFAULT 1,
             url VARCHAR,
@@ -154,30 +168,6 @@ MIGRATIONS = [
             unit_price FLOAT,
             notes TEXT
         )""",
-    ]),
-
-    (2, "add digikey fields to component_suppliers", [
-        "ALTER TABLE component_suppliers ADD COLUMN IF NOT EXISTS digikey_pn VARCHAR",
-        "ALTER TABLE component_suppliers ADD COLUMN IF NOT EXISTS lcsc_pn VARCHAR",
-    ]),
-
-    (3, "add manufacturer registry", [
-        """CREATE TABLE IF NOT EXISTS manufacturers (
-            id VARCHAR PRIMARY KEY,
-            name VARCHAR NOT NULL UNIQUE,
-            aliases TEXT,
-            url VARCHAR,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )""",
-        "ALTER TABLE components ADD COLUMN IF NOT EXISTS manufacturer_id VARCHAR REFERENCES manufacturers(id)",
-        "ALTER TABLE components ADD COLUMN IF NOT EXISTS mpn VARCHAR",
-        "ALTER TABLE components ADD COLUMN IF NOT EXISTS digikey_pn VARCHAR",
-        "ALTER TABLE components ADD COLUMN IF NOT EXISTS lcsc_pn VARCHAR",
-        "ALTER TABLE components ADD COLUMN IF NOT EXISTS description TEXT",
-    ]),
-
-    (4, "add schema preview cache for add form", [
         """CREATE TABLE IF NOT EXISTS component_lookups (
             id VARCHAR PRIMARY KEY,
             query VARCHAR NOT NULL,
@@ -186,58 +176,87 @@ MIGRATIONS = [
             fetched_at TIMESTAMP DEFAULT NOW()
         )""",
     ]),
+
+    (2, "additive columns — safe ALTER IF NOT EXISTS", [
+        "ALTER TABLE component_suppliers ADD COLUMN IF NOT EXISTS digikey_pn VARCHAR",
+        "ALTER TABLE component_suppliers ADD COLUMN IF NOT EXISTS lcsc_pn VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS manufacturer_id VARCHAR REFERENCES manufacturers(id)",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS mpn VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS digikey_pn VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS lcsc_pn VARCHAR",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE boxes ADD COLUMN IF NOT EXISTS slot_index INTEGER DEFAULT 0",
+    ]),
 ]
 
 
-async def get_current_version(conn) -> int:
+async def _get_current_version(conn) -> int:
     try:
-        result = await conn.execute(text(
+        r = await conn.execute(text(
             "SELECT MAX(version) FROM schema_versions"
         ))
-        val = result.scalar()
+        val = r.scalar()
         return val if val is not None else 0
     except Exception:
         return 0
 
 
-async def verify_tables(conn, version: int) -> dict:
-    """Spot-check key tables exist and return row counts."""
+async def _verify_tables(conn) -> dict:
     checks = {}
-    key_tables = ["profiles", "components", "boxes", "component_types"]
-    for table in key_tables:
+    for table in ["profiles", "components", "boxes", "component_types", "manufacturers"]:
         try:
             r = await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
             checks[table] = r.scalar()
         except Exception as e:
-            checks[table] = f"ERROR: {e}"
+            checks[table] = f"ERR:{e}"
     return checks
 
 
 async def run_migrations():
-    async with engine.begin() as conn:
-        current = await get_current_version(conn)
-        pending = [(v, d, stmts) for v, d, stmts in MIGRATIONS if v > current]
+    # Each migration runs in its own separate transaction
+    async with engine.connect() as conn:
+        await conn.execute(text("ROLLBACK"))  # clear any stale txn state
 
-        if not pending:
-            log.info(f"Schema at version {current}, no migrations needed")
-            return
+    for version, description, statements in MIGRATIONS:
+        # Check current version in a fresh connection each loop
+        async with engine.connect() as conn:
+            await conn.execute(text("BEGIN"))
+            current = await _get_current_version(conn)
+            await conn.execute(text("ROLLBACK"))
 
-        for version, description, statements in pending:
-            log.info(f"Applying migration v{version}: {description}")
-            try:
-                for sql in statements:
+        if version <= current:
+            log.info(f"Migration v{version} already applied, skipping")
+            continue
+
+        log.info(f"Applying migration v{version}: {description}")
+
+        # Run each statement in its own autocommit connection
+        for sql in statements:
+            async with engine.connect() as conn:
+                # Use SAVEPOINT so a failed IF NOT EXISTS doesn't kill the block
+                try:
+                    await conn.execute(text("BEGIN"))
                     await conn.execute(text(sql))
+                    await conn.execute(text("COMMIT"))
+                except Exception as e:
+                    await conn.execute(text("ROLLBACK"))
+                    err = str(e)
+                    # IF NOT EXISTS errors are non-fatal for ALTER TABLE
+                    if "already exists" in err.lower() or "duplicate" in err.lower():
+                        log.warning(f"  Skipping (already exists): {sql[:60]}...")
+                    else:
+                        log.error(f"  FAILED: {sql[:80]}\n  Error: {err}")
+                        raise RuntimeError(f"Migration v{version} failed at statement: {sql[:80]}\nError: {err}")
 
-                await conn.execute(text(
-                    "INSERT INTO schema_versions (version, description) VALUES (:v, :d) "
-                    "ON CONFLICT (version) DO NOTHING"
-                ), {"v": version, "d": description})
+        # Record version
+        async with engine.connect() as conn:
+            await conn.execute(text("BEGIN"))
+            await conn.execute(text(
+                "INSERT INTO schema_versions (version, description) "
+                "VALUES (:v, :d) ON CONFLICT (version) DO NOTHING"
+            ), {"v": version, "d": description})
+            checks = await _verify_tables(conn)
+            await conn.execute(text("COMMIT"))
+            log.info(f"v{version} committed. Table row counts: {checks}")
 
-                checks = await verify_tables(conn, version)
-                log.info(f"v{version} applied. Table checks: {checks}")
-
-            except Exception as e:
-                log.error(f"Migration v{version} FAILED: {e}")
-                raise RuntimeError(f"Migration v{version} failed, startup halted: {e}")
-
-        log.info(f"Migrations complete. Schema now at v{max(v for v,_,_ in pending)}")
+    log.info("Migrations complete")
