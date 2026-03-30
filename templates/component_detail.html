@@ -67,6 +67,20 @@
     <div class="card mb-3">
       <div class="card-header"><span class="dot"></span>Details</div>
       <div class="p-3">
+
+        {% if comp.is_generic %}
+        <div style="margin-bottom:10px;padding:6px 10px;background:rgba(255,176,0,0.08);border:1px solid var(--amber);border-radius:3px;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:2px 6px;border-radius:2px;">GENERIC</span>
+          <span style="font-size:11px;color:var(--text2);">Physical definition — groups all brand-specific variants</span>
+        </div>
+        {% elif comp.parent_id and generic_parent %}
+        <div style="margin-bottom:10px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;font-size:11px;">
+          Brand-specific variant of
+          <a href="/components/{{ generic_parent.barcode_id }}" style="color:var(--amber);">{{ generic_parent.name }}</a>
+          <span style="color:var(--text3);">({{ generic_parent.barcode_id }})</span>
+        </div>
+        {% endif %}
+
         <table style="width:100%;font-size:12px;border-collapse:collapse;">
           {% macro row(label, val) %}
           <tr>
@@ -97,12 +111,27 @@
         {% if comp.notes %}
         <div style="margin-top:10px;padding:8px;background:var(--bg3);border-radius:2px;font-size:11px;color:var(--text2);">{{ comp.notes }}</div>
         {% endif %}
+
+        <!-- Touch / cache-bust button -->
+        <div style="margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="touchComponent('{{ comp.id }}')">
+            ↺ Refresh Pricing Cache
+          </button>
+          <span id="touch-status" style="font-size:11px;color:var(--text3);margin-left:8px;"></span>
+        </div>
       </div>
     </div>
 
     <!-- Footprints / stock -->
     <div class="card mb-3">
-      <div class="card-header"><span class="dot"></span>Stock / Footprints</div>
+      <div class="card-header">
+        <span class="dot"></span>Stock / Footprints
+        {% if comp.is_generic and generic_stock is not none %}
+        <span style="margin-left:auto;float:right;font-size:11px;color:var(--green);">
+          Total (all variants): <strong>{{ generic_stock }}</strong>
+        </span>
+        {% endif %}
+      </div>
       <div class="p-3">
         {% if footprints %}
         <table class="table">
@@ -122,6 +151,18 @@
         </table>
         {% else %}
         <div class="muted" style="font-size:11px;">No stock records</div>
+        {% endif %}
+
+        {% if comp.is_generic and generic_children %}
+        <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;">Brand-specific variants</div>
+          {% for child in generic_children %}
+          <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border2);">
+            <a href="/components/{{ child.barcode_id }}" style="color:var(--text);">{{ child.name }}</a>
+            <span class="muted">{{ child.barcode_id }}</span>
+          </div>
+          {% endfor %}
+        </div>
         {% endif %}
       </div>
     </div>
@@ -242,6 +283,22 @@
 {% block scripts %}
 <script>
 const COMP_ID = "{{ comp.id }}";
+
+async function touchComponent(id) {
+  const status = document.getElementById('touch-status');
+  status.textContent = 'Refreshing...';
+  try {
+    const r = await fetch('/api/components/' + id + '/touch', {method: 'POST'});
+    if (r.ok) {
+      const data = await r.json();
+      status.textContent = data.cache_busted ? '✓ Cache cleared, pricing will refresh on next lookup' : '✓ Updated';
+    } else {
+      status.textContent = 'Error ' + r.status;
+    }
+  } catch(e) {
+    status.textContent = 'Network error';
+  }
+}
 
 function openImageSearch() {
   document.getElementById('img-modal').style.display = 'block';

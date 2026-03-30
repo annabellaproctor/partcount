@@ -8,6 +8,7 @@ from app.models.models import Component, ComponentType, Footprint, BinAssignment
 from app.services.barcode_svc import generate_code128_svg, generate_qr, autocrop_image, next_barcode_id
 from app.services.influx import write_scan_event, write_stock_change
 from app.services.ws_manager import manager
+from datetime import datetime
 import os, shutil, uuid
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/api/components", tags=["components"])
 
 
 @router.get("/")
-async def list_components(db: AsyncSession = Depends(get_db), q: str = None):
+async def list_components(db: AsyncSession = Depends(get_db), q: str = None, generic_only: bool = False):
     stmt = select(Component).order_by(Component.barcode_id)
     if q:
         like = f"%{q}%"
@@ -26,9 +27,22 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None):
             Component.value.ilike(like),
             Component.package.ilike(like),
         ))
+    if generic_only:
+        stmt = stmt.where(Component.is_generic == True)
     result = await db.execute(stmt)
     comps = result.scalars().all()
-    return [{"id": c.id, "barcode_id": c.barcode_id or "", "name": c.name or "", "value": c.value or "", "package": c.package or ""} for c in comps]
+    return [
+        {
+            "id": c.id,
+            "barcode_id": c.barcode_id or "",
+            "name": c.name or "",
+            "value": c.value or "",
+            "package": c.package or "",
+            "is_generic": c.is_generic,
+            "parent_id": c.parent_id,
+        }
+        for c in comps
+    ]
 
 @router.get("/types")
 async def list_types(db: AsyncSession = Depends(get_db)):
@@ -64,6 +78,8 @@ async def create_component(
     description: str = Form(None),
     manufacturer_name: str = Form(None),
     image_url: str = Form(None),
+    is_generic: bool = Form(False),
+    parent_id: str = Form(None),
     image: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -131,6 +147,8 @@ async def create_component(
         lcsc_pn=lcsc_pn,
         description=description,
         manufacturer_id=mfr_id,
+        is_generic=bool(is_generic),
+        parent_id=parent_id or None,
     )
     db.add(comp)
     await db.flush()
@@ -245,3 +263,148 @@ async def update_stock_by_id(
     )
     return {"quantity": fp.quantity, "footprint_id": fp.id}
 
+
+@router.get("/{component_id}/generic-stock")
+async def get_generic_stock(component_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns aggregated total stock for a generic component across all
+    brand-specific children (and the generic record itself if it has footprints).
+    Works for both generic definitions and brand-specific parts (walks up to parent).
+    """
+    comp_result = await db.execute(select(Component).where(Component.id == component_id))
+    comp = comp_result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    # Resolve to the generic root
+    if comp.is_generic:
+        generic = comp
+    elif comp.parent_id:
+        root_result = await db.execute(select(Component).where(Component.id == comp.parent_id))
+        generic = root_result.scalar_one_or_none()
+        if not generic:
+            raise HTTPException(404, "Parent generic component not found")
+    else:
+        # Not linked to a generic — return this component's own stock
+        fp_result = await db.execute(
+            select(func.coalesce(func.sum(Footprint.quantity), 0))
+            .where(Footprint.component_id == component_id)
+        )
+        total = fp_result.scalar()
+        return {
+            "component_id": component_id,
+            "is_generic": False,
+            "total_stock": total,
+            "breakdown": [],
+        }
+
+    # Collect IDs: the generic itself + all brand-specific children
+    children_result = await db.execute(
+        select(Component).where(Component.parent_id == generic.id)
+    )
+    children = children_result.scalars().all()
+    all_ids = [generic.id] + [c.id for c in children]
+
+    # Aggregate footprint quantities per component
+    fp_agg = await db.execute(
+        select(
+            Footprint.component_id,
+            func.sum(Footprint.quantity).label("total"),
+        )
+        .where(Footprint.component_id.in_(all_ids))
+        .group_by(Footprint.component_id)
+    )
+    rows = fp_agg.all()
+
+    qty_by_comp = {r.component_id: int(r.total or 0) for r in rows}
+    total_stock = sum(qty_by_comp.values())
+
+    breakdown = [
+        {
+            "component_id": generic.id,
+            "name": generic.name,
+            "barcode_id": generic.barcode_id,
+            "quantity": qty_by_comp.get(generic.id, 0),
+            "is_generic": True,
+        }
+    ] + [
+        {
+            "component_id": c.id,
+            "name": c.name,
+            "barcode_id": c.barcode_id,
+            "quantity": qty_by_comp.get(c.id, 0),
+            "is_generic": False,
+        }
+        for c in children
+    ]
+
+    return {
+        "component_id": generic.id,
+        "is_generic": True,
+        "total_stock": total_stock,
+        "breakdown": breakdown,
+    }
+
+
+@router.post("/{component_id}/touch")
+async def touch_component(component_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Update updated_at to now, triggering a cache bust for supplier data.
+    For generic components this also invalidates cached lookup data so
+    DigiKey/LCSC pricing/availability is refreshed on next search.
+    """
+    comp_result = await db.execute(select(Component).where(Component.id == component_id))
+    comp = comp_result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    comp.updated_at = datetime.utcnow()
+
+    # If generic, bust the lookup cache for this component's value+package key
+    # so that the next lookup re-fetches live pricing from DigiKey/LCSC.
+    if comp.is_generic and (comp.value or comp.name):
+        from sqlalchemy import text
+        search_key = " ".join(filter(None, [comp.value, comp.package, comp.name])).lower()
+        for prefix in ("digikey:", "lcsc:", "auto:"):
+            try:
+                await db.execute(
+                    text("DELETE FROM component_lookups WHERE query = :q"),
+                    {"q": f"{prefix}{search_key}"},
+                )
+            except Exception:
+                pass
+
+    return {"updated_at": comp.updated_at.isoformat(), "cache_busted": comp.is_generic}
+
+
+class SetParentRequest(BaseModel):
+    parent_id: Optional[str] = None
+
+
+@router.patch("/{component_id}/parent")
+async def set_generic_parent(
+    component_id: str,
+    req: SetParentRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Link a brand-specific component to a generic definition (or unlink).
+    Setting parent_id=null detaches the component from any generic.
+    """
+    comp_result = await db.execute(select(Component).where(Component.id == component_id))
+    comp = comp_result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    if req.parent_id:
+        parent_result = await db.execute(select(Component).where(Component.id == req.parent_id))
+        parent = parent_result.scalar_one_or_none()
+        if not parent:
+            raise HTTPException(404, "Parent component not found")
+        if not parent.is_generic:
+            raise HTTPException(400, "Parent component is not marked as generic")
+        if req.parent_id == component_id:
+            raise HTTPException(400, "A component cannot be its own parent")
+
+    comp.parent_id = req.parent_id
+    return {"component_id": component_id, "parent_id": comp.parent_id}

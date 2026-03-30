@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Boolean, UniqueConstraint
-from sqlalchemy.orm import relationship, DeclarativeBase
+from sqlalchemy.orm import relationship, backref, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from datetime import datetime
 import uuid
@@ -111,10 +111,19 @@ class Component(Base):
     digikey_pn = Column(String)
     lcsc_pn = Column(String)
     description = Column(Text)
+    # Generic component support
+    is_generic = Column(Boolean, default=False, nullable=False)
+    parent_id = Column(String, ForeignKey("components.id"), nullable=True)
     component_type = relationship("ComponentType", back_populates="components")
     footprints = relationship("Footprint", back_populates="component")
     bins = relationship("BinAssignment", back_populates="component")
     component_suppliers = relationship("ComponentSupplier", back_populates="component")
+    # Self-referential: a generic parent has many brand-specific children
+    children = relationship(
+        "Component",
+        backref=backref("parent", remote_side="Component.id"),
+        foreign_keys="Component.parent_id",
+    )
 
 
 class Footprint(Base):
