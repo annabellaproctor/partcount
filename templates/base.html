@@ -370,8 +370,6 @@ document.addEventListener('keydown', (e) => {
 
 {% include "add_popup.html" %}
 
-{% block scripts %}{% endblock %}
-
 <script>
 // ── Add Popup ──────────────────────────────────────────────────────────────
 let _types = [], _manufacturers = [], _formLoaded = false;
@@ -481,7 +479,7 @@ async function runLookup(q, force) {
       const hc = r.high_confidence ? '<span style="color:var(--green);font-size:9px;margin-right:4px;">★</span>' : '';
       // Image — real or generic SVG icon
       const imgSrc = r.image_url || r.generic_icon || '';
-      const imgEl = imgSrc ? '<img src="' + imgSrc + '" style="width:36px;height:36px;object-fit:contain;border-radius:2px;background:var(--bg3);flex-shrink:0;" onerror="this.style.display='none'">' : '<div style="width:36px;height:36px;background:var(--bg3);border-radius:2px;flex-shrink:0;"></div>';
+      const imgEl = imgSrc ? '<img src="' + imgSrc + '" style="width:36px;height:36px;object-fit:contain;border-radius:2px;background:var(--bg3);flex-shrink:0;" onerror="this.style.display=\'none\'">' : '<div style="width:36px;height:36px;background:var(--bg3);border-radius:2px;flex-shrink:0;"></div>';
       return '<div class="lookup-result-item" onclick="selectLookupResult(' + i + ')" style="gap:8px;padding:6px 10px;">' +
         imgEl +
         '<div style="flex:1;min-width:0;">' +
@@ -609,5 +607,7 @@ document.addEventListener('keydown', e => {
   if (e.key==='Escape') closeAddPopup();
 });
 </script>
+{% block scripts %}{% endblock %}
+
 </body>
 </html>
