@@ -139,7 +139,10 @@ async def fetch_and_save(
     if not comp:
         raise HTTPException(404, "Component not found")
 
-    tmp = f"{IMAGE_DIR}/components/_tmp_{component_id}"
+    # Use /tmp to avoid directory permission issues and path conflicts
+    import uuid
+    tmp = f"/tmp/labinv_{uuid.uuid4().hex}.tmp"
+    dest_tmp = f"/tmp/labinv_{uuid.uuid4().hex}.png"
     dest = f"{IMAGE_DIR}/components/{comp.barcode_id}.png"
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True,
@@ -149,17 +152,21 @@ async def fetch_and_save(
                 raise HTTPException(400, f"Fetch failed: HTTP {r.status_code}")
             with open(tmp, "wb") as f:
                 f.write(r.content)
-        _process(tmp, dest, remove_bg=remove_bg)
+        # Process to temp location first, then atomic move to prevent serving half-written files
+        _process(tmp, dest_tmp, remove_bg=remove_bg)
+        shutil.move(dest_tmp, dest)
         if os.path.exists(tmp):
             os.unlink(tmp)
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
+        await db.commit()
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
     except HTTPException:
         raise
     except Exception as e:
-        if os.path.exists(tmp):
-            try: os.unlink(tmp)
-            except: pass
+        for f in [tmp, dest_tmp]:
+            if os.path.exists(f):
+                try: os.unlink(f)
+                except: pass
         log.error(f"fetch_and_save: {e}")
         raise HTTPException(500, str(e))
 
@@ -176,19 +183,24 @@ async def upload_image(
     if not comp:
         raise HTTPException(404, "Component not found")
 
-    tmp = f"{IMAGE_DIR}/components/_tmp_up_{component_id}"
+    import uuid
+    tmp = f"/tmp/labinv_{uuid.uuid4().hex}.tmp"
+    dest_tmp = f"/tmp/labinv_{uuid.uuid4().hex}.png"
     dest = f"{IMAGE_DIR}/components/{comp.barcode_id}.png"
     try:
         with open(tmp, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        _process(tmp, dest, remove_bg=remove_bg)
+        _process(tmp, dest_tmp, remove_bg=remove_bg)
+        shutil.move(dest_tmp, dest)
         if os.path.exists(tmp):
             os.unlink(tmp)
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
+        await db.commit()
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
     except Exception as e:
-        if os.path.exists(tmp):
-            try: os.unlink(tmp)
-            except: pass
+        for f in [tmp, dest_tmp]:
+            if os.path.exists(f):
+                try: os.unlink(f)
+                except: pass
         log.error(f"upload_image: {e}")
         raise HTTPException(500, str(e))
