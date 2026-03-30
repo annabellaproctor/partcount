@@ -293,7 +293,14 @@ async def search(
         fetch_tasks.append(digikey.search(query, limit=10, db=db))
         fetch_labels.append("digikey")
 
-    if not lc_cached and source in ("auto", "lcsc"):
+    if source in ("auto", "mouser"):
+        import os as _os
+        if _os.getenv("MOUSER_API_KEY"):
+            fetch_tasks.append(mouser.search(query, limit=10))
+            fetch_labels.append("mouser")
+
+    if source in ("lcsc",):
+        # LCSC API offline — stub returns empty, kept for future
         fetch_tasks.append(lcsc.search(query, limit=10))
         fetch_labels.append("lcsc")
 

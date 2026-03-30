@@ -117,18 +117,33 @@ async def create_component(
     # fetch image from URL if provided and no file uploaded
     if image_url and not image_path:
         try:
-            import httpx, shutil
-            ext = ".jpg"
-            fname = f"{barcode_id}{ext}"
+            import httpx as _hx
+            from PIL import Image as _PIL
+            fname = f"{barcode_id}.png"
             dest = f"{IMAGE_DIR}/components/{fname}"
-            async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
-                r = await client.get(image_url, headers={"User-Agent": "Mozilla/5.0"})
-                with open(dest, "wb") as f:
-                    f.write(r.content)
-            autocrop_image(dest)
-            image_path = f"/images/components/{fname}"
-        except Exception:
-            pass
+            tmp = f"{IMAGE_DIR}/components/_tmp_{barcode_id}"
+            async with _hx.AsyncClient(timeout=15, follow_redirects=True,
+                                       headers={"User-Agent": "Mozilla/5.0"}) as client:
+                r = await client.get(image_url)
+                if r.status_code == 200:
+                    with open(tmp, "wb") as f:
+                        f.write(r.content)
+                    try:
+                        img = _PIL.open(tmp).convert("RGBA")
+                        bbox = img.getbbox()
+                        if bbox:
+                            img = img.crop(bbox)
+                        img.save(dest, "PNG")
+                    except Exception:
+                        import shutil as _sh
+                        _sh.copy(tmp, dest)
+                    finally:
+                        if os.path.exists(tmp):
+                            os.unlink(tmp)
+                    image_path = f"/images/components/{fname}"
+        except Exception as _e:
+            import logging as _lg
+            _lg.getLogger("components").warning(f"Auto image fetch failed: {_e}")
 
     comp = Component(
         barcode_id=barcode_id,

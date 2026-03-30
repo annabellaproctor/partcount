@@ -619,10 +619,15 @@ async function _doSubmit(keepOpen) {
     const txt = await r.text();
     if (r.ok) {
       const data = JSON.parse(txt);
-      if(status) { status.style.color='var(--green)'; status.textContent=`✓ ${data.barcode_id} saved`; }
+      let msg = `✓ ${data.barcode_id} saved`;
+      if(status) { status.style.color='var(--green)'; status.textContent=msg; }
       resetAddForm();
-      if (!keepOpen) closeAddPopup();
-      if (window.location.pathname.startsWith('/components')) location.reload();
+      if (!keepOpen) {
+        closeAddPopup();
+        // If on components page, reload to show new entry with image
+        if (window.location.pathname.startsWith('/components') ||
+            window.location.pathname === '/') location.reload();
+      }
     } else {
       if(status) { status.style.color='var(--red)'; status.textContent=`Error: ${txt.slice(0,100)}`; }
     }
