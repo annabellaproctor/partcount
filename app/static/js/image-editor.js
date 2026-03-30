@@ -276,7 +276,22 @@ function showCropModal(data) {
   }
   _ctx = _canvas.getContext('2d');
   _img = new Image();
-  _img.crossOrigin = 'anonymous';
+  
+  // Handle both data.preview (from API) and direct URL string
+  const imageUrl = typeof data === 'string' ? data : (data.preview || data);
+  if (!imageUrl) {
+    console.error('No image URL provided to showCropModal');
+    alert('No image URL provided');
+    return;
+  }
+  
+  // Only set crossOrigin for external URLs, not for local server paths
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+    // External URL - need CORS
+    if (!imageUrl.includes(window.location.hostname)) {
+      _img.crossOrigin = 'anonymous';
+    }
+  }
   
   _img.onload = () => {
     _canvas.width = _img.width;
@@ -306,17 +321,13 @@ function showCropModal(data) {
     _canvas.onmouseleave = endDrag;
   };
   
-  _img.onerror = () => {
-    console.error('Failed to load image:', typeof data === 'string' ? data : data.preview);
-    alert('Failed to load image. Please try again.');
+  _img.onerror = (e) => {
+    console.error('Failed to load image:', imageUrl);
+    console.error('Error details:', e);
+    cropModal.style.display = 'none';
+    alert('Failed to load image. The image may not be accessible or the URL is invalid.\n\nURL: ' + imageUrl.substring(0, 100));
   };
   
-  // Handle both data.preview (from API) and direct URL string
-  const imageUrl = typeof data === 'string' ? data : (data.preview || data);
-  if (!imageUrl) {
-    console.error('No image URL provided to showCropModal');
-    return;
-  }
   _img.src = imageUrl;
 }
 
