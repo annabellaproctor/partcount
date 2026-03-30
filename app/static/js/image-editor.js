@@ -243,6 +243,10 @@ function applyColorPick() {
 // ========== CROP/ROTATE MODAL ==========
 
 function showCropModal(data) {
+  // Close image search modal if it's open
+  const imgModal = document.getElementById('img-modal');
+  if (imgModal) imgModal.style.display = 'none';
+  
   document.getElementById('crop-modal').style.display = 'block';
   
   // Show/hide bg removal UI only if elements exist

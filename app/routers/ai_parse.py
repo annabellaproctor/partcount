@@ -93,17 +93,18 @@ MERGE_SCHEMA = {
 async def _gemini(prompt: str, schema: dict) -> dict:
     """Call Gemini API using official SDK"""
     if not client:
-        log_failed_request("no_client", {"message": "GEMINI_API_KEY not set"})
-        raise HTTPException(503, "GEMINI_API_KEY not configured")
+        raise HTTPException(
+            503, 
+            "Gemini AI is not configured. Add GEMINI_API_KEY to .env and ensure API key has proper permissions at https://aistudio.google.com/apikey"
+        )
     
     try:
-        # Use gemini-2.0-flash-exp model with JSON response
+        # Use gemini-1.5-flash - documented working model
         response = client.models.generate_content(
-            model='gemini-2.0-flash-exp',
+            model='gemini-1.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=schema,
                 temperature=0.1,
             )
         )
@@ -113,11 +114,20 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         return result
         
     except Exception as e:
+        error_msg = str(e)
         log_failed_request("sdk_error", {
-            "error": str(e),
+            "error": error_msg,
             "type": type(e).__name__,
         })
-        raise HTTPException(502, f"Gemini API error: {str(e)[:200]}")
+        
+        # Better error message for 403
+        if '403' in error_msg or 'Forbidden' in error_msg:
+            raise HTTPException(
+                403,
+                "Gemini API key forbidden. Go to https://aistudio.google.com/apikey to enable the API and check permissions."
+            )
+        
+        raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
 
 
 class ParseRequest(BaseModel):
