@@ -11,7 +11,7 @@ from app.models.database import get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
-from app.schemas.type_hierarchy import get_fields_for_type
+from app.schemas.type_hierarchy import get_fields_for_type, flatten_type_paths
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 
@@ -241,6 +241,31 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
     keys = (await db.execute(select(APIKey).order_by(APIKey.created_at.desc()))).scalars().all()
     return templates.TemplateResponse("settings.html", {
         "request": request, "profile": profile, "keys": keys,
+    })
+
+
+@app.get("/registry", response_class=HTMLResponse)
+async def registry_page(request: Request, db: AsyncSession = Depends(get_db)):
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    all_paths = flatten_type_paths()
+
+    counts_rows = (await db.execute(
+        select(Component.type_path, func.count(Component.id))
+        .group_by(Component.type_path)
+        .order_by(func.count(Component.id).desc())
+    )).all()
+
+    path_counts = []
+    for path, cnt in counts_rows:
+        if not path:
+            continue
+        path_counts.append({"path": path, "count": int(cnt or 0)})
+
+    return templates.TemplateResponse("registry.html", {
+        "request": request,
+        "profile": profile,
+        "paths": all_paths,
+        "path_counts": path_counts,
     })
 
 

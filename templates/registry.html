@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Registry :: LAB::INV{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Registry Admin</div>
+  <span style="color:var(--text3);font-size:11px;">Type paths and archetype tooling</span>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Admin Options</div>
+  <div class="p-3" style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a href="/components" class="btn btn-primary btn-sm">Open Components Registry</a>
+    <a href="/kits" class="btn btn-primary btn-sm">Open Kits Registry</a>
+    <a href="/settings" class="btn btn-primary btn-sm">API / Settings</a>
+    <button class="btn btn-primary btn-sm" onclick="openAddPopup()">+ Add Component</button>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Type Path Explorer</div>
+      <div class="p-3">
+        <label class="form-label">Type Path</label>
+        <select id="type-path-select" class="form-select mb-2" onchange="loadTypeFields()">
+          {% for p in paths %}
+          <option value="{{ p }}">{{ p }}</option>
+          {% endfor %}
+        </select>
+        <div id="type-fields-status" class="muted" style="font-size:11px;margin-bottom:6px;"></div>
+        <pre id="type-fields-view" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:3px;min-height:210px;white-space:pre-wrap;">Select a type path...</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Registry Coverage</div>
+      <div class="p-3" style="max-height:360px;overflow:auto;">
+        <table class="table">
+          <thead>
+            <tr><th>Type Path</th><th style="width:90px;">Count</th></tr>
+          </thead>
+          <tbody>
+            {% for row in path_counts %}
+            <tr>
+              <td style="font-size:11px;color:var(--text2);">{{ row.path }}</td>
+              <td>{{ row.count }}</td>
+            </tr>
+            {% endfor %}
+            {% if not path_counts %}
+            <tr><td colspan="2" class="muted">No typed components yet</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><span class="dot"></span>Archetype Notes</div>
+  <div class="p-3" style="font-size:12px;color:var(--text2);line-height:1.6;">
+    Keep "type_path" as specific as possible for better AI enrich and clearer registry grouping.
+    Development boards and module families should include differentiators in type_data
+    (clock_speed_mhz, ram_size_kb, flash_size_mb, pin_count, wireless, interface, usb_bridge).
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadTypeFields() {
+  const sel = document.getElementById('type-path-select');
+  const out = document.getElementById('type-fields-view');
+  const status = document.getElementById('type-fields-status');
+  const typePath = sel ? sel.value : '';
+  if (!typePath) return;
+
+  status.textContent = 'Loading fields...';
+  try {
+    const r = await fetch('/api/components/type-fields?type_path=' + encodeURIComponent(typePath));
+    if (!r.ok) {
+      status.textContent = 'Failed to load type fields';
+      return;
+    }
+    const data = await r.json();
+    out.textContent = JSON.stringify(data, null, 2);
+    status.textContent = 'Fields loaded for ' + typePath;
+  } catch (e) {
+    status.textContent = 'Failed to load type fields: ' + e.message;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('type-path-select')) {
+    loadTypeFields();
+  }
+});
+</script>
+{% endblock %}
