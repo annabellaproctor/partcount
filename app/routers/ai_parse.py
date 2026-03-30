@@ -1,44 +1,32 @@
 """
-AI parsing via Gemini Flash - cheapest model with highest free tier limits.
+AI parsing via Gemini using official google-genai SDK.
 Used for: component data extraction, aggregate result merging, confidence scoring.
-Free tier: 1500 RPD (15 RPM burst).
-
-CRITICAL: Uses generativelanguage.googleapis.com (global endpoint) for pay-as-you-go.
-Search grounding tool DISABLED (causes 429 errors due to undocumented quota).
+https://ai.google.dev/gemini-api/docs/quickstart
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import httpx, os, json, logging, asyncio
+import os, json, logging
 from datetime import datetime, timedelta
+from google import genai
+from google.genai import types
 
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-# Use gemini-pro - documented stable model for v1beta
-# gemini-1.5-flash doesn't exist, it's just gemini-flash or gemini-pro
-GEMINI_MODEL = "gemini-pro"
-# CRITICAL: Must use v1beta for responseMimeType/responseSchema support
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+# Initialize client
+client = None
+if GEMINI_KEY:
+    client = genai.Client(api_key=GEMINI_KEY)
 
 # Failed request logging
 _failed_requests = []
 _max_failed_logs = 50
 
-# Rate limit tracking - check every 30 minutes at :10 and :40 past the hour
+# Rate limit tracking
 _last_usage_check = None
 _usage_check_interval = timedelta(minutes=30)
-
-# Error response patterns that should never be cached
-ERROR_RESPONSE_PATTERNS = [
-    "i'm sorry",
-    "i cannot",
-    "i can't",
-    "something went wrong",
-    "an error occurred",
-    "unable to",
-    "failed to",
-]
 
 
 def log_failed_request(error_type: str, details: dict):
@@ -54,254 +42,82 @@ def log_failed_request(error_type: str, details: dict):
         _failed_requests.pop(0)
     log.error(f"Failed Gemini request: {error_type} - {details}")
 
-# JSON schema enforced by Gemini — no cleaning needed
+
+# JSON schemas
 COMPONENT_SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
-        "name":           {"type": "STRING"},
-        "manufacturer":   {"type": "STRING"},
-        "mpn":            {"type": "STRING"},
-        "value":          {"type": "STRING"},
-        "unit":           {"type": "STRING"},
-        "package":        {"type": "STRING"},
-        "voltage_rating": {"type": "NUMBER"},
-        "tolerance":      {"type": "STRING"},
-        "description":    {"type": "STRING"},
-        "type":           {"type": "STRING",
+        "name":           {"type": "string"},
+        "manufacturer":   {"type": "string"},
+        "mpn":            {"type": "string"},
+        "value":          {"type": "string"},
+        "unit":           {"type": "string"},
+        "package":        {"type": "string"},
+        "voltage_rating": {"type": "number"},
+        "tolerance":      {"type": "string"},
+        "description":    {"type": "string"},
+        "type":           {"type": "string",
                            "enum": ["resistor","capacitor","diode","transistor","mosfet",
                                     "ic","inductor","connector","relay","led","module",
                                     "sensor","crystal","fuse","switch","default"]},
-        "datasheet_url":  {"type": "STRING"},
-        "image_url":      {"type": "STRING"},
-        "confidence":     {"type": "NUMBER"},
-        "notes":          {"type": "STRING"},
+        "datasheet_url":  {"type": "string"},
+        "image_url":      {"type": "string"},
+        "confidence":     {"type": "number"},
+        "notes":          {"type": "string"},
     },
     "required": ["name", "type", "confidence"]
 }
 
 MERGE_SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
-        "name":           {"type": "STRING"},
-        "manufacturer":   {"type": "STRING"},
-        "mpn":            {"type": "STRING"},
-        "value":          {"type": "STRING"},
-        "unit":           {"type": "STRING"},
-        "package":        {"type": "STRING"},
-        "voltage_rating": {"type": "NUMBER"},
-        "tolerance":      {"type": "STRING"},
-        "description":    {"type": "STRING"},
-        "type":           {"type": "STRING"},
-        "datasheet_url":  {"type": "STRING"},
-        "image_url":      {"type": "STRING"},
-        "confidence":     {"type": "NUMBER"},
-        "reasoning":      {"type": "STRING"},
+        "name":           {"type": "string"},
+        "manufacturer":   {"type": "string"},
+        "mpn":            {"type": "string"},
+        "value":          {"type": "string"},
+        "unit":           {"type": "string"},
+        "package":        {"type": "string"},
+        "voltage_rating": {"type": "number"},
+        "tolerance":      {"type": "string"},
+        "description":    {"type": "string"},
+        "type":           {"type": "string"},
+        "datasheet_url":  {"type": "string"},
+        "image_url":      {"type": "string"},
+        "confidence":     {"type": "number"},
+        "reasoning":      {"type": "string"},
     },
     "required": ["name", "confidence", "reasoning"]
 }
 
 
-async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
-    """
-    Call Gemini API with exponential backoff and proper error handling.
-    
-    CRITICAL:
-    - Uses generativelanguage.googleapis.com (global endpoint)
-    - X-goog-api-key header per Google documentation
-    - NO search grounding tool (causes undocumented 429 quota errors)
-    - Retries on 429 with exponential backoff
-    - Never returns error responses (detects "I'm sorry", "I cannot", etc.)
-    - Logs all failures for debugging
-    """
-    global _last_usage_check
-    
-    if not GEMINI_KEY:
-        log_failed_request("no_api_key", {"message": "GEMINI_API_KEY not set"})
+async def _gemini(prompt: str, schema: dict) -> dict:
+    """Call Gemini API using official SDK"""
+    if not client:
+        log_failed_request("no_client", {"message": "GEMINI_API_KEY not set"})
         raise HTTPException(503, "GEMINI_API_KEY not configured")
     
-    # Check if we should log usage stats (every 30 min at :10 and :40 past hour)
-    now = datetime.utcnow()
-    if _last_usage_check is None or (now - _last_usage_check) > _usage_check_interval:
-        _last_usage_check = now
-        log.info(f"Gemini usage check due (every {_usage_check_interval.total_seconds()/60:.0f}min at :10 and :40)")
-    
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": schema,
-            "temperature": 0.1,
-            "maxOutputTokens": 1024,
-        },
-        # CRITICAL: Do NOT include tools (especially search grounding)
-        # Search grounding causes 429 errors due to undocumented quota
-    }
-    
-    last_error = None
-    total_timeout = 30.0  # Max 30s for all retries
-    start_time = asyncio.get_event_loop().time()
-    
-    for attempt in range(retries):
-        try:
-            # Check total timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
-            if elapsed > total_timeout:
-                log_failed_request("timeout", {
-                    "elapsed": elapsed,
-                    "max_timeout": total_timeout,
-                })
-                raise HTTPException(504, "Gemini API timeout")
-            
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                # CRITICAL: Use X-goog-api-key header per Google documentation
-                headers = {
-                    "Content-Type": "application/json",
-                    "X-goog-api-key": GEMINI_KEY,
-                }
-                
-                log.debug(f"Calling Gemini: {GEMINI_URL} (attempt {attempt + 1}/{retries})")
-                
-                # Don't pass key in URL when using header
-                r = await client.post(GEMINI_URL, json=payload, headers=headers)
-                
-                # Log full response for debugging
-                response_body = r.text[:1000]
-                
-                # Handle rate limit (429)
-                if r.status_code == 429:
-                    wait_time = min((2 ** attempt) * 1.0, 8.0)
-                    log_failed_request("rate_limit_429", {
-                        "attempt": attempt + 1,
-                        "model": GEMINI_MODEL,
-                        "endpoint": GEMINI_URL,
-                        "response_body": response_body,
-                        "wait_time": wait_time,
-                    })
-                    
-                    if attempt < retries - 1:
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        raise HTTPException(
-                            429, 
-                            f"Gemini API rate limit (429). Model: {GEMINI_MODEL}. "
-                            f"This may indicate: (1) API key not valid, (2) Billing not enabled, "
-                            f"(3) Model name incorrect. Check Google AI Studio for valid models."
-                        )
-                
-                # Handle 403 Forbidden
-                if r.status_code == 403:
-                    log_failed_request("forbidden_403", {
-                        "model": GEMINI_MODEL,
-                        "endpoint": GEMINI_URL,
-                        "response_body": response_body,
-                    })
-                    raise HTTPException(
-                        403,
-                        f"Gemini API key forbidden (403). "
-                        f"Go to https://aistudio.google.com/apikey to: "
-                        f"(1) Verify API key is enabled, "
-                        f"(2) Enable billing if required, "
-                        f"(3) Check API restrictions."
-                    )
-                
-                # Handle other errors
-                if r.status_code != 200:
-                    log_failed_request(f"http_{r.status_code}", {
-                        "status": r.status_code,
-                        "model": GEMINI_MODEL,
-                        "endpoint": GEMINI_URL,
-                        "response_body": response_body,
-                        "headers": dict(r.headers),
-                    })
-                    
-                    # Don't retry on client errors (400-499 except 429)
-                    if 400 <= r.status_code < 500 and r.status_code != 429:
-                        raise HTTPException(
-                            502, 
-                            f"Gemini API error {r.status_code}. "
-                            f"Model: {GEMINI_MODEL}. Response: {response_body[:200]}"
-                        )
-                    
-                    # Retry on server errors (500+)
-                    if attempt < retries - 1:
-                        wait_time = (2 ** attempt) * 1.0
-                        await asyncio.sleep(wait_time)
-                        continue
-                    
-                    raise HTTPException(502, f"Gemini API error: {r.status_code}")
-                
-                # Success - parse response
-                data = r.json()
-                
-                # Extract text from response
-                if "candidates" not in data or not data["candidates"]:
-                    log_failed_request("no_candidates", {
-                        "response_data": data,
-                    })
-                    raise HTTPException(502, "Gemini returned no candidates")
-                
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                
-                # CRITICAL: Check for error responses in text
-                text_lower = text.lower()
-                for pattern in ERROR_RESPONSE_PATTERNS:
-                    if pattern in text_lower:
-                        log_failed_request("error_response_pattern", {
-                            "pattern": pattern,
-                            "text_preview": text[:200],
-                        })
-                        
-                        if attempt < retries - 1:
-                            wait_time = (2 ** attempt) * 1.0
-                            await asyncio.sleep(wait_time)
-                            continue
-                        raise HTTPException(502, "Gemini returned error response instead of valid data")
-                
-                result = json.loads(text)
-                
-                # Log success on retry
-                if attempt > 0:
-                    log.info(f"Gemini call succeeded on attempt {attempt + 1}")
-                
-                return result
-                
-        except httpx.TimeoutException as e:
-            last_error = e
-            log_failed_request("timeout_exception", {
-                "attempt": attempt + 1,
-                "error": str(e),
-            })
-            if attempt < retries - 1:
-                await asyncio.sleep((2 ** attempt) * 1.0)
-                continue
-            raise HTTPException(504, "Gemini API timeout")
-            
-        except json.JSONDecodeError as e:
-            last_error = e
-            log_failed_request("json_decode_error", {
-                "error": str(e),
-                "text_preview": text[:200] if 'text' in locals() else None,
-            })
-            raise HTTPException(502, "Gemini returned invalid JSON")
-            
-        except HTTPException:
-            raise
-            
-        except Exception as e:
-            last_error = e
-            log_failed_request("unexpected_error", {
-                "attempt": attempt + 1,
-                "error_type": type(e).__name__,
-                "error": str(e),
-            })
-            if attempt < retries - 1:
-                await asyncio.sleep((2 ** attempt) * 1.0)
-                continue
-            raise HTTPException(502, f"Gemini API error: {str(e)[:100]}")
-    
-    # Should never reach here
-    raise HTTPException(502, "Gemini API failed after retries")
+    try:
+        # Use gemini-2.0-flash-exp model with JSON response
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.1,
+            )
+        )
+        
+        # Parse JSON response
+        result = json.loads(response.text)
+        return result
+        
+    except Exception as e:
+        log_failed_request("sdk_error", {
+            "error": str(e),
+            "type": type(e).__name__,
+        })
+        raise HTTPException(502, f"Gemini API error: {str(e)[:200]}")
 
 
 class ParseRequest(BaseModel):
@@ -315,10 +131,7 @@ class MergeRequest(BaseModel):
 
 @router.post("/parse")
 async def parse_component(req: ParseRequest):
-    """
-    Extract structured component data from any text.
-    Amazon listing, datasheet snippet, product description, etc.
-    """
+    """Extract structured component data from any text."""
     if not req.text or len(req.text.strip()) < 5:
         raise HTTPException(400, "Text too short")
 
@@ -340,11 +153,7 @@ Text:
 
 @router.post("/merge")
 async def merge_results(req: MergeRequest):
-    """
-    Given multiple lookup results from different sources (DigiKey, LCSC, etc.),
-    use Gemini to intelligently merge them into the best single record.
-    Resolves conflicts, picks best image, combines descriptions.
-    """
+    """Merge multiple lookup results into best single record."""
     if not req.results:
         raise HTTPException(400, "No results to merge")
 
@@ -370,17 +179,14 @@ Results to merge:
 
 @router.post("/classify")
 async def classify_component(req: ParseRequest):
-    """
-    Given a component name/description, return the best type classification
-    and suggest barcode ID prefix.
-    """
+    """Classify component and suggest barcode prefix."""
     CLASSIFY_SCHEMA = {
-        "type": "OBJECT",
+        "type": "object",
         "properties": {
-            "type":        {"type": "STRING"},
-            "prefix":      {"type": "STRING"},
-            "confidence":  {"type": "NUMBER"},
-            "reasoning":   {"type": "STRING"},
+            "type":        {"type": "string"},
+            "prefix":      {"type": "string"},
+            "confidence":  {"type": "number"},
+            "reasoning":   {"type": "string"},
         },
         "required": ["type", "prefix", "confidence"]
     }
@@ -399,6 +205,6 @@ async def get_failed_requests(limit: int = 50):
     return {
         "failed_requests": _failed_requests[-limit:],
         "total_failures": len(_failed_requests),
-        "model": GEMINI_MODEL,
-        "endpoint": GEMINI_URL,
+        "model": "gemini-2.0-flash-exp",
+        "sdk": "google-genai",
     }

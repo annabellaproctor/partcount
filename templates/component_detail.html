@@ -20,32 +20,29 @@
           <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
           <!-- Dropdown menu overlay -->
           <div style="position:absolute;top:8px;right:8px;">
-            <button class="btn btn-sm" style="background:rgba(0,0,0,0.7);color:#fff;padding:4px 8px;border:none;" onclick="toggleImageMenu(event)">⋮</button>
-            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 8px rgba(0,0,0,0.3);min-width:150px;z-index:10;">
-              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);" onclick="openCropEditor()">✂️ Crop & Edit</button>
-              <label class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer;margin:0;">
-                📤 Upload Image
+            <button class="btn btn-sm" style="background:rgba(0,0,0,0.7);color:#fff;padding:6px 10px;border:none;border-radius:3px;" onclick="toggleImageMenu(event)">⋮</button>
+            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:160px;z-index:10;margin-top:4px;">
+              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);padding:8px 12px;" onclick="openCropEditor()">✂️ Crop & Edit</button>
+              <label class="btn btn-sm w-100" style="text-align:left;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer;margin:0;padding:8px 12px;">
+                📤 Upload New
                 <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
               </label>
-              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
+              <button class="btn btn-sm w-100" style="text-align:left;border-radius:0;padding:8px 12px;" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
             </div>
           </div>
         </div>
         {% else %}
-        <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;" id="comp-img-placeholder">
+        <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;margin-bottom:12px;" id="comp-img-placeholder">
           No image
         </div>
-        {% endif %}
-
-        <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;">
-          <!-- Upload from computer -->
+        <div style="display:flex;flex-direction:column;gap:6px;">
           <label class="btn btn-primary btn-sm" style="cursor:pointer;">
-            Upload
+            📤 Upload
             <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this)">
           </label>
-          <!-- Web search -->
-          <button class="btn btn-primary btn-sm" onclick="openImageSearch()">Search Web</button>
+          <button class="btn btn-primary btn-sm" onclick="openImageSearch()">🔍 Search Web</button>
         </div>
+        {% endif %}
       </div>
     </div>
 
@@ -533,8 +530,8 @@ async function openCropEditor() {
   if (!img) return;
   
   _currentImageUrl = img.src;
-  _currentImageData = { preview: img.src };
-  showCropModal(_currentImageData);
+  _removeBgChoice = null;
+  showCropModal(img.src);  // Pass URL directly
 }
 
 function openImageSearch() {
@@ -902,12 +899,16 @@ async function confirmCrop() {
 
 async function uploadImage(input) {
   if (!input.files[0]) return;
-  const fd = new FormData();
-  fd.append('file', input.files[0]);
-  const r = await fetch('/api/images/upload/' + COMP_ID, {method:'POST', body: fd});
-  if (r.ok) {
-    location.reload();
-  }
+  const file = input.files[0];
+  
+  // Show crop editor with uploaded file immediately
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    _currentImageUrl = e.target.result;
+    _removeBgChoice = null;
+    showCropModal(e.target.result);
+  };
+  reader.readAsDataURL(file);
 }
 
 async function uploadFromModal(input) {

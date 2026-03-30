@@ -284,7 +284,9 @@ function showCropModal(data) {
     _canvas.onmouseleave = endDrag;
   };
   
-  _img.src = data.preview;
+  // Handle both data.preview (from API) and direct URL string
+  const imageUrl = typeof data === 'string' ? data : (data.preview || data);
+  _img.src = imageUrl;
 }
 
 function closeCropModal() {
