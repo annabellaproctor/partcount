@@ -29,7 +29,6 @@ function initCropper(imageUrl) {
     .then(r => r.json())
     .then(data => {
       img.src = data.data_url;
-      _initCropperInstance();
     })
     .catch(err => {
       console.error('Failed to proxy image:', err);
@@ -37,8 +36,30 @@ function initCropper(imageUrl) {
     });
   } else {
     img.src = imageUrl;
-    _initCropperInstance();
   }
+  
+  // Initialize cropper after image loads
+  img.onload = () => {
+    cropper = new Cropper(img, {
+      viewMode: 1,
+      dragMode: 'move',
+      aspectRatio: NaN,
+      autoCropArea: 0.8,
+      restore: false,
+      guides: true,
+      center: true,
+      highlight: false,
+      cropBoxMovable: true,
+      cropBoxResizable: true,
+      toggleDragModeOnDblclick: false,
+      background: false,
+      responsive: true,
+      checkCrossOrigin: false,
+    });
+    
+    _originalImageSrcForBg = img.src;
+    console.log('Cropper initialized');
+  };
 }
 
 function _initCropperInstance() {
@@ -132,20 +153,40 @@ function revertBackgroundRemoval() {
 function cropperAutoCrop() {
   if (!cropper) return;
   
-  // Get canvas data
+  // Get the FULL canvas (not cropped)
   const canvas = cropper.getCroppedCanvas();
   const ctx = canvas.getContext('2d');
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
   
-  // Find bounds
-  let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+  // Get full image dimensions
+  const containerData = cropper.getContainerData();
+  const imageData = cropper.getImageData();
   
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      const i = (y * canvas.width + x) * 4;
-      const a = data[i + 3];
-      if (a > 25) { // Not transparent
+  // Create temp canvas with full image
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = imageData.naturalWidth;
+  tempCanvas.height = imageData.naturalHeight;
+  const tempCtx = tempCanvas.getContext('2d');
+  
+  // Draw full image
+  const img = document.getElementById('crop-image');
+  tempCtx.drawImage(img, 0, 0);
+  
+  // Get pixel data
+  const pixels = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+  const data = pixels.data;
+  
+  // Find bounds (non-white pixels)
+  let minX = tempCanvas.width, minY = tempCanvas.height, maxX = 0, maxY = 0;
+  let found = false;
+  
+  for (let y = 0; y < tempCanvas.height; y++) {
+    for (let x = 0; x < tempCanvas.width; x++) {
+      const i = (y * tempCanvas.width + x) * 4;
+      const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+      
+      // Check if not white/transparent (threshold for slight grays too)
+      if (a > 25 && (r < 240 || g < 240 || b < 240)) {
+        found = true;
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (y < minY) minY = y;
@@ -154,17 +195,30 @@ function cropperAutoCrop() {
     }
   }
   
-  // Set crop data
-  const imageData2 = cropper.getImageData();
-  const scaleX = imageData2.naturalWidth / imageData2.width;
-  const scaleY = imageData2.naturalHeight / imageData2.height;
+  if (!found) {
+    alert('No content found to crop');
+    return;
+  }
   
+  // Add small padding (2%)
+  const paddingX = (maxX - minX) * 0.02;
+  const paddingY = (maxY - minY) * 0.02;
+  
+  minX = Math.max(0, minX - paddingX);
+  minY = Math.max(0, minY - paddingY);
+  maxX = Math.min(tempCanvas.width, maxX + paddingX);
+  maxY = Math.min(tempCanvas.height, maxY + paddingY);
+  
+  // Set crop box to these bounds
   cropper.setData({
-    x: minX * scaleX,
-    y: minY * scaleY,
-    width: (maxX - minX) * scaleX,
-    height: (maxY - minY) * scaleY
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+    rotate: cropper.getData().rotate || 0
   });
+  
+  console.log('Auto-cropped to:', {minX, minY, maxX, maxY});
 }
 
 // Get final cropped/rotated image
