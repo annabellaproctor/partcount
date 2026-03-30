@@ -143,6 +143,14 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
         
         # Parse JSON response
         result = json.loads(response.text)
+        
+        # Handle case where Gemini returns a list instead of object
+        if isinstance(result, list):
+            if len(result) > 0:
+                result = result[0]
+            else:
+                raise ValueError("Gemini returned empty list")
+        
         return result
         
     except Exception as e:
