@@ -201,6 +201,15 @@ function showColorPicker() {
   const dialog = document.getElementById('color-picker-dialog');
   const canvas = document.getElementById('color-picker-canvas');
   const ctx = canvas.getContext('2d');
+  const cropImg = document.getElementById('crop-image');
+  const src = (_currentImageData && _currentImageData.preview)
+    ? _currentImageData.preview
+    : (cropImg ? cropImg.src : null);
+
+  if (!src) {
+    alert('No image available for color selection yet.');
+    return;
+  }
   
   // Draw image to canvas
   const tempImg = new Image();
@@ -211,7 +220,7 @@ function showColorPicker() {
     ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
     dialog.style.display = 'flex';
   };
-  tempImg.src = _currentImageData.preview;
+  tempImg.src = src;
   
   // Setup click handler
   canvas.onclick = (e) => {
