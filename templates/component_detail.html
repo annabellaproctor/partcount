@@ -644,54 +644,6 @@ function skipBackgroundRemoval() {
   showCropModal(_currentImageData);
 }
 
-function showCropModal(data) {
-  document.getElementById('crop-modal').style.display = 'block';
-  
-  // Show/hide bg removal status
-  const bgStatus = document.getElementById('bg-removal-status');
-  if (_removeBgChoice === 'mechanical') {
-    bgStatus.style.display = 'block';
-  } else {
-    bgStatus.style.display = 'none';
-  }
-  
-  _canvas = document.getElementById('crop-canvas');
-  _ctx = _canvas.getContext('2d');
-  _img = new Image();
-  _img.crossOrigin = 'anonymous';
-  
-  _img.onload = () => {
-    // Set canvas to image size
-    _canvas.width = _img.width;
-    _canvas.height = _img.height;
-    
-    // Find tight auto-crop bounds (touching closest pixel on all sides)
-    const tightBounds = findTightBounds(_img);
-    
-    // Set sliders to tight crop
-    document.getElementById('crop-left').value = (tightBounds.left / _img.width * 100).toFixed(1);
-    document.getElementById('crop-top').value = (tightBounds.top / _img.height * 100).toFixed(1);
-    document.getElementById('crop-right').value = (tightBounds.right / _img.width * 100).toFixed(1);
-    document.getElementById('crop-bottom').value = (tightBounds.bottom / _img.height * 100).toFixed(1);
-    
-    _imgOffset = {x: 0, y: 0};
-    _rotationDegrees = 0;
-    document.getElementById('rotation-degrees').value = 0;
-    redrawCanvas();
-    
-    // Setup drag handlers for canvas
-    _canvas.onmousedown = startDrag;
-    _canvas.onmousemove = doDrag;
-    _canvas.onmouseup = endDrag;
-    _canvas.onmouseleave = endDrag;
-    
-    // Setup rotation handle (NOT SHOWN YET - add later if needed)
-    // For now just use number input
-  };
-  
-  _img.src = data.preview;
-}
-
 function revertBackgroundRemoval() {
   _removeBgChoice = 'skip';
   document.getElementById('bg-removal-status').style.display = 'none';
