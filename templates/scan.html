@@ -357,7 +357,8 @@ async function runOrder(q, force) {
     if (!results.length) {
       el.style.display = 'none'; empty.style.display = ''; return;
     }
-    el.innerHTML = results.map(r => renderOrderCard(r)).join('');
+    window._orderResults = {};
+    el.innerHTML = results.map((r, i) => { window._orderResults[i] = r; return renderOrderCard(r, i); }).join('');
   } catch(e) {
     loading.style.display = 'none';
     el.innerHTML = '<div style="color:var(--red);font-size:11px;grid-column:1/-1;">Error: ' + e.message + '</div>';
@@ -392,19 +393,14 @@ function renderOrderCard(r) {
     '</div>';
 }
 
-function importToInventory(r) {
-  // pre-fill add popup with this result
-  openAddPopup();
-  setTimeout(() => selectLookupResult(storeTemp(r)), 150);
-}
-
-// temp store for import
-window._tempResult = {};
-function storeTemp(r) {
-  const idx = 'temp_' + Date.now();
+function importResult(idx) {
+  const r = window._orderResults && window._orderResults[idx];
+  if (!r) return;
   if (!window._lookupResults) window._lookupResults = {};
-  window._lookupResults[idx] = r;
-  return idx;
+  const key = 'import_' + idx;
+  window._lookupResults[key] = r;
+  openAddPopup();
+  setTimeout(() => selectLookupResult(key), 200);
 }
 
 function escHtml(s) {

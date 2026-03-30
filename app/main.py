@@ -56,6 +56,15 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
+
+@app.get("/api/icons/{component_type}")
+async def get_icon(component_type: str):
+    from app.services.generic_icons import get_icon
+    from fastapi.responses import Response
+    svg = get_icon(component_type)
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: AsyncSession = Depends(get_db)):
     comp_count = (await db.execute(select(func.count()).select_from(Component))).scalar()
