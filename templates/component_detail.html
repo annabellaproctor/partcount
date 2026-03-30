@@ -525,6 +525,11 @@ document.addEventListener('click', (e) => {
 
 async function openCropEditor() {
   toggleImageMenu();
+  
+  // CRITICAL: Close image search modal if it exists
+  const imgModal = document.getElementById('img-modal');
+  if (imgModal) imgModal.style.display = 'none';
+  
   // Load current image into crop editor
   const img = document.getElementById('comp-img');
   if (!img) return;
@@ -784,8 +789,13 @@ async function confirmCrop() {
   const status = document.getElementById('crop-status');
   status.textContent = 'Processing...';
   
-  const w = _currentImageData.width;
-  const h = _currentImageData.height;
+  if (!_img) {
+    status.textContent = 'Error: No image loaded';
+    return;
+  }
+  
+  const w = _img.width;
+  const h = _img.height;
   const left = Math.floor(parseFloat(document.getElementById('crop-left').value) / 100 * w);
   const top = Math.floor(parseFloat(document.getElementById('crop-top').value) / 100 * h);
   const right = Math.floor(parseFloat(document.getElementById('crop-right').value) / 100 * w);
@@ -815,7 +825,8 @@ async function confirmCrop() {
       status.textContent = '✓ Saved';
       setTimeout(() => {
         document.getElementById('crop-modal').style.display = 'none';
-        document.getElementById('img-modal').style.display = 'none';
+        const imgModal = document.getElementById('img-modal');
+        if (imgModal) imgModal.style.display = 'none';
       }, 500);
     } else {
       const err = await r.text();

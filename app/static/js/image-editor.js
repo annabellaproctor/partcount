@@ -331,23 +331,32 @@ function autoAdjust() {
   const bounds = findTightBounds(_img);
   
   // Step 2: Set crop sliders to tight bounds
-  document.getElementById('crop-left').value = (bounds.left / _img.width * 100).toFixed(1);
-  document.getElementById('crop-top').value = (bounds.top / _img.height * 100).toFixed(1);
-  document.getElementById('crop-right').value = (bounds.right / _img.width * 100).toFixed(1);
-  document.getElementById('crop-bottom').value = (bounds.bottom / _img.height * 100).toFixed(1);
+  const cropLeft = document.getElementById('crop-left');
+  const cropTop = document.getElementById('crop-top');
+  const cropRight = document.getElementById('crop-right');
+  const cropBottom = document.getElementById('crop-bottom');
+  const rotationDegrees = document.getElementById('rotation-degrees');
+  
+  if (cropLeft) cropLeft.value = (bounds.left / _img.width * 100).toFixed(1);
+  if (cropTop) cropTop.value = (bounds.top / _img.height * 100).toFixed(1);
+  if (cropRight) cropRight.value = (bounds.right / _img.width * 100).toFixed(1);
+  if (cropBottom) cropBottom.value = (bounds.bottom / _img.height * 100).toFixed(1);
   
   // Step 3: Reset rotation and offset
   _rotationDegrees = 0;
-  document.getElementById('rotation-degrees').value = 0;
+  if (rotationDegrees) rotationDegrees.value = 0;
   _imgOffset = {x: 0, y: 0};
   
   // Step 4: Redraw
-  updateCropPreview();
+  redrawCanvas();
   
-  document.getElementById('crop-status').textContent = '✓ Auto-adjusted to tight crop';
-  setTimeout(() => {
-    document.getElementById('crop-status').textContent = '';
-  }, 2000);
+  const status = document.getElementById('crop-status');
+  if (status) {
+    status.textContent = '✓ Auto-adjusted to tight crop';
+    setTimeout(() => {
+      status.textContent = '';
+    }, 2000);
+  }
 }
 
 // ========== ROTATION ==========
