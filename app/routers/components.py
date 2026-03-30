@@ -13,10 +13,82 @@ from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
 from datetime import datetime
 import os, shutil, uuid
 import json
+import re
 from sqlalchemy import or_
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/components", tags=["components"])
+
+
+def _auto_component_name(comp: Component) -> str:
+    t = (comp.type_path or "").lower()
+    td = comp.type_data if isinstance(comp.type_data, dict) else {}
+    value = (comp.value or "").strip()
+    unit = (comp.unit or "").strip()
+    package = (comp.package or "").strip()
+
+    if "resistor" in t:
+        parts = ["Resistor"]
+        if value:
+            parts.append(f"{value}{unit or 'Ω'}")
+        if comp.tolerance:
+            parts.append(comp.tolerance)
+        if package:
+            parts.append(package)
+        return " ".join(parts)
+
+    if "capacitor" in t:
+        parts = ["Capacitor"]
+        if value:
+            parts.append(f"{value}{unit or 'F'}")
+        if comp.voltage_rating:
+            parts.append(f"{comp.voltage_rating:g}V")
+        if package:
+            parts.append(package)
+        return " ".join(parts)
+
+    if "development-board" in t or "mcu-module" in t:
+        fam = td.get("mcu_family") or td.get("variant") or comp.mpn or "Module"
+        parts = [str(fam)]
+        if td.get("clock_speed_mhz"):
+            parts.append(f"{td['clock_speed_mhz']}MHz")
+        if td.get("ram_size_kb"):
+            parts.append(f"{td['ram_size_kb']}KB")
+        return " ".join(str(x) for x in parts if x)
+
+    # Generic fallback keeps existing name if it already looks meaningful.
+    if comp.name and len(comp.name.strip()) >= 4:
+        return comp.name.strip()
+
+    bits = [comp.mpn, comp.value, unit, package]
+    return " ".join([b for b in bits if b]) or "Component"
+
+
+def _e12_values_between_ohms(low: float, high: float) -> list[float]:
+    series = [10, 12, 15, 18, 22, 27, 33, 39, 47, 56, 68, 82]
+    out = []
+    if low <= 0 or high <= 0 or high < low:
+        return out
+
+    decade = 1.0
+    while decade <= high * 10:
+        for base in series:
+            v = (base / 10.0) * decade
+            if low <= v <= high:
+                out.append(v)
+        decade *= 10
+    # de-dup + sort
+    return sorted(set(round(v, 6) for v in out))
+
+
+def _ohm_to_label(v: float) -> str:
+    if v >= 1_000_000:
+        m = v / 1_000_000
+        return f"{m:g}M"
+    if v >= 1000:
+        k = v / 1000
+        return f"{k:g}k"
+    return f"{v:g}"
 
 
 @router.get("/")
@@ -475,6 +547,37 @@ class ComponentStubCreateRequest(BaseModel):
     source_note: Optional[str] = None
 
 
+class BulkDeleteRequest(BaseModel):
+    component_ids: list[str]
+
+
+class BulkMergeRequest(BaseModel):
+    component_ids: list[str]
+    target_id: Optional[str] = None
+
+
+class BulkRenameRequest(BaseModel):
+    component_ids: list[str]
+    mode: str = "set"  # set | prefix | suffix | replace
+    value: Optional[str] = None
+    find: Optional[str] = None
+    replace: Optional[str] = None
+
+
+class BulkAutoRenameRequest(BaseModel):
+    component_ids: list[str]
+
+
+class BulkAIModifyRequest(BaseModel):
+    component_ids: list[str]
+    text: str
+    action: str = "repair"
+
+
+class CollectionCommandRequest(BaseModel):
+    command: str
+
+
 @router.patch("/{component_id}/parent")
 async def set_generic_parent(
     component_id: str,
@@ -567,6 +670,332 @@ async def patch_component(
         "barcode_id": comp.barcode_id,
         "updated": True,
     }
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_components(req: BulkDeleteRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+
+    comps = (await db.execute(select(Component).where(Component.id.in_(ids)))).scalars().all()
+    if not comps:
+        return {"deleted": 0}
+
+    # Clear parent links before delete.
+    children = (await db.execute(select(Component).where(Component.parent_id.in_(ids)))).scalars().all()
+    for c in children:
+        c.parent_id = None
+
+    # Remove join-table references first.
+    from app.models.models import BOMItem, ComponentSupplier, PurchaseOrderItem, KitComponent
+    for cid in ids:
+        links = (await db.execute(select(KitComponent).where(KitComponent.component_id == cid))).scalars().all()
+        for lk in links:
+            await db.delete(lk)
+
+        bom = (await db.execute(select(BOMItem).where(BOMItem.component_id == cid))).scalars().all()
+        for r in bom:
+            r.component_id = None
+
+        suppliers_rows = (await db.execute(select(ComponentSupplier).where(ComponentSupplier.component_id == cid))).scalars().all()
+        for r in suppliers_rows:
+            await db.delete(r)
+
+        po_rows = (await db.execute(select(PurchaseOrderItem).where(PurchaseOrderItem.component_id == cid))).scalars().all()
+        for r in po_rows:
+            r.component_id = None
+
+        bins = (await db.execute(select(BinAssignment).where(BinAssignment.component_id == cid))).scalars().all()
+        for r in bins:
+            await db.delete(r)
+
+        fps = (await db.execute(select(Footprint).where(Footprint.component_id == cid))).scalars().all()
+        for r in fps:
+            await db.delete(r)
+
+    for comp in comps:
+        await db.delete(comp)
+
+    return {"deleted": len(comps)}
+
+
+@router.post("/bulk-merge")
+async def bulk_merge_components(req: BulkMergeRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if len(ids) < 2:
+        raise HTTPException(400, "Select at least 2 components")
+
+    target_id = req.target_id or ids[0]
+    if target_id not in ids:
+        ids.insert(0, target_id)
+
+    target = (await db.execute(select(Component).where(Component.id == target_id))).scalar_one_or_none()
+    if not target:
+        raise HTTPException(404, "Target component not found")
+
+    from app.models.models import BOMItem, ComponentSupplier, PurchaseOrderItem, KitComponent
+    merged = 0
+    for source_id in ids:
+        if source_id == target_id:
+            continue
+        source = (await db.execute(select(Component).where(Component.id == source_id))).scalar_one_or_none()
+        if not source:
+            continue
+
+        # Fill empty target fields from source.
+        for field in ["value", "unit", "package", "voltage_rating", "tolerance", "notes", "datasheet_url", "mpn", "digikey_pn", "lcsc_pn", "description", "type_path"]:
+            if getattr(target, field) in (None, "") and getattr(source, field) not in (None, ""):
+                setattr(target, field, getattr(source, field))
+
+        if not target.short_title_manual and not target.short_title and source.short_title:
+            target.short_title = source.short_title
+
+        # Re-parent children
+        kids = (await db.execute(select(Component).where(Component.parent_id == source_id))).scalars().all()
+        for child in kids:
+            child.parent_id = target_id
+
+        # Merge kit rows, respecting unique(kit_id, component_id)
+        src_links = (await db.execute(select(KitComponent).where(KitComponent.component_id == source_id))).scalars().all()
+        for lk in src_links:
+            tgt_link = (await db.execute(
+                select(KitComponent).where(KitComponent.kit_id == lk.kit_id, KitComponent.component_id == target_id)
+            )).scalar_one_or_none()
+            if tgt_link:
+                tgt_link.quantity = (tgt_link.quantity or 0) + (lk.quantity or 0)
+                await db.delete(lk)
+            else:
+                lk.component_id = target_id
+
+        for row in (await db.execute(select(BOMItem).where(BOMItem.component_id == source_id))).scalars().all():
+            row.component_id = target_id
+        for row in (await db.execute(select(ComponentSupplier).where(ComponentSupplier.component_id == source_id))).scalars().all():
+            row.component_id = target_id
+        for row in (await db.execute(select(PurchaseOrderItem).where(PurchaseOrderItem.component_id == source_id))).scalars().all():
+            row.component_id = target_id
+        for row in (await db.execute(select(BinAssignment).where(BinAssignment.component_id == source_id))).scalars().all():
+            row.component_id = target_id
+        for row in (await db.execute(select(Footprint).where(Footprint.component_id == source_id))).scalars().all():
+            row.component_id = target_id
+
+        await db.delete(source)
+        merged += 1
+
+    return {"target_id": target_id, "merged": merged}
+
+
+@router.post("/bulk-rename")
+async def bulk_rename_components(req: BulkRenameRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+    comps = (await db.execute(select(Component).where(Component.id.in_(ids)))).scalars().all()
+
+    updated = 0
+    for comp in comps:
+        before = comp.name or ""
+        after = before
+        if req.mode == "set":
+            after = (req.value or "").strip() or before
+        elif req.mode == "prefix":
+            after = ((req.value or "") + before).strip()
+        elif req.mode == "suffix":
+            after = (before + (req.value or "")).strip()
+        elif req.mode == "replace":
+            after = before.replace(req.find or "", req.replace or "")
+
+        if after and after != before:
+            comp.name = after
+            if not comp.short_title_manual:
+                comp.short_title = generate_short_title(
+                    name=comp.name,
+                    value=comp.value,
+                    unit=comp.unit,
+                    package=comp.package,
+                    type_path=comp.type_path,
+                )
+            updated += 1
+
+    return {"updated": updated}
+
+
+@router.post("/bulk-auto-rename")
+async def bulk_auto_rename_components(req: BulkAutoRenameRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+    comps = (await db.execute(select(Component).where(Component.id.in_(ids)))).scalars().all()
+
+    updated = 0
+    for comp in comps:
+        new_name = _auto_component_name(comp)
+        if new_name and new_name != comp.name:
+            comp.name = new_name
+            updated += 1
+        if not comp.short_title_manual:
+            comp.short_title = generate_short_title(
+                name=comp.name,
+                value=comp.value,
+                unit=comp.unit,
+                package=comp.package,
+                type_path=comp.type_path,
+            )
+
+    return {"updated": updated}
+
+
+@router.post("/bulk-ai-modify")
+async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+    if not req.text or len(req.text.strip()) < 5:
+        raise HTTPException(400, "Text too short")
+
+    from app.routers.ai_parse import enrich_record, EnrichRequest
+
+    changed = 0
+    failed = []
+    for cid in ids:
+        comp = (await db.execute(select(Component).where(Component.id == cid))).scalar_one_or_none()
+        if not comp:
+            failed.append({"id": cid, "error": "not found"})
+            continue
+
+        existing = {
+            "name": comp.name,
+            "barcode_id": comp.barcode_id,
+            "value": comp.value,
+            "unit": comp.unit,
+            "package": comp.package,
+            "voltage_rating": comp.voltage_rating,
+            "tolerance": comp.tolerance,
+            "description": comp.description,
+            "notes": comp.notes,
+            "mpn": comp.mpn,
+            "digikey_pn": comp.digikey_pn,
+            "lcsc_pn": comp.lcsc_pn,
+            "datasheet_url": comp.datasheet_url,
+            "type_path": comp.type_path,
+            "type_data": comp.type_data if isinstance(comp.type_data, dict) else {},
+        }
+
+        try:
+            ai = await enrich_record(EnrichRequest(
+                mode="component",
+                action=req.action,
+                text=req.text,
+                existing_data=existing,
+            ))
+            patch_fields = ai.get("patch_fields") or {}
+            clear_fields = ai.get("remove_fields") or []
+            for field, val in patch_fields.items():
+                if hasattr(comp, field):
+                    setattr(comp, field, val)
+            for field in clear_fields:
+                if hasattr(comp, field):
+                    setattr(comp, field, None)
+            if not comp.short_title_manual:
+                comp.short_title = generate_short_title(
+                    name=comp.name,
+                    value=comp.value,
+                    unit=comp.unit,
+                    package=comp.package,
+                    type_path=comp.type_path,
+                )
+            comp.updated_at = datetime.utcnow()
+            changed += 1
+        except Exception as e:
+            failed.append({"id": cid, "error": str(e)[:160]})
+
+    return {"updated": changed, "failed": failed}
+
+
+@router.post("/collection-command")
+async def create_collection_from_command(req: CollectionCommandRequest, db: AsyncSession = Depends(get_db)):
+    cmd = (req.command or "").strip()
+    if len(cmd) < 10:
+        raise HTTPException(400, "Command too short")
+
+    lc = cmd.lower()
+    if "resistor" not in lc:
+        raise HTTPException(400, "Only resistor collection commands are currently supported")
+
+    m = re.search(r"from\s*([0-9.]+)\s*(?:ohm|Ω|r)?\s*to\s*([0-9.]+)\s*(?:ohm|Ω|r|k|m)?", lc)
+    if not m:
+        raise HTTPException(400, "Could not parse resistor range (try: from 10ohm to 100ohm)")
+    lo = float(m.group(1))
+    hi = float(m.group(2))
+    if hi < lo:
+        lo, hi = hi, lo
+
+    tol_match = re.search(r"([0-9.]+\s*%)", lc)
+    tolerance = tol_match.group(1).replace(" ", "") if tol_match else None
+    power_match = re.search(r"([0-9]+\s*/\s*[0-9]+|[0-9.]+)\s*w", lc)
+    power = power_match.group(1).replace(" ", "") + "W" if power_match else None
+    material = "Carbon Film" if "carbon film" in lc else ("Metal Film" if "metal film" in lc else None)
+
+    ctype = (await db.execute(select(ComponentType).where(ComponentType.name == "resistor").limit(1))).scalar_one_or_none()
+    if not ctype:
+        ctype = (await db.execute(select(ComponentType).limit(1))).scalar_one_or_none()
+    if not ctype:
+        raise HTTPException(400, "No component types available")
+
+    prefix = ctype.name[0].upper()
+    existing_barcodes = (await db.execute(select(Component.barcode_id).where(Component.barcode_id.like(f"{prefix}%")))).scalars().all()
+    pool = set(existing_barcodes)
+
+    created = []
+    values = _e12_values_between_ohms(lo, hi)
+    for v in values:
+        val_label = _ohm_to_label(v)
+        exists = (await db.execute(
+            select(Component).where(
+                Component.type_id == ctype.id,
+                Component.value == val_label,
+                Component.unit == "Ω",
+            ).limit(1)
+        )).scalar_one_or_none()
+        if exists:
+            continue
+
+        barcode = next_barcode_id(prefix, list(pool))
+        pool.add(barcode)
+        base_name = "Resistor"
+        if material:
+            base_name = f"{material} Resistor"
+        name = f"{base_name} {val_label}Ω"
+
+        notes_parts = ["[AUTO-COLLECTION]", f"Generated from command: {cmd[:180]}"]
+        if power:
+            notes_parts.append(f"power={power}")
+
+        comp = Component(
+            barcode_id=barcode,
+            name=name,
+            value=val_label,
+            unit="Ω",
+            tolerance=tolerance,
+            type_id=ctype.id,
+            type_path="passives/resistor/film" if material else "passives/resistor",
+            notes=" | ".join(notes_parts),
+            short_title=generate_short_title(
+                name=name,
+                value=val_label,
+                unit="Ω",
+                package=None,
+                type_path="passives/resistor/film" if material else "passives/resistor",
+            ),
+            short_title_manual=False,
+        )
+        if power:
+            comp.type_data = {"power_rating": power}
+
+        db.add(comp)
+        created.append({"id": comp.id, "barcode_id": barcode, "name": name})
+
+    return {"created": len(created), "items": created, "range_values": len(values)}
 
 
 @router.post("/stub")

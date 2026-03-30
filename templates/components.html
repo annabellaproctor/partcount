@@ -14,11 +14,50 @@
   </div>
 </div>
 
+<div class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Batch Tools</div>
+  <div class="p-3" style="display:flex;flex-direction:column;gap:10px;">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span id="batch-selection-count" class="muted" style="font-size:11px;">0 selected</span>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelected()">Delete Selected</button>
+      <button class="btn btn-primary btn-sm" onclick="bulkMergeSelected()">Merge Selected (2+)</button>
+      <select id="rename-mode" class="form-select form-select-sm" style="width:140px;">
+        <option value="set">Rename: Set</option>
+        <option value="prefix">Rename: Prefix</option>
+        <option value="suffix">Rename: Suffix</option>
+        <option value="replace">Rename: Replace</option>
+      </select>
+      <input id="rename-value" class="form-control form-control-sm" style="width:180px;" placeholder="Value / prefix / suffix">
+      <input id="rename-find" class="form-control form-control-sm" style="width:140px;" placeholder="Find (replace mode)">
+      <input id="rename-replace" class="form-control form-control-sm" style="width:140px;" placeholder="Replace with">
+      <button class="btn btn-primary btn-sm" onclick="bulkRenameSelected()">Run Rename</button>
+      <button class="btn btn-primary btn-sm" onclick="bulkAutoRenameSelected()">Auto Rename</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <select id="bulk-ai-action" class="form-select form-select-sm" style="width:130px;">
+        <option value="repair">AI Repair</option>
+        <option value="add">AI Add</option>
+        <option value="remove">AI Remove</option>
+      </select>
+      <input id="bulk-ai-text" class="form-control form-control-sm" style="min-width:360px;flex:1;" placeholder="AI instruction for selected rows (modify multiple rows)">
+      <button class="btn btn-primary btn-sm" onclick="bulkAiModifySelected()">Apply AI to Selected</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="collection-command" class="form-control form-control-sm" style="min-width:460px;flex:1;" placeholder="Collection command e.g. add all resistors 5% tol, 1/4w carbon film resistor from 10ohm to 100ohm">
+      <button class="btn btn-primary btn-sm" onclick="runCollectionCommand()">Create Collection</button>
+    </div>
+    <div id="batch-status" class="muted" style="font-size:11px;"></div>
+  </div>
+</div>
+
 <div class="card mb-5">
   <div class="card-header"><span class="dot"></span>Component Registry</div>
   <table class="table" id="comp-table">
     <thead>
       <tr>
+        <th><input type="checkbox" id="select-all-rows" onchange="toggleSelectAll(this.checked)"></th>
         <th>ID</th><th>Image</th><th>Name</th><th>Value</th><th>Package</th>
         <th>Manufacturer</th><th>Tolerance</th><th>Type</th><th>Type Path</th><th>Archetype</th><th>Total Stock</th><th>Labels</th>
       </tr>
@@ -26,7 +65,11 @@
     <tbody id="comp-table-body">
       {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
       <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }}"
-          data-is-generic="{{ 'true' if comp.is_generic else 'false' }}">
+          data-is-generic="{{ 'true' if comp.is_generic else 'false' }}"
+          data-component-id="{{ comp.id }}"
+          data-barcode-id="{{ comp.barcode_id }}"
+          data-name="{{ comp.name|e }}">
+        <td><input type="checkbox" class="row-select" onchange="updateBatchSelection()"></td>
         <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
         <td>
           {% if comp.image_path %}
@@ -77,6 +120,26 @@
 
 {% block scripts %}
 <script>
+function getSelectedRows() {
+  return Array.from(document.querySelectorAll('#comp-table tbody tr'))
+    .filter(r => r.querySelector('.row-select')?.checked)
+}
+
+function getSelectedIds() {
+  return getSelectedRows().map(r => r.dataset.componentId)
+}
+
+function updateBatchSelection() {
+  const count = getSelectedIds().length
+  const el = document.getElementById('batch-selection-count')
+  if (el) el.textContent = `${count} selected`
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.row-select').forEach(cb => { cb.checked = checked })
+  updateBatchSelection()
+}
+
 function applyFilters() {
   const q = document.getElementById('text-filter').value.toLowerCase();
   const genericOnly = document.getElementById('generic-filter').checked;
@@ -86,5 +149,112 @@ function applyFilters() {
     r.style.display = (textMatch && genericMatch) ? '' : 'none';
   });
 }
+
+async function postJson(url, payload) {
+  return fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  })
+}
+
+async function bulkDeleteSelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  if (!confirm(`Delete ${ids.length} components?`)) return
+  status.textContent = 'Deleting...'
+  const r = await postJson('/api/components/bulk-delete', { component_ids: ids })
+  status.textContent = r.ok ? 'Deleted' : 'Delete failed'
+  if (r.ok) setTimeout(() => location.reload(), 200)
+}
+
+async function bulkMergeSelected() {
+  const rows = getSelectedRows()
+  const ids = rows.map(r => r.dataset.componentId)
+  const status = document.getElementById('batch-status')
+  if (ids.length < 2) { status.textContent = 'Select 2+ rows to merge'; return }
+  const keepBarcode = prompt('Enter barcode id to KEEP (must be selected). Leave blank to keep first selected.', rows[0].dataset.barcodeId || '')
+  let targetId = ids[0]
+  if (keepBarcode) {
+    const found = rows.find(r => (r.dataset.barcodeId || '').toLowerCase() === keepBarcode.toLowerCase())
+    if (!found) { status.textContent = 'Keep barcode not in selected rows'; return }
+    targetId = found.dataset.componentId
+  }
+  status.textContent = 'Merging...'
+  const r = await postJson('/api/components/bulk-merge', { component_ids: ids, target_id: targetId })
+  status.textContent = r.ok ? 'Merged' : 'Merge failed'
+  if (r.ok) setTimeout(() => location.reload(), 200)
+}
+
+async function bulkRenameSelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  const mode = document.getElementById('rename-mode').value
+  const value = document.getElementById('rename-value').value
+  const find = document.getElementById('rename-find').value
+  const replace = document.getElementById('rename-replace').value
+  status.textContent = 'Renaming...'
+  const r = await postJson('/api/components/bulk-rename', {
+    component_ids: ids,
+    mode,
+    value,
+    find,
+    replace,
+  })
+  status.textContent = r.ok ? 'Rename complete' : 'Rename failed'
+  if (r.ok) setTimeout(() => location.reload(), 200)
+}
+
+async function bulkAutoRenameSelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  status.textContent = 'Auto renaming...'
+  const r = await postJson('/api/components/bulk-auto-rename', { component_ids: ids })
+  status.textContent = r.ok ? 'Auto rename complete' : 'Auto rename failed'
+  if (r.ok) setTimeout(() => location.reload(), 200)
+}
+
+async function bulkAiModifySelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  const text = document.getElementById('bulk-ai-text').value.trim()
+  const action = document.getElementById('bulk-ai-action').value
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  if (!text) { status.textContent = 'Enter AI modify instruction'; return }
+  status.textContent = 'Running AI modify...'
+  const r = await postJson('/api/components/bulk-ai-modify', {
+    component_ids: ids,
+    text,
+    action,
+  })
+  if (!r.ok) {
+    status.textContent = 'AI modify failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `AI updated ${data.updated || 0} rows${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
+  setTimeout(() => location.reload(), 250)
+}
+
+async function runCollectionCommand() {
+  const status = document.getElementById('batch-status')
+  const command = document.getElementById('collection-command').value.trim()
+  if (!command) { status.textContent = 'Enter collection command'; return }
+  status.textContent = 'Creating collection...'
+  const r = await postJson('/api/components/collection-command', { command })
+  if (!r.ok) {
+    const err = await r.text()
+    status.textContent = 'Collection command failed: ' + err.slice(0, 120)
+    return
+  }
+  const data = await r.json()
+  status.textContent = `Created ${data.created || 0} components`
+  setTimeout(() => location.reload(), 250)
+}
+
+document.addEventListener('DOMContentLoaded', updateBatchSelection)
 </script>
 {% endblock %}
