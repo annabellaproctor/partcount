@@ -257,10 +257,26 @@
       <button onclick="closeImageSearch()" class="btn btn-danger btn-sm">✕</button>
     </div>
     
-    <!-- Search bar -->
-    <div style="display:flex;gap:8px;margin-bottom:14px;">
-      <input id="img-search-input" class="form-control" value="{{ comp.name }} {{ comp.package or '' }} component" placeholder="Search query">
+    <!-- Source priority tabs -->
+    <div style="display:flex;gap:4px;margin-bottom:12px;font-size:10px;">
+      <button class="btn btn-sm" style="background:var(--green);color:#000;flex:1;">Free (Wikimedia)</button>
+      <button class="btn btn-sm" style="background:var(--amber);color:#000;flex:1;">Unlimited (Mouser/DK)</button>
+      <button class="btn btn-sm" style="background:var(--red);color:#fff;flex:1;">Limited (Brave/Tavily)</button>
+    </div>
+    <div style="font-size:9px;color:var(--text3);margin-bottom:12px;padding:6px;background:var(--bg3);border-radius:2px;">
+      🟢 Free: Wikimedia Commons (unlimited) · 🟡 Unlimited: Mouser, DigiKey APIs · 🔴 Limited: Brave (1000/mo), Tavily (1000/mo)
+    </div>
+    
+    <!-- Search bar with enter key support -->
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <input id="img-search-input" class="form-control" 
+             value="{{ comp.name }} {{ comp.package or '' }} component" 
+             placeholder="Refine search query, remove serials/notes, then press Enter or Search">
       <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
+      <button class="btn btn-secondary" onclick="resetImageSearch()">Reset</button>
+    </div>
+    <div style="font-size:9px;color:var(--text3);margin-bottom:12px;">
+      💡 Tip: Remove serial numbers and extra details for better results. Query cached for 5 minutes.
     </div>
     
     <!-- Upload option -->
@@ -455,8 +471,31 @@
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/image-editor.js"></script>
 <script>
 const COMP_ID = "{{ comp.id }}";
+
+// ESC key handler - only close if not typing in input
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    // Don't close if user is typing in an input/textarea
+    if (document.activeElement.tagName === 'INPUT' || 
+        document.activeElement.tagName === 'TEXTAREA') {
+      return;
+    }
+    
+    // Close modals in order (most recent first)
+    if (document.getElementById('color-picker-dialog').style.display === 'flex') {
+      closeColorPicker();
+    } else if (document.getElementById('crop-modal').style.display === 'block') {
+      closeCropModal();
+    } else if (document.getElementById('bg-removal-dialog').style.display === 'flex') {
+      document.getElementById('bg-removal-dialog').style.display = 'none';
+    } else if (document.getElementById('img-modal').style.display === 'block') {
+      closeImageSearch();
+    }
+  }
+});
 let _currentImageUrl = null;
 let _currentImageData = null;
 let _selectedImageUrl = null;
