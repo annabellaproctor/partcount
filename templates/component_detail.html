@@ -263,6 +263,18 @@
       <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
     </div>
     
+    <!-- Selected image preview + Next button (top) -->
+    <div id="selected-preview-top" style="display:none;margin-bottom:12px;padding:12px;background:var(--bg3);border:1px solid var(--green);border-radius:2px;">
+      <div style="display:flex;gap:12px;align-items:center;">
+        <img id="selected-thumb-top" style="width:80px;height:80px;object-fit:contain;border:1px solid var(--border);border-radius:2px;background:white;">
+        <div style="flex:1;">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Selected image</div>
+          <div style="font-size:10px;color:var(--text3);" id="selected-source-top"></div>
+        </div>
+        <button class="btn btn-primary" onclick="proceedWithSelectedImage()">Next →</button>
+      </div>
+    </div>
+    
     <!-- Upload option -->
     <div style="margin-bottom:12px;padding:10px;background:var(--bg3);border:1px dashed var(--border2);border-radius:2px;text-align:center;">
       <label style="cursor:pointer;font-size:11px;color:var(--text2);">
@@ -274,6 +286,18 @@
     <!-- Results grid (Google Images style) -->
     <div id="img-results" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px;margin-bottom:10px;"></div>
     <div id="img-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+    
+    <!-- Selected image preview + Next button (bottom, after results) -->
+    <div id="selected-preview-bottom" style="display:none;margin-top:12px;padding:12px;background:var(--bg3);border:1px solid var(--green);border-radius:2px;">
+      <div style="display:flex;gap:12px;align-items:center;">
+        <img id="selected-thumb-bottom" style="width:80px;height:80px;object-fit:contain;border:1px solid var(--border);border-radius:2px;background:white;">
+        <div style="flex:1;">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">Selected image</div>
+          <div style="font-size:10px;color:var(--text3);" id="selected-source-bottom"></div>
+        </div>
+        <button class="btn btn-primary" onclick="proceedWithSelectedImage()">Next →</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -346,7 +370,7 @@
 </div>
 
 <!-- Background removal dialog -->
-<div id="bg-removal-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1002;display:flex;align-items:center;justify-content:center;">
+<div id="bg-removal-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1002;align-items:center;justify-content:center;">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:24px;max-width:400px;">
     <div style="font-size:14px;color:var(--text);margin-bottom:12px;">Remove Background?</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:16px;">
@@ -366,6 +390,8 @@
 const COMP_ID = "{{ comp.id }}";
 let _currentImageUrl = null;
 let _currentImageData = null;
+let _selectedImageUrl = null;
+let _selectedImageSource = null;
 let _rotationDegrees = 0;
 let _canvas = null;
 let _ctx = null;
@@ -393,8 +419,13 @@ async function touchComponent(id) {
 
 function openImageSearch() {
   document.getElementById('img-modal').style.display = 'block';
+  _selectedImageUrl = null;
+  _selectedImageSource = null;
+  document.getElementById('selected-preview-top').style.display = 'none';
+  document.getElementById('selected-preview-bottom').style.display = 'none';
   doImageSearch();
 }
+
 function closeImageSearch() {
   document.getElementById('img-modal').style.display = 'none';
 }
@@ -411,7 +442,7 @@ async function doImageSearch() {
   
   data.forEach(img => {
     const div = document.createElement('div');
-    div.style.cssText = `cursor:pointer;border:1px solid var(--border);border-radius:2px;overflow:hidden;background:var(--bg3);position:relative;`;
+    div.style.cssText = `cursor:pointer;border:2px solid var(--border);border-radius:2px;overflow:hidden;background:var(--bg3);position:relative;`;
     div.innerHTML = `
       <img src="${img.thumb || img.url}" 
            style="width:100%;height:100%;object-fit:cover;display:block;" 
@@ -419,29 +450,54 @@ async function doImageSearch() {
            onerror="this.parentElement.style.display='none'">
       <div style="position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,0.7);padding:2px 4px;border-radius:2px;font-size:9px;color:var(--text3);">${img.source}</div>
     `;
-    div.onclick = () => selectImageForPreview(img.url);
+    div.onclick = () => selectImageCandidate(img.url, img.source, div);
     results.appendChild(div);
   });
 }
 
-async function selectImageForPreview(url) {
+function selectImageCandidate(url, source, element) {
+  // Update selection
+  _selectedImageUrl = url;
+  _selectedImageSource = source;
+  
+  // Remove previous selection styling
+  document.querySelectorAll('#img-results > div').forEach(el => {
+    el.style.border = '2px solid var(--border)';
+  });
+  
+  // Highlight selected
+  element.style.border = '2px solid var(--green)';
+  
+  // Show preview bars
+  document.getElementById('selected-thumb-top').src = url;
+  document.getElementById('selected-thumb-bottom').src = url;
+  document.getElementById('selected-source-top').textContent = `Source: ${source}`;
+  document.getElementById('selected-source-bottom').textContent = `Source: ${source}`;
+  document.getElementById('selected-preview-top').style.display = 'block';
+  document.getElementById('selected-preview-bottom').style.display = 'block';
+}
+
+async function proceedWithSelectedImage() {
+  if (!_selectedImageUrl) return;
+  
   const status = document.getElementById('img-status');
   status.textContent = 'Loading preview...';
-  _currentImageUrl = url;
+  _currentImageUrl = _selectedImageUrl;
   _rotationDegrees = 0;
   _removeBgChoice = null;
   
   try {
     const fd = new FormData();
     fd.append('component_id', COMP_ID);
-    fd.append('image_url', url);
+    fd.append('image_url', _selectedImageUrl);
     const r = await fetch('/api/images/preview', {method:'POST', body: fd});
     if (r.ok) {
       const data = await r.json();
       _currentImageData = data;
       // Show background removal dialog first
       document.getElementById('img-modal').style.display = 'none';
-      document.getElementById('bg-removal-dialog').style.display = 'flex';
+      const dialog = document.getElementById('bg-removal-dialog');
+      dialog.style.display = 'flex';
       status.textContent = '';
     } else {
       status.textContent = 'Preview failed: ' + r.status;
