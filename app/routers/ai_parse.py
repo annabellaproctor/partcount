@@ -139,7 +139,7 @@ MERGE_SCHEMA = {
 }
 
 
-async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
+async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list: bool = True):
     """Call Gemini API with smart model selection and fallback"""
     if not client:
         raise HTTPException(
@@ -155,6 +155,7 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=schema,
                 temperature=0.1,
             )
         )
@@ -163,7 +164,7 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
         result = json.loads(response.text)
         
         # Handle case where Gemini returns a list instead of object
-        if isinstance(result, list):
+        if isinstance(result, list) and collapse_list:
             if len(result) > 0:
                 result = result[0]
             else:
@@ -186,7 +187,7 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
             next_model_idx = retry_count + 1
             _current_model = FREE_TIER_MODELS[next_model_idx]["name"]
             log.warning(f"Model {model} rate limited, switching to {_current_model}")
-            return await _gemini(prompt, schema, retry_count + 1)
+            return await _gemini(prompt, schema, retry_count + 1, collapse_list)
         
         # Better error message for 403
         if '403' in error_msg or 'Forbidden' in error_msg:
@@ -230,6 +231,68 @@ class EnrichRequest(BaseModel):
 
 class OrderParseRequest(BaseModel):
     text: str
+
+
+def _normalize_order_parse_result(raw) -> dict:
+    """Normalize AI output variations into canonical order parse payload."""
+    if isinstance(raw, list):
+        raw = {"items": raw}
+
+    if not isinstance(raw, dict):
+        return {"items": [], "confidence": 0.0}
+
+    items = raw.get("items")
+
+    # If model returned a single item object instead of {items:[...]}
+    if items is None and any(k in raw for k in ["item_name", "name", "quantity", "price", "unit_price"]):
+        items = [raw]
+
+    if not isinstance(items, list):
+        items = []
+
+    normalized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or item.get("item_name") or "").strip()
+        qty = item.get("quantity")
+        try:
+            qty = int(qty) if qty is not None else 1
+        except Exception:
+            qty = 1
+        if qty < 1:
+            qty = 1
+
+        unit_price = item.get("unit_price", item.get("price"))
+        try:
+            unit_price = float(unit_price) if unit_price is not None else None
+        except Exception:
+            unit_price = None
+
+        line_total = item.get("line_total")
+        try:
+            line_total = float(line_total) if line_total is not None else None
+        except Exception:
+            line_total = None
+
+        normalized_items.append({
+            "name": name,
+            "quantity": qty,
+            "unit_price": unit_price,
+            "line_total": line_total,
+            "is_kit": bool(item.get("is_kit", False)),
+            "type_path": item.get("type_path"),
+            "notes": item.get("notes"),
+        })
+
+    return {
+        "summary": raw.get("summary", ""),
+        "supplier": raw.get("supplier", ""),
+        "order_reference": raw.get("order_reference", raw.get("order_id", "")),
+        "currency": raw.get("currency", "USD"),
+        "items": normalized_items,
+        "confidence": float(raw.get("confidence", 0.0) or 0.0),
+    }
 
 
 @router.post("/parse")
@@ -391,11 +454,17 @@ Rules:
 - Ignore site chrome, recommendations, reviews, keyboard shortcuts, and footer.
 - Detect if an item appears to be a kit/assortment (is_kit=true).
 - Quantity defaults to 1 if unknown.
+- Use formatting clues as signals: headers, breadcrumbs, repeated title lines, bullet/line breaks, links, section labels.
+- Input may include plaintext, markdown-like structure, copied table text, or HTML-like fragments.
+
+Return strict JSON object with top-level keys: summary, supplier, order_reference, currency, items[], confidence.
+Each item must include: name, quantity, unit_price (optional), line_total (optional), is_kit, type_path(optional), notes(optional).
 
 Text:
 {req.text[:18000]}"""
 
-    result = await _gemini(prompt, schema)
+    raw = await _gemini(prompt, schema, collapse_list=False)
+    result = _normalize_order_parse_result(raw)
     result["source"] = "gemini_order_parse"
     return result
 

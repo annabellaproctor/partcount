@@ -198,7 +198,9 @@ async function parseOrderText() {
     });
   }
 
-  status.textContent = (data.summary || 'Parsed') + ` (${(data.items || []).length} items)`;
+  const matched = Array.from(document.querySelectorAll('#component-order-lines .order-comp')).filter(s => !!s.value).length;
+  const totalItems = (data.items || []).length;
+  status.textContent = (data.summary || 'Parsed') + ` (${totalItems} items, ${matched} matched)`;
 }
 
 async function createOrderFromDraft() {
