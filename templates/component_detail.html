@@ -782,7 +782,7 @@ function resetCrop() {
 
 function closeCropModal() {
   document.getElementById('crop-modal').style.display = 'none';
-  document.getElementById('img-modal').style.display = 'block';
+  // Don't automatically open img-modal - user may have opened crop from dropdown
 }
 
 async function confirmCrop() {
