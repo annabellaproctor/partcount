@@ -19,11 +19,8 @@ IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 async def lifespan(app: FastAPI):
     from app.services.migrations import run_migrations
     from app.services.seed import seed_all
-    from app.routers.images import prewarm_rembg
     await run_migrations()
     await seed_all()
-    # Pre-warm rembg model so the first background-removal request isn't slow.
-    asyncio.create_task(prewarm_rembg())
     yield
 
 
