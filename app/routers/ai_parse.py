@@ -15,11 +15,11 @@ log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-# Try gemini-1.5-flash (documented stable model)
-# Alternatives: gemini-1.5-flash-latest, gemini-1.5-pro, gemini-pro
+# Use gemini-1.5-flash (documented stable model)
 GEMINI_MODEL = "gemini-1.5-flash"
-# CRITICAL: Try v1 API instead of v1beta
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent"
+# CRITICAL: Must use v1beta for responseMimeType/responseSchema support
+# v1 does NOT support these fields (400 error)
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Failed request logging
 _failed_requests = []

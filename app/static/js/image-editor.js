@@ -291,7 +291,29 @@ function closeCropModal() {
 }
 
 function autoAdjust() {
-  alert('Auto-rotate & crop algorithm coming soon. Will detect edges and straighten image.');
+  if (!_img) return;
+  
+  // Step 1: Find tight bounds
+  const bounds = findTightBounds(_img);
+  
+  // Step 2: Set crop sliders to tight bounds
+  document.getElementById('crop-left').value = (bounds.left / _img.width * 100).toFixed(1);
+  document.getElementById('crop-top').value = (bounds.top / _img.height * 100).toFixed(1);
+  document.getElementById('crop-right').value = (bounds.right / _img.width * 100).toFixed(1);
+  document.getElementById('crop-bottom').value = (bounds.bottom / _img.height * 100).toFixed(1);
+  
+  // Step 3: Reset rotation and offset
+  _rotationDegrees = 0;
+  document.getElementById('rotation-degrees').value = 0;
+  _imgOffset = {x: 0, y: 0};
+  
+  // Step 4: Redraw
+  updateCropPreview();
+  
+  document.getElementById('crop-status').textContent = '✓ Auto-adjusted to tight crop';
+  setTimeout(() => {
+    document.getElementById('crop-status').textContent = '';
+  }, 2000);
 }
 
 // ========== ROTATION ==========
@@ -323,13 +345,84 @@ function endSliderDrag() {
 
 // Placeholder functions - these exist but need full implementation
 function findTightBounds(img) {
-  return {left: 0, top: 0, right: img.width, bottom: img.height};
+  // Create temp canvas to analyze pixels
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = img.width;
+  tempCanvas.height = img.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.drawImage(img, 0, 0);
+  const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+  const pixels = imageData.data;
+  
+  let left = img.width, right = 0, top = img.height, bottom = 0;
+  
+  // Scan for non-transparent pixels (alpha > 10)
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      const i = (y * img.width + x) * 4;
+      const alpha = pixels[i + 3];
+      if (alpha > 10) {  // non-transparent
+        left = Math.min(left, x);
+        right = Math.max(right, x + 1);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y + 1);
+      }
+    }
+  }
+  
+  // If no non-transparent pixels found, return full image
+  if (left >= right || top >= bottom) {
+    return {left: 0, top: 0, right: img.width, bottom: img.height};
+  }
+  
+  return {left, top, right, bottom};
 }
 
 function redrawCanvas() {
   if (!_canvas || !_ctx || !_img) return;
+  
+  // Clear canvas
   _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
-  _ctx.drawImage(_img, 0, 0);
+  
+  // Draw pink/green checkerboard background (20px grid)
+  const gridSize = 20;
+  for (let y = 0; y < _canvas.height; y += gridSize) {
+    for (let x = 0; x < _canvas.width; x += gridSize) {
+      const isEvenSquare = (Math.floor(x / gridSize) + Math.floor(y / gridSize)) % 2 === 0;
+      _ctx.fillStyle = isEvenSquare ? '#f0f' : '#9f9';
+      _ctx.fillRect(x, y, gridSize, gridSize);
+    }
+  }
+  
+  // Save context
+  _ctx.save();
+  
+  // Translate to center
+  _ctx.translate(_canvas.width / 2, _canvas.height / 2);
+  
+  // Apply rotation
+  _ctx.rotate((_rotationDegrees * Math.PI) / 180);
+  
+  // Apply offset (for dragging)
+  _ctx.translate(_imgOffset.x, _imgOffset.y);
+  
+  // Draw image centered
+  _ctx.drawImage(_img, -_img.width / 2, -_img.height / 2);
+  
+  // Restore context
+  _ctx.restore();
+  
+  // Draw crop overlay (red dashed lines)
+  const left = parseFloat(document.getElementById('crop-left').value) / 100 * _canvas.width;
+  const top = parseFloat(document.getElementById('crop-top').value) / 100 * _canvas.height;
+  const right = parseFloat(document.getElementById('crop-right').value) / 100 * _canvas.width;
+  const bottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * _canvas.height;
+  
+  _ctx.strokeStyle = '#ff0000';
+  _ctx.lineWidth = 2;
+  _ctx.setLineDash([5, 5]);
+  _ctx.strokeRect(left, top, right - left, bottom - top);
+  _ctx.setLineDash([]);
 }
 
 function updateCropPreview() {
