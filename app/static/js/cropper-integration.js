@@ -5,6 +5,8 @@ let cropper = null;
 let _originalImageSrcForBg = null;
 let _bgRemovalApplied = false;
 let _bgRemovalMethod = null;
+let _autoPreprocessDone = false;
+let _cropperLoadToken = 0;
 
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -104,6 +106,8 @@ async function _runAutomaticPreprocessOnLoad() {
 // Initialize Cropper.js when image is loaded
 function initCropper(imageUrl) {
   const img = document.getElementById('crop-image');
+  const loadToken = ++_cropperLoadToken;
+  _autoPreprocessDone = false;
   
   // Destroy existing cropper if any
   if (cropper) {
@@ -137,6 +141,9 @@ function initCropper(imageUrl) {
   
   // Initialize cropper after image loads
   img.onload = () => {
+    // Ignore stale async image load events from older init attempts.
+    if (loadToken !== _cropperLoadToken) return;
+
     cropper = new Cropper(img, {
       viewMode: 1,
       dragMode: 'move',
@@ -153,8 +160,12 @@ function initCropper(imageUrl) {
       responsive: true,
       checkCrossOrigin: false,
       ready: () => {
-        // Automatically improve orientation/background/crop when editor opens.
-        _runAutomaticPreprocessOnLoad();
+        // Run auto preprocess only once per editor open, not on replace()/ready cycles.
+        if (_autoPreprocessDone) return;
+        _autoPreprocessDone = true;
+        _runAutomaticPreprocessOnLoad().catch((err) => {
+          console.error('Auto preprocess failed:', err);
+        });
       },
     });
     
@@ -162,6 +173,11 @@ function initCropper(imageUrl) {
     _bgRemovalApplied = false;
     _bgRemovalMethod = null;
     console.log('Cropper initialized');
+  };
+
+  img.onerror = () => {
+    if (loadToken !== _cropperLoadToken) return;
+    console.error('Failed to load crop image');
   };
 }
 
