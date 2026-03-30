@@ -117,7 +117,7 @@
           {{ row("MPN", comp.mpn) }}
           {{ row("DigiKey PN", comp.digikey_pn) }}
           {{ row("LCSC PN", comp.lcsc_pn) }}
-          {{ row("Label Title", comp.short_title) }}
+          {{ row("Search Aliases", comp.search_alias) }}
           {% if comp.datasheet_url %}
           <tr>
             <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Datasheet</td>
@@ -147,14 +147,15 @@
         {% endif %}
 
         <div style="margin-top:10px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;">
-          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Label Title</div>
+          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Canonical Name</div>
+          <div class="muted" style="font-size:10px;margin-bottom:6px;">Saved title becomes the main component name. Previous names are kept in searchable aliases.</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <input id="label-title-input" class="form-control form-control-sm" style="max-width:280px;" value="{{ (comp.short_title or '')|e }}" placeholder="Auto-generated short title">
             <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;">
               <input id="label-title-auto" type="checkbox" {% if not comp.short_title_manual %}checked{% endif %}>
               Auto-title
             </label>
-            <button class="btn btn-primary btn-sm" onclick="saveLabelTitle()">Save Title</button>
+            <button class="btn btn-primary btn-sm" onclick="saveLabelTitle()">Save Name</button>
             <span id="label-title-status" class="muted" style="font-size:11px;"></span>
           </div>
         </div>

@@ -45,6 +45,11 @@
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="bulk-ai-rename-rules" class="form-control form-control-sm" style="min-width:420px;flex:1;" placeholder="Naming rules e.g. Resistor {value}{unit} {tolerance} {package}; Module {variant} {wireless}">
+      <button class="btn btn-primary btn-sm" onclick="bulkAiRenameSelected()">AI Rename by Rules</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <input id="collection-command" class="form-control form-control-sm" style="min-width:460px;flex:1;" placeholder="Collection command e.g. add all resistors 5% tol, 1/4w carbon film resistor from 10ohm to 100ohm">
       <button class="btn btn-primary btn-sm" onclick="runCollectionCommand()">Create Collection</button>
     </div>
@@ -64,7 +69,7 @@
     </thead>
     <tbody id="comp-table-body">
       {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
-      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }}"
+      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.search_alias or '' }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }}"
           data-is-generic="{{ 'true' if comp.is_generic else 'false' }}"
           data-component-id="{{ comp.id }}"
           data-barcode-id="{{ comp.barcode_id }}"
@@ -78,9 +83,6 @@
         </td>
         <td>
           <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
-          {% if comp.short_title %}
-          <div class="muted" style="font-size:10px;">{{ comp.short_title }}</div>
-          {% endif %}
           {% if comp.is_generic %}
           <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:1px 5px;border-radius:2px;margin-left:4px;">GENERIC</span>
           {% elif comp.parent_id %}
@@ -236,6 +238,26 @@ async function bulkAiModifySelected() {
   }
   const data = await r.json()
   status.textContent = `AI updated ${data.updated || 0} rows${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
+  setTimeout(() => location.reload(), 250)
+}
+
+async function bulkAiRenameSelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  const rules = document.getElementById('bulk-ai-rename-rules').value.trim()
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  if (!rules) { status.textContent = 'Enter naming rules'; return }
+  status.textContent = 'Running AI rename...'
+  const r = await postJson('/api/components/bulk-ai-rename', {
+    component_ids: ids,
+    rules,
+  })
+  if (!r.ok) {
+    status.textContent = 'AI rename failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `AI renamed ${data.updated || 0} rows${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
   setTimeout(() => location.reload(), 250)
 }
 

@@ -64,6 +64,11 @@
     Keep "type_path" as specific as possible for better AI enrich and clearer registry grouping.
     Development boards and module families should include differentiators in type_data
     (clock_speed_mhz, ram_size_kb, flash_size_mb, pin_count, wireless, interface, usb_bridge).
+    Naming rules should be archetype-driven and deterministic, for example:
+    "Resistor {value}{unit} {tolerance} {package}",
+    "Capacitor {value}{unit} {voltage_rating}V {package}",
+    "Module {variant} {wireless} {package}".
+    Use Components → "AI Rename by Rules" to apply rule changes across selected rows.
   </div>
 </div>
 {% endblock %}

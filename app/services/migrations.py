@@ -249,6 +249,10 @@ MIGRATIONS = [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS short_title_manual BOOLEAN NOT NULL DEFAULT FALSE",
         "UPDATE components SET short_title = COALESCE(NULLIF(value, ''), name) WHERE short_title IS NULL",
     ]),
+
+    (8, "component searchable aliases for title overwrite", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS search_alias TEXT",
+    ]),
 ]
 
 

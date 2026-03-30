@@ -20,6 +20,35 @@ IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/components", tags=["components"])
 
 
+def _append_search_alias(comp: Component, alias: str | None):
+    alias = (alias or "").strip()
+    if not alias:
+        return
+    existing = [x.strip() for x in (comp.search_alias or "").split("|") if x.strip()]
+    lowered = {x.lower() for x in existing}
+    if alias.lower() in lowered:
+        return
+    existing.append(alias)
+    # Keep alias history bounded.
+    comp.search_alias = " | ".join(existing[:20])
+
+
+def _apply_component_title(comp: Component, *, preferred: str | None = None, manual: bool = False):
+    old_name = (comp.name or "").strip()
+    title = (preferred or "").strip() or generate_short_title(
+        name=comp.name,
+        value=comp.value,
+        unit=comp.unit,
+        package=comp.package,
+        type_path=comp.type_path,
+    )
+    if old_name and old_name.lower() != title.lower():
+        _append_search_alias(comp, old_name)
+    comp.name = title
+    comp.short_title = title
+    comp.short_title_manual = bool(manual)
+
+
 def _auto_component_name(comp: Component) -> str:
     t = (comp.type_path or "").lower()
     td = comp.type_data if isinstance(comp.type_data, dict) else {}
@@ -100,6 +129,7 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
         stmt = stmt.where(or_(
             Component.barcode_id.ilike(like),
             Component.name.ilike(like),
+            Component.search_alias.ilike(like),
             Component.value.ilike(like),
             Component.package.ilike(like),
         ))
@@ -113,6 +143,7 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
             "barcode_id": c.barcode_id or "",
             "name": c.name or "",
             "short_title": c.short_title or "",
+            "search_alias": c.search_alias or "",
             "value": c.value or "",
             "package": c.package or "",
             "is_generic": c.is_generic,
@@ -278,14 +309,11 @@ async def create_component(
         type_path=type_path,
         type_data=parsed_type_data,
     )
-    if not comp.short_title or not comp.short_title_manual:
-        comp.short_title = generate_short_title(
-            name=comp.name,
-            value=comp.value,
-            unit=comp.unit,
-            package=comp.package,
-            type_path=comp.type_path,
-        )
+    _apply_component_title(
+        comp,
+        preferred=(short_title.strip() if short_title else None),
+        manual=bool(short_title_manual and short_title),
+    )
     db.add(comp)
     await db.flush()
 
@@ -574,6 +602,11 @@ class BulkAIModifyRequest(BaseModel):
     action: str = "repair"
 
 
+class BulkAIRenameRequest(BaseModel):
+    component_ids: list[str]
+    rules: str
+
+
 class CollectionCommandRequest(BaseModel):
     command: str
 
@@ -634,6 +667,9 @@ async def patch_component(
         if mfr:
             comp.manufacturer_id = mfr.id
 
+    short_title_value = payload.pop("short_title", None) if "short_title" in payload else None
+    short_title_manual_flag = payload.pop("short_title_manual", None) if "short_title_manual" in payload else None
+
     for field, value in payload.items():
         if hasattr(comp, field):
             setattr(comp, field, value)
@@ -642,27 +678,22 @@ async def patch_component(
         if hasattr(comp, field):
             setattr(comp, field, None)
 
-    if req.short_title is not None:
-        title = req.short_title.strip()
-        comp.short_title = title if title else None
+    if short_title_value is not None:
+        title = short_title_value.strip()
         if title:
-            comp.short_title_manual = True
+            _apply_component_title(comp, preferred=title, manual=True)
+        else:
+            comp.short_title_manual = False
 
-    if req.short_title_manual is not None:
-        comp.short_title_manual = bool(req.short_title_manual)
+    if short_title_manual_flag is not None and short_title_value is None:
+        comp.short_title_manual = bool(short_title_manual_flag)
 
     title_relevant_fields = {
         "name", "value", "unit", "package", "type_path", "description"
     }
     changed_title_inputs = bool(title_relevant_fields.intersection(payload.keys()))
-    if not comp.short_title_manual and (changed_title_inputs or not comp.short_title):
-        comp.short_title = generate_short_title(
-            name=comp.name,
-            value=comp.value,
-            unit=comp.unit,
-            package=comp.package,
-            type_path=comp.type_path,
-        )
+    if not comp.short_title_manual and (changed_title_inputs or not comp.short_title or short_title_manual_flag is False):
+        _apply_component_title(comp, manual=False)
 
     comp.updated_at = datetime.utcnow()
     return {
@@ -806,15 +837,10 @@ async def bulk_rename_components(req: BulkRenameRequest, db: AsyncSession = Depe
             after = before.replace(req.find or "", req.replace or "")
 
         if after and after != before:
+            _append_search_alias(comp, before)
             comp.name = after
             if not comp.short_title_manual:
-                comp.short_title = generate_short_title(
-                    name=comp.name,
-                    value=comp.value,
-                    unit=comp.unit,
-                    package=comp.package,
-                    type_path=comp.type_path,
-                )
+                _apply_component_title(comp, preferred=after, manual=False)
             updated += 1
 
     return {"updated": updated}
@@ -831,16 +857,11 @@ async def bulk_auto_rename_components(req: BulkAutoRenameRequest, db: AsyncSessi
     for comp in comps:
         new_name = _auto_component_name(comp)
         if new_name and new_name != comp.name:
+            _append_search_alias(comp, comp.name)
             comp.name = new_name
             updated += 1
         if not comp.short_title_manual:
-            comp.short_title = generate_short_title(
-                name=comp.name,
-                value=comp.value,
-                unit=comp.unit,
-                package=comp.package,
-                type_path=comp.type_path,
-            )
+            _apply_component_title(comp, preferred=comp.name, manual=False)
 
     return {"updated": updated}
 
@@ -892,24 +913,69 @@ async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession =
             clear_fields = ai.get("remove_fields") or []
             for field, val in patch_fields.items():
                 if hasattr(comp, field):
+                    if field == "name" and comp.name and val and str(val).strip() and comp.name != str(val).strip():
+                        _append_search_alias(comp, comp.name)
                     setattr(comp, field, val)
             for field in clear_fields:
                 if hasattr(comp, field):
                     setattr(comp, field, None)
             if not comp.short_title_manual:
-                comp.short_title = generate_short_title(
-                    name=comp.name,
-                    value=comp.value,
-                    unit=comp.unit,
-                    package=comp.package,
-                    type_path=comp.type_path,
-                )
+                _apply_component_title(comp, preferred=comp.name, manual=False)
             comp.updated_at = datetime.utcnow()
             changed += 1
         except Exception as e:
             failed.append({"id": cid, "error": str(e)[:160]})
 
     return {"updated": changed, "failed": failed}
+
+
+@router.post("/bulk-ai-rename")
+async def bulk_ai_rename_components(req: BulkAIRenameRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+    if not req.rules or len(req.rules.strip()) < 4:
+        raise HTTPException(400, "Rules text too short")
+
+    from app.routers.ai_parse import enrich_record, EnrichRequest
+
+    comps = (await db.execute(select(Component).where(Component.id.in_(ids)))).scalars().all()
+    updated = 0
+    failed = []
+
+    for comp in comps:
+        prompt = (
+            "Apply naming rules and output the final canonical component title in patch_fields.name. "
+            "Do not add commentary.\n"
+            f"Rules:\n{req.rules}\n"
+            f"Current: name={comp.name}; value={comp.value}; unit={comp.unit}; package={comp.package}; "
+            f"type_path={comp.type_path}; type_data={json.dumps(comp.type_data or {}, ensure_ascii=False)}"
+        )
+        try:
+            ai = await enrich_record(EnrichRequest(
+                mode="component",
+                action="repair",
+                text=prompt,
+                existing_data={
+                    "name": comp.name,
+                    "value": comp.value,
+                    "unit": comp.unit,
+                    "package": comp.package,
+                    "type_path": comp.type_path,
+                    "type_data": comp.type_data if isinstance(comp.type_data, dict) else {},
+                },
+            ))
+            proposed = (ai.get("patch_fields") or {}).get("name")
+            if proposed and proposed.strip() and proposed.strip() != comp.name:
+                _append_search_alias(comp, comp.name)
+                comp.name = proposed.strip()
+                if not comp.short_title_manual:
+                    _apply_component_title(comp, preferred=comp.name, manual=False)
+                updated += 1
+        except Exception as e:
+            failed.append({"id": comp.id, "error": str(e)[:160]})
+
+    return {"updated": updated, "failed": failed}
 
 
 @router.post("/collection-command")
@@ -980,15 +1046,8 @@ async def create_collection_from_command(req: CollectionCommandRequest, db: Asyn
             type_id=ctype.id,
             type_path="passives/resistor/film" if material else "passives/resistor",
             notes=" | ".join(notes_parts),
-            short_title=generate_short_title(
-                name=name,
-                value=val_label,
-                unit="Ω",
-                package=None,
-                type_path="passives/resistor/film" if material else "passives/resistor",
-            ),
-            short_title_manual=False,
         )
+        _apply_component_title(comp, manual=False)
         if power:
             comp.type_data = {"power_rating": power}
 
@@ -1061,15 +1120,8 @@ async def create_component_stub(
         notes=" | ".join(notes),
         description="Auto-created from order parse. Review and complete fields.",
         type_path="modules/communication/wifi",
-        short_title=generate_short_title(
-            name=name,
-            value=req.value,
-            unit=req.unit,
-            package=req.package,
-            type_path="modules/communication/wifi",
-        ),
-        short_title_manual=False,
     )
+    _apply_component_title(comp, manual=False)
     db.add(comp)
     await db.flush()
 

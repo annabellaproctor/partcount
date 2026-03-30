@@ -111,6 +111,7 @@ class Component(Base):
     digikey_pn = Column(String)
     lcsc_pn = Column(String)
     description = Column(Text)
+    search_alias = Column(Text)
     short_title = Column(String)
     short_title_manual = Column(Boolean, default=False, nullable=False)
     # Generic component support

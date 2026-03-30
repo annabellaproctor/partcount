@@ -9,11 +9,11 @@ def _type_prefix(type_path: str | None, unit: str | None, name: str | None) -> s
     t = (type_path or "").lower()
     n = (name or "").lower()
 
-    if "resistor" in t or (unit == "Ω") or "resistor" in n:
+    if "resistor" in t or "resist" in t or (unit == "Ω") or "resistor" in n:
         return "RES"
-    if "capacitor" in t or unit == "F" or "capacitor" in n:
+    if "capacitor" in t or "capacit" in t or unit == "F" or "capacitor" in n:
         return "CAP"
-    if "inductor" in t or unit == "H" or "inductor" in n:
+    if "inductor" in t or "induct" in t or unit == "H" or "inductor" in n:
         return "IND"
     if "diode" in t:
         return "DIO"
@@ -23,7 +23,7 @@ def _type_prefix(type_path: str | None, unit: str | None, name: str | None) -> s
         return "MCU"
     if "/ic" in t or t.startswith("actives/ic"):
         return "IC"
-    if "module" in t or "development-board" in t:
+    if "module" in t or "modules" in t or "development-board" in t:
         return "MOD"
     if "sensor" in t:
         return "SNS"
@@ -44,7 +44,7 @@ def _format_value(value: str | None, unit: str | None, type_path: str | None, na
     t = (type_path or "").lower()
     n = (name or "").lower()
 
-    is_res = "resistor" in t or unit == "Ω" or "resistor" in n
+    is_res = "resistor" in t or "resist" in t or unit == "Ω" or "resistor" in n
     if is_res and "Ω" not in v:
         if re.search(r"\d", v):
             v = f"{v}Ω"
