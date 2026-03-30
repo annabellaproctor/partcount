@@ -776,6 +776,38 @@ function rotatePreview(deg) {
   _rotationDegrees = (_rotationDegrees + deg) % 360;
   if (_rotationDegrees < 0) _rotationDegrees += 360;
   document.getElementById('rotation-degrees').value = _rotationDegrees.toFixed(1);
+  
+  // For 90° increments, swap crop dimensions to maintain crop area
+  if (Math.abs(deg) === 90) {
+    const cropLeft = document.getElementById('crop-left');
+    const cropTop = document.getElementById('crop-top');
+    const cropRight = document.getElementById('crop-right');
+    const cropBottom = document.getElementById('crop-bottom');
+    
+    if (cropLeft && cropTop && cropRight && cropBottom) {
+      // Save current crop values
+      const left = parseFloat(cropLeft.value);
+      const top = parseFloat(cropTop.value);
+      const right = parseFloat(cropRight.value);
+      const bottom = parseFloat(cropBottom.value);
+      
+      // Swap dimensions based on rotation direction
+      if (deg === 90) {
+        // Clockwise 90°: left→top, top→right, right→bottom, bottom→left
+        cropLeft.value = top.toFixed(1);
+        cropTop.value = (100 - right).toFixed(1);
+        cropRight.value = bottom.toFixed(1);
+        cropBottom.value = (100 - left).toFixed(1);
+      } else if (deg === -90) {
+        // Counter-clockwise 90°: left→bottom, bottom→right, right→top, top→left  
+        cropLeft.value = (100 - bottom).toFixed(1);
+        cropTop.value = left.toFixed(1);
+        cropRight.value = (100 - top).toFixed(1);
+        cropBottom.value = right.toFixed(1);
+      }
+    }
+  }
+  
   redrawCanvas();
 }
 
