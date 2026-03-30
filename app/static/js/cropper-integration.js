@@ -152,26 +152,30 @@ function revertBackgroundRemoval() {
 // Auto-crop function
 function cropperAutoCrop() {
   if (!cropper) return;
-  
-  // Get the FULL canvas (not cropped)
-  const canvas = cropper.getCroppedCanvas();
-  const ctx = canvas.getContext('2d');
-  
-  // Get full image dimensions
-  const containerData = cropper.getContainerData();
+
+  // Build a working canvas that applies current rotate/flip, so auto-crop reflects edits.
   const imageData = cropper.getImageData();
-  
-  // Create temp canvas with full image
+  const rotate = imageData.rotate || 0;
+  const rad = (rotate * Math.PI) / 180;
+  const absCos = Math.abs(Math.cos(rad));
+  const absSin = Math.abs(Math.sin(rad));
+  const srcW = Math.max(1, Math.round(imageData.naturalWidth || 1));
+  const srcH = Math.max(1, Math.round(imageData.naturalHeight || 1));
+  const workW = Math.max(1, Math.ceil(srcW * absCos + srcH * absSin));
+  const workH = Math.max(1, Math.ceil(srcW * absSin + srcH * absCos));
+
   const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = imageData.naturalWidth;
-  tempCanvas.height = imageData.naturalHeight;
+  tempCanvas.width = workW;
+  tempCanvas.height = workH;
   const tempCtx = tempCanvas.getContext('2d');
-  
-  // Draw full image
+
   const img = document.getElementById('crop-image');
-  tempCtx.drawImage(img, 0, 0);
-  
-  // Get pixel data
+  tempCtx.translate(workW / 2, workH / 2);
+  tempCtx.rotate(rad);
+  tempCtx.scale(imageData.scaleX || 1, imageData.scaleY || 1);
+  tempCtx.drawImage(img, -srcW / 2, -srcH / 2, srcW, srcH);
+
+  // Get pixel data from transformed canvas.
   const pixels = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
   const data = pixels.data;
   
@@ -209,14 +213,14 @@ function cropperAutoCrop() {
   maxX = Math.min(tempCanvas.width, maxX + paddingX);
   maxY = Math.min(tempCanvas.height, maxY + paddingY);
   
-  // Set crop box to these bounds
-  cropper.setData({
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-    rotate: cropper.getData().rotate || 0
-  });
+  // Map working-canvas bounds into current cropper canvas coordinates.
+  const canvasData = cropper.getCanvasData();
+  const left = canvasData.left + (minX / tempCanvas.width) * canvasData.width;
+  const top = canvasData.top + (minY / tempCanvas.height) * canvasData.height;
+  const width = ((maxX - minX) / tempCanvas.width) * canvasData.width;
+  const height = ((maxY - minY) / tempCanvas.height) * canvasData.height;
+
+  cropper.setCropBoxData({ left, top, width, height });
   
   console.log('Auto-cropped to:', {minX, minY, maxX, maxY});
 }
@@ -248,7 +252,10 @@ async function saveCroppedImage() {
   const dataUrl = await getCroppedImage();
   if (!dataUrl) return;
   
-  const compId = window.location.pathname.split('/').pop();
+  // Prefer UUID component id emitted by template; fallback to path segment.
+  const compId = (typeof COMP_ID !== 'undefined' && COMP_ID)
+    ? COMP_ID
+    : window.location.pathname.split('/').pop();
   
   // Convert data URL to blob
   const response = await fetch(dataUrl);
@@ -271,7 +278,7 @@ async function saveCroppedImage() {
     } else {
       const error = await uploadResponse.text();
       console.error('Upload failed:', error);
-      alert('Failed to save image: ' + uploadResponse.status);
+      alert('Failed to save image: ' + uploadResponse.status + ' ' + error);
     }
   } catch (err) {
     console.error('Save error:', err);

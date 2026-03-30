@@ -9,6 +9,7 @@ import httpx, os, shutil, io, logging, re, hashlib
 from PIL import Image
 from app.models.database import get_db
 from app.models.models import Component
+from sqlalchemy import or_
 
 log = logging.getLogger("images")
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
@@ -504,7 +505,11 @@ async def upload_image(
     crop_bottom: int = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Component).where(Component.id == component_id))
+    result = await db.execute(
+        select(Component).where(
+            or_(Component.id == component_id, Component.barcode_id == component_id)
+        )
+    )
     comp = result.scalar_one_or_none()
     if not comp:
         raise HTTPException(404, "Component not found")
