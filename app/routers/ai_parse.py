@@ -189,6 +189,22 @@ async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
                             f"(3) Model name incorrect. Check Google AI Studio for valid models."
                         )
                 
+                # Handle 403 Forbidden
+                if r.status_code == 403:
+                    log_failed_request("forbidden_403", {
+                        "model": GEMINI_MODEL,
+                        "endpoint": GEMINI_URL,
+                        "response_body": response_body,
+                    })
+                    raise HTTPException(
+                        403,
+                        f"Gemini API key forbidden (403). "
+                        f"Go to https://aistudio.google.com/apikey to: "
+                        f"(1) Verify API key is enabled, "
+                        f"(2) Enable billing if required, "
+                        f"(3) Check API restrictions."
+                    )
+                
                 # Handle other errors
                 if r.status_code != 200:
                     log_failed_request(f"http_{r.status_code}", {
