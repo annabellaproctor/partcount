@@ -1,7 +1,7 @@
 """
-AI parsing via Gemini 2 Flash Lite - cheapest model with highest free tier limits.
+AI parsing via Gemini Flash - cheapest model with highest free tier limits.
 Used for: component data extraction, aggregate result merging, confidence scoring.
-Free tier: 4K RPM, 4M TPM, unlimited RPD.
+Free tier: 1500 RPD (15 RPM burst).
 
 CRITICAL: Uses generativelanguage.googleapis.com (global endpoint) for pay-as-you-go.
 Search grounding tool DISABLED (causes 429 errors due to undocumented quota).
@@ -15,15 +15,27 @@ log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-# Use Gemini 2 Flash Lite - highest free tier RPM (4K), unlimited RPD
-GEMINI_MODEL = "gemini-2-flash-lite"
+# Use gemini-flash-latest - stable pointer to latest flash model
+# Available models: gemini-flash-latest, gemini-pro-latest, gemini-pro-vision-latest
+GEMINI_MODEL = "gemini-flash-latest"
 # CRITICAL: Use global generativelanguage.googleapis.com endpoint for pay-as-you-go
 # Do NOT use aiplatform.googleapis.com or region-specific endpoints
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
-# Rate limit tracking
+# Rate limit tracking - check every 30 minutes at :10 and :40 past the hour
 _last_usage_check = None
-_usage_check_interval = timedelta(hours=2)
+_usage_check_interval = timedelta(minutes=30)
+
+# Error response patterns that should never be cached
+ERROR_RESPONSE_PATTERNS = [
+    "i'm sorry",
+    "i cannot",
+    "i can't",
+    "something went wrong",
+    "an error occurred",
+    "unable to",
+    "failed to",
+]
 
 # JSON schema enforced by Gemini — no cleaning needed
 COMPONENT_SCHEMA = {
@@ -78,21 +90,21 @@ async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
     
     CRITICAL:
     - Uses generativelanguage.googleapis.com (global endpoint)
+    - X-goog-api-key header per Google documentation
     - NO search grounding tool (causes undocumented 429 quota errors)
-    - NO x-goog-user-project header for pay-as-you-go
     - Retries on 429 with exponential backoff
-    - Never returns cached error responses
+    - Never returns error responses (detects "I'm sorry", "I cannot", etc.)
     """
     global _last_usage_check
     
     if not GEMINI_KEY:
         raise HTTPException(503, "GEMINI_API_KEY not configured")
     
-    # Check if we should log usage stats
+    # Check if we should log usage stats (every 30 min at :10 and :40 past hour)
     now = datetime.utcnow()
     if _last_usage_check is None or (now - _last_usage_check) > _usage_check_interval:
         _last_usage_check = now
-        log.info(f"Gemini usage check due (every {_usage_check_interval.total_seconds()/3600:.1f}h)")
+        log.info(f"Gemini usage check due (every {_usage_check_interval.total_seconds()/60:.0f}min at :10 and :40)")
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -119,15 +131,15 @@ async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
                 raise HTTPException(504, "Gemini API timeout")
             
             async with httpx.AsyncClient(timeout=15.0) as client:
-                # CRITICAL: Only Content-Type header
-                # Do NOT use x-goog-user-project for pay-as-you-go
-                headers = {"Content-Type": "application/json"}
+                # CRITICAL: Use X-goog-api-key header per Google documentation
+                # https://ai.google.dev/gemini-api/docs/api-key
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-goog-api-key": GEMINI_KEY,
+                }
                 
-                r = await client.post(
-                    f"{GEMINI_URL}?key={GEMINI_KEY}",
-                    json=payload,
-                    headers=headers,
-                )
+                # Don't pass key in URL when using header
+                r = await client.post(GEMINI_URL, json=payload, headers=headers)
                 
                 # Handle rate limit (429)
                 if r.status_code == 429:
@@ -143,17 +155,21 @@ async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
                         raise HTTPException(
                             429, 
                             "Gemini API rate limit. Try again in a moment. "
-                            "(Using global endpoint with pay-as-you-go)"
+                            f"(Model: {GEMINI_MODEL}, Endpoint: generativelanguage.googleapis.com)"
                         )
                 
                 # Handle other errors
                 if r.status_code != 200:
-                    error_body = r.text[:300]
+                    error_body = r.text[:500]
                     log.error(f"Gemini error {r.status_code}: {error_body}")
                     
                     # Don't retry on client errors (400-499 except 429)
                     if 400 <= r.status_code < 500 and r.status_code != 429:
-                        raise HTTPException(502, f"Gemini API error: {r.status_code}")
+                        raise HTTPException(
+                            502, 
+                            f"Gemini API error {r.status_code}. "
+                            f"Model: {GEMINI_MODEL}. Check model name is valid."
+                        )
                     
                     # Retry on server errors (500+)
                     if attempt < retries - 1:
@@ -173,6 +189,20 @@ async def _gemini(prompt: str, schema: dict, retries: int = 3) -> dict:
                     raise HTTPException(502, "Gemini returned no candidates")
                 
                 text = data["candidates"][0]["content"]["parts"][0]["text"]
+                
+                # CRITICAL: Check for error responses in text
+                text_lower = text.lower()
+                for pattern in ERROR_RESPONSE_PATTERNS:
+                    if pattern in text_lower:
+                        log.warning(f"Gemini returned error response containing '{pattern}'")
+                        # Don't cache this, treat as error
+                        if attempt < retries - 1:
+                            wait_time = (2 ** attempt) * 1.0
+                            log.warning(f"Retrying error response in {wait_time:.1f}s")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        raise HTTPException(502, "Gemini returned error response instead of valid data")
+                
                 result = json.loads(text)
                 
                 # Log success on retry

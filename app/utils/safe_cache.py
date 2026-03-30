@@ -17,6 +17,39 @@ NEVER_CACHE_CODES = {
     500, 502, 503, 504,  # Server errors
 }
 
+# Error response patterns in text that should never be cached
+ERROR_RESPONSE_PATTERNS = [
+    "i'm sorry",
+    "i cannot",
+    "i can't",
+    "something went wrong",
+    "an error occurred",
+    "unable to",
+    "failed to",
+    "error:",
+    "exception:",
+]
+
+
+def _contains_error_pattern(value: Any) -> bool:
+    """Check if value contains error response patterns"""
+    if isinstance(value, str):
+        value_lower = value.lower()
+        return any(pattern in value_lower for pattern in ERROR_RESPONSE_PATTERNS)
+    
+    if isinstance(value, dict):
+        # Check all string values recursively
+        for v in value.values():
+            if _contains_error_pattern(v):
+                return True
+    
+    if isinstance(value, list):
+        for item in value:
+            if _contains_error_pattern(item):
+                return True
+    
+    return False
+
 
 class SafeCache:
     """
@@ -100,6 +133,11 @@ class SafeCache:
             if 'error' in value or 'Error' in value:
                 log.warning("Refusing to cache error dict")
                 return False
+        
+        # CRITICAL: Check for error response patterns in content
+        if _contains_error_pattern(value):
+            log.warning(f"Refusing to cache value containing error pattern")
+            return False
         
         key = self._make_key(*key_parts)
         ttl = ttl if ttl is not None else self._default_ttl
