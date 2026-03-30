@@ -250,32 +250,90 @@
 </div>
 
 <!-- Image search modal -->
-<div id="img-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;overflow-y:auto;padding:20px;">
-  <div style="max-width:700px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
+<div id="img-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;overflow-y:auto;padding:20px;">
+  <div style="max-width:900px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);">Image Search</span>
       <button onclick="closeImageSearch()" class="btn btn-danger btn-sm">✕</button>
     </div>
+    
+    <!-- Search bar -->
     <div style="display:flex;gap:8px;margin-bottom:14px;">
       <input id="img-search-input" class="form-control" value="{{ comp.name }} {{ comp.package or '' }} component" placeholder="Search query">
       <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;font-size:11px;color:var(--text2);">
+    
+    <!-- Options -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:11px;color:var(--text2);">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
         <input type="checkbox" id="remove-bg-toggle" style="accent-color:var(--green);">
-        Remove background (makes transparent PNG)
+        Remove background
       </label>
-      <span style="color:var(--text3);">· UI renders white behind transparent images</span>
     </div>
-    <!-- Upload tab -->
+    
+    <!-- Upload option -->
     <div style="margin-bottom:12px;padding:10px;background:var(--bg3);border:1px dashed var(--border2);border-radius:2px;text-align:center;">
       <label style="cursor:pointer;font-size:11px;color:var(--text2);">
-        Or drag & drop / click to upload from computer
+        Or upload from computer
         <input type="file" accept="image/*" style="display:none" onchange="uploadFromModal(this)">
       </label>
     </div>
-    <div id="img-results" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"></div>
+    
+    <!-- Results grid (Google Images style) -->
+    <div id="img-results" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px;margin-bottom:10px;"></div>
     <div id="img-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- Crop/Rotate preview modal -->
+<div id="crop-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1001;overflow-y:auto;padding:20px;">
+  <div style="max-width:800px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);">Adjust Image</span>
+      <button onclick="closeCropModal()" class="btn btn-danger btn-sm">✕</button>
+    </div>
+    
+    <!-- Preview canvas container -->
+    <div style="position:relative;margin-bottom:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;overflow:hidden;">
+      <canvas id="crop-canvas" style="display:block;max-width:100%;height:auto;"></canvas>
+      <!-- Crop overlay -->
+      <div id="crop-overlay" style="position:absolute;inset:0;pointer-events:none;"></div>
+    </div>
+    
+    <!-- Rotation controls -->
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+      <span style="font-size:11px;color:var(--text3);min-width:60px;">Rotate:</span>
+      <button class="btn btn-primary btn-sm" onclick="rotatePreview(-90)">↺ 90°</button>
+      <button class="btn btn-primary btn-sm" onclick="rotatePreview(90)">↻ 90°</button>
+      <button class="btn btn-primary btn-sm" onclick="rotatePreview(180)">180°</button>
+    </div>
+    
+    <!-- Crop sliders -->
+    <div style="margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:11px;color:var(--text3);">Left:</label>
+        <input type="range" id="crop-left" min="0" max="100" value="0" style="width:100%;" oninput="updateCropOverlay()">
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:11px;color:var(--text3);">Top:</label>
+        <input type="range" id="crop-top" min="0" max="100" value="0" style="width:100%;" oninput="updateCropOverlay()">
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:11px;color:var(--text3);">Right:</label>
+        <input type="range" id="crop-right" min="0" max="100" value="100" style="width:100%;" oninput="updateCropOverlay()">
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:11px;color:var(--text3);">Bottom:</label>
+        <input type="range" id="crop-bottom" min="0" max="100" value="100" style="width:100%;" oninput="updateCropOverlay()">
+      </div>
+    </div>
+    
+    <!-- Actions -->
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset</button>
+      <button class="btn btn-primary" onclick="confirmCrop()">Save Image</button>
+    </div>
+    <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
   </div>
 </div>
 
@@ -283,6 +341,9 @@
 {% block scripts %}
 <script>
 const COMP_ID = "{{ comp.id }}";
+let _currentImageUrl = null;
+let _currentImageData = null;
+let _rotationDegrees = 0;
 
 async function touchComponent(id) {
   const status = document.getElementById('touch-status');
@@ -312,33 +373,164 @@ async function doImageSearch() {
   const q = document.getElementById('img-search-input').value;
   const status = document.getElementById('img-status');
   const results = document.getElementById('img-results');
-  status.textContent = 'Searching...';
+  status.textContent = 'Searching DigiKey, Mouser, DuckDuckGo...';
   results.innerHTML = '';
-  const data = await fetch('/api/images/search?q=' + encodeURIComponent(q)).then(r => r.json());
-  status.textContent = data.length ? `${data.length} results` : 'No results';
+  
+  const data = await fetch('/api/images/search?q=' + encodeURIComponent(q) + '&limit=24').then(r => r.json());
+  status.textContent = data.length ? `${data.length} results from ${[...new Set(data.map(x => x.source))].join(', ')}` : 'No results';
+  
+  // Google Images style: variable height based on aspect ratio
   data.forEach(img => {
+    const aspectRatio = (img.width && img.height) ? img.width / img.height : 1;
     const div = document.createElement('div');
-    div.style.cssText = 'cursor:pointer;border:1px solid var(--border);border-radius:2px;overflow:hidden;aspect-ratio:1;background:var(--bg3);';
-    div.innerHTML = `<img src="${img.thumb || img.url}" style="width:100%;height:100%;object-fit:contain;" loading="lazy" onerror="this.parentElement.style.display='none'">`;
-    div.onclick = () => selectImage(img.url);
+    div.style.cssText = `cursor:pointer;border:1px solid var(--border);border-radius:2px;overflow:hidden;background:var(--bg3);position:relative;`;
+    div.innerHTML = `
+      <img src="${img.thumb || img.url}" 
+           style="width:100%;height:100%;object-fit:cover;display:block;" 
+           loading="lazy" 
+           onerror="this.parentElement.style.display='none'">
+      <div style="position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,0.7);padding:2px 4px;border-radius:2px;font-size:9px;color:var(--text3);">${img.source}</div>
+    `;
+    div.onclick = () => selectImageForPreview(img.url);
     results.appendChild(div);
   });
 }
 
 const _removeBg = () => document.getElementById('remove-bg-toggle')?.checked || false;
 
-async function selectImage(url) {
+async function selectImageForPreview(url) {
   const status = document.getElementById('img-status');
-  status.textContent = 'Downloading' + (_removeBg() ? ' + removing background' : '') + '...';
+  status.textContent = 'Loading preview...';
+  _currentImageUrl = url;
+  _rotationDegrees = 0;
+  
+  try {
+    const fd = new FormData();
+    fd.append('component_id', COMP_ID);
+    fd.append('image_url', url);
+    const r = await fetch('/api/images/preview', {method:'POST', body: fd});
+    if (r.ok) {
+      const data = await r.json();
+      _currentImageData = data;
+      showCropModal(data);
+      status.textContent = '';
+    } else {
+      status.textContent = 'Preview failed: ' + r.status;
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+}
+
+function showCropModal(data) {
+  // Hide search modal, show crop modal
+  document.getElementById('img-modal').style.display = 'none';
+  document.getElementById('crop-modal').style.display = 'block';
+  
+  // Draw preview on canvas
+  const canvas = document.getElementById('crop-canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    
+    // Set suggested crop sliders
+    const sugg = data.suggested_crop;
+    const w = data.width;
+    const h = data.height;
+    document.getElementById('crop-left').value = (sugg.left / w * 100).toFixed(1);
+    document.getElementById('crop-top').value = (sugg.top / h * 100).toFixed(1);
+    document.getElementById('crop-right').value = (sugg.right / w * 100).toFixed(1);
+    document.getElementById('crop-bottom').value = (sugg.bottom / h * 100).toFixed(1);
+    
+    // Set max values
+    document.getElementById('crop-left').max = w;
+    document.getElementById('crop-top').max = h;
+    document.getElementById('crop-right').max = w;
+    document.getElementById('crop-bottom').max = h;
+    
+    updateCropOverlay();
+  };
+  img.src = data.preview;
+}
+
+function updateCropOverlay() {
+  const canvas = document.getElementById('crop-canvas');
+  const overlay = document.getElementById('crop-overlay');
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  const left = parseFloat(document.getElementById('crop-left').value) / 100 * w;
+  const top = parseFloat(document.getElementById('crop-top').value) / 100 * h;
+  const right = parseFloat(document.getElementById('crop-right').value) / 100 * w;
+  const bottom = parseFloat(document.getElementById('crop-bottom').value) / 100 * h;
+  
+  // Draw crop box overlay
+  overlay.innerHTML = `
+    <div style="position:absolute;top:0;left:0;right:0;bottom:0;border:2px dashed var(--green);
+                pointer-events:none;
+                clip-path:polygon(
+                  0% 0%, 0% 100%, ${left}px 100%, ${left}px ${top}px, 
+                  ${right}px ${top}px, ${right}px ${bottom}px, 
+                  ${left}px ${bottom}px, ${left}px 100%, 
+                  100% 100%, 100% 0%
+                );
+                background:rgba(0,0,0,0.5);"></div>
+  `;
+}
+
+function rotatePreview(deg) {
+  _rotationDegrees = (_rotationDegrees + deg) % 360;
+  const canvas = document.getElementById('crop-canvas');
+  canvas.style.transform = `rotate(${_rotationDegrees}deg)`;
+}
+
+function resetCrop() {
+  if (!_currentImageData) return;
+  const sugg = _currentImageData.suggested_crop;
+  const w = _currentImageData.width;
+  const h = _currentImageData.height;
+  document.getElementById('crop-left').value = (sugg.left / w * 100).toFixed(1);
+  document.getElementById('crop-top').value = (sugg.top / h * 100).toFixed(1);
+  document.getElementById('crop-right').value = (sugg.right / w * 100).toFixed(1);
+  document.getElementById('crop-bottom').value = (sugg.bottom / h * 100).toFixed(1);
+  _rotationDegrees = 0;
+  document.getElementById('crop-canvas').style.transform = '';
+  updateCropOverlay();
+}
+
+function closeCropModal() {
+  document.getElementById('crop-modal').style.display = 'none';
+  document.getElementById('img-modal').style.display = 'block';
+}
+
+async function confirmCrop() {
+  const status = document.getElementById('crop-status');
+  status.textContent = 'Processing...';
+  
+  const w = _currentImageData.width;
+  const h = _currentImageData.height;
+  const left = Math.floor(parseFloat(document.getElementById('crop-left').value) / 100 * w);
+  const top = Math.floor(parseFloat(document.getElementById('crop-top').value) / 100 * h);
+  const right = Math.floor(parseFloat(document.getElementById('crop-right').value) / 100 * w);
+  const bottom = Math.floor(parseFloat(document.getElementById('crop-bottom').value) / 100 * h);
+  
   const fd = new FormData();
   fd.append('component_id', COMP_ID);
-  fd.append('image_url', url);
+  fd.append('image_url', _currentImageUrl);
   fd.append('remove_bg', _removeBg() ? 'true' : 'false');
+  fd.append('rotate', _rotationDegrees.toString());
+  fd.append('crop_left', left.toString());
+  fd.append('crop_top', top.toString());
+  fd.append('crop_right', right.toString());
+  fd.append('crop_bottom', bottom.toString());
+  
   try {
     const r = await fetch('/api/images/fetch', {method:'POST', body: fd});
     if (r.ok) {
       const data = await r.json();
-      // replace or create img element
       const existing = document.getElementById('comp-img');
       if (existing) {
         existing.src = data.image_path + '?t=' + Date.now();
@@ -347,13 +539,16 @@ async function selectImage(url) {
         if (ph) ph.outerHTML = `<img src="${data.image_path}" style="max-width:100%;max-height:160px;object-fit:contain;background:white;" id="comp-img">`;
       }
       status.textContent = '✓ Saved';
-      closeImageSearch();
+      setTimeout(() => {
+        document.getElementById('crop-modal').style.display = 'none';
+        document.getElementById('img-modal').style.display = 'none';
+      }, 500);
     } else {
       const err = await r.text();
       status.textContent = 'Error: ' + err.slice(0, 100);
     }
   } catch(e) {
-    status.textContent = 'Network error: ' + e.message;
+    status.textContent = 'Error: ' + e.message;
   }
 }
 
@@ -363,7 +558,6 @@ async function uploadImage(input) {
   fd.append('file', input.files[0]);
   const r = await fetch('/api/images/upload/' + COMP_ID, {method:'POST', body: fd});
   if (r.ok) {
-    const data = await r.json();
     location.reload();
   }
 }
