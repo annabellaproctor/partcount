@@ -199,6 +199,11 @@ MIGRATIONS = [
         # If index already exists the CREATE INDEX IF NOT EXISTS is a no-op.
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_component_lookups_query ON component_lookups (query)",
     ]),
+
+    (4, "generic components — is_generic flag and parent_id self-referential FK", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS is_generic BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS parent_id VARCHAR REFERENCES components(id)",
+    ]),
 ]
 
 

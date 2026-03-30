@@ -104,12 +104,34 @@ async def add_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 @app.get("/components", response_class=HTMLResponse)
 async def components_page(request: Request, db: AsyncSession = Depends(get_db)):
+    # Fetch each component with its type and summed footprint quantity
     result = await db.execute(
-        select(Component, ComponentType)
+        select(Component, ComponentType, func.coalesce(func.sum(Footprint.quantity), 0).label("total_stock"))
         .join(ComponentType, ComponentType.id == Component.type_id, isouter=True)
+        .join(Footprint, Footprint.component_id == Component.id, isouter=True)
+        .group_by(Component.id, ComponentType.id)
         .order_by(Component.barcode_id)
     )
-    rows = result.fetchall()
+    raw_rows = result.fetchall()
+
+    # For generic components, aggregate stock across children too
+    generic_ids = [r.Component.id for r in raw_rows if r.Component.is_generic]
+    child_stock: dict = {}
+    if generic_ids:
+        child_agg = await db.execute(
+            select(Component.parent_id, func.sum(Footprint.quantity).label("child_total"))
+            .join(Footprint, Footprint.component_id == Component.id)
+            .where(Component.parent_id.in_(generic_ids))
+            .group_by(Component.parent_id)
+        )
+        child_stock = {r.parent_id: int(r.child_total or 0) for r in child_agg.fetchall()}
+
+    rows = []
+    for r in raw_rows:
+        own_stock = int(r.total_stock or 0)
+        total = (own_stock + child_stock.get(r.Component.id, 0)) if r.Component.is_generic else own_stock
+        rows.append((r.Component, r.ComponentType, total))
+
     types = (await db.execute(select(ComponentType).order_by(ComponentType.name))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
     return templates.TemplateResponse("components.html", {
@@ -226,11 +248,33 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
     ph = [type("PH", (), {"quantity_ordered": r.PurchaseOrderItem.quantity_ordered, "quantity_received": r.PurchaseOrderItem.quantity_received, "order": r.PurchaseOrder})() for r in purchase_history]
     all_suppliers = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+
+    # Generic component aggregation
+    generic_stock = None
+    generic_parent = None
+    generic_children = []
+    if comp.is_generic:
+        # Aggregate own + children stock
+        children_result = await db.execute(select(Component).where(Component.parent_id == comp.id))
+        generic_children = children_result.scalars().all()
+        all_ids = [comp.id] + [c.id for c in generic_children]
+        agg = await db.execute(
+            select(func.coalesce(func.sum(Footprint.quantity), 0))
+            .where(Footprint.component_id.in_(all_ids))
+        )
+        generic_stock = int(agg.scalar() or 0)
+    elif comp.parent_id:
+        parent_result = await db.execute(select(Component).where(Component.id == comp.parent_id))
+        generic_parent = parent_result.scalar_one_or_none()
+
     return templates.TemplateResponse("component_detail.html", {
         "request": request, "comp": comp, "ctype": ctype, "footprints": footprints,
         "bins": bins_with_box, "used_in": bom_projects,
         "component_suppliers": component_suppliers, "purchase_history": ph,
         "all_suppliers": all_suppliers, "profile": profile,
+        "generic_stock": generic_stock,
+        "generic_parent": generic_parent,
+        "generic_children": generic_children,
     })
 
 @app.get("/scan", response_class=HTMLResponse)

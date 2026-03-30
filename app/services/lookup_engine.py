@@ -3,7 +3,7 @@ Lookup engine — queries DigiKey + LCSC in parallel, merges, scores, ranks.
 Never caches results with empty primary fields.
 Weights toward previously-used manufacturers.
 """
-import asyncio, hashlib, json, os, uuid, logging
+import asyncio, hashlib, json, os, re, uuid, logging
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,120 @@ CACHE_TTL = timedelta(hours=24)
 _MERGE_KEY_MPN_CHARS = 40
 # Minimum Gemini confidence to inject the AI-merged result as the top result.
 MERGE_CONFIDENCE_THRESHOLD = 0.7
+
+# ---------------------------------------------------------------------------
+# Common passive patterns for generic component detection
+# ---------------------------------------------------------------------------
+
+# Resistor: "10k", "4.7k", "100", "1M", "10R", optionally with package
+_RESISTOR_VALUE_RE = re.compile(
+    r"^(\d+\.?\d*)\s*([kKmMrRΩ]|ohm)?$"
+)
+# Capacitor: "100nF", "10uF", "1pF", "0.1uF"
+_CAPACITOR_VALUE_RE = re.compile(
+    r"^(\d+\.?\d*)\s*(p|n|u|µ|m)?f$",
+    re.IGNORECASE,
+)
+# Common SMD/through-hole packages
+_PASSIVE_PACKAGES = {
+    "0201", "0402", "0603", "0805", "1206", "1210", "2512",
+    "sod-123", "sod123", "do-35", "do35",
+    "axial", "radial",
+}
+
+# Keywords that indicate a resistor or capacitor in MPN / name
+_RESISTOR_KEYWORDS = {"resistor", "res", " r ", "ohm"}
+_CAPACITOR_KEYWORDS = {"capacitor", "cap", "ceramic", "electrolytic", "mlcc", "tant"}
+
+
+def _is_common_passive(query: str) -> Optional[str]:
+    """
+    Returns 'resistor', 'capacitor', or None.
+    Detects queries like: '10k 0603', '100nF', '4.7k resistor', '10uF 1206 capacitor'
+    """
+    q = query.lower().strip()
+    tokens = q.split()
+
+    has_resistor_kw = any(kw in q for kw in _RESISTOR_KEYWORDS)
+    has_capacitor_kw = any(kw in q for kw in _CAPACITOR_KEYWORDS)
+    has_cap_value = any(_CAPACITOR_VALUE_RE.match(t) for t in tokens)
+    has_res_value = any(_RESISTOR_VALUE_RE.match(t) for t in tokens)
+
+    if has_cap_value or has_capacitor_kw:
+        if has_cap_value:
+            return "capacitor"
+    if has_res_value or has_resistor_kw:
+        if has_res_value:
+            return "resistor"
+
+    return None
+
+
+async def suggest_generic(query: str, db: Optional[AsyncSession]) -> Optional[dict]:
+    """
+    If the query matches a common passive pattern, look for an existing
+    generic component in the database (by value + package).  Returns the
+    generic component record dict if found, or a stub suggestion dict if
+    the pattern matches but no record exists yet.
+    """
+    passive_type = _is_common_passive(query)
+    if not passive_type or not db:
+        return None
+
+    tokens = query.lower().split()
+    # Extract value and package from tokens
+    value_token = None
+    package_token = None
+    for t in tokens:
+        if _RESISTOR_VALUE_RE.match(t) or _CAPACITOR_VALUE_RE.match(t):
+            if value_token is None:
+                value_token = t
+        if t in _PASSIVE_PACKAGES:
+            package_token = t
+
+    if not value_token:
+        return None
+
+    # Look for an existing generic component matching value + optional package
+    try:
+        sql = text(
+            "SELECT id, barcode_id, name, value, package FROM components "
+            "WHERE is_generic = TRUE AND LOWER(value) = :val"
+            + (" AND LOWER(package) = :pkg" if package_token else "")
+            + " LIMIT 1"
+        )
+        params: dict = {"val": value_token}
+        if package_token:
+            params["pkg"] = package_token
+
+        result = await db.execute(sql, params)
+        row = result.fetchone()
+        if row:
+            return {
+                "found": True,
+                "component_id": row.id,
+                "barcode_id": row.barcode_id,
+                "name": row.name,
+                "value": row.value,
+                "package": row.package,
+                "passive_type": passive_type,
+            }
+    except Exception as exc:
+        log.warning(f"suggest_generic db query failed: {exc}")
+
+    # No existing generic — return a creation suggestion
+    label_parts = [value_token.upper()]
+    if package_token:
+        label_parts.append(package_token.upper())
+    label_parts.append(passive_type.capitalize())
+
+    return {
+        "found": False,
+        "suggested_name": " ".join(label_parts),
+        "suggested_value": value_token,
+        "suggested_package": package_token or "",
+        "passive_type": passive_type,
+    }
 
 
 def _is_valid_result(r: dict) -> bool:
@@ -328,4 +442,5 @@ async def search(
         "cached": dk_cached or lc_cached,
         "dk_count": len(dk_results),
         "lc_count": len(lc_results),
+        "generic_suggestion": await suggest_generic(query, db),
     }
