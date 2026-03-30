@@ -13,9 +13,27 @@ router = APIRouter(prefix="/api/components", tags=["components"])
 
 
 @router.get("/")
-async def list_components(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Component).order_by(Component.barcode_id))
-    return result.scalars().all()
+async def list_components(db: AsyncSession = Depends(get_db), q: str = None):
+    stmt = select(Component).order_by(Component.barcode_id)
+    if q:
+        like = f"%{q}%"
+        from sqlalchemy import or_
+        stmt = stmt.where(or_(
+            Component.barcode_id.ilike(like),
+            Component.name.ilike(like),
+            Component.value.ilike(like),
+            Component.package.ilike(like),
+        ))
+    result = await db.execute(stmt)
+    comps = result.scalars().all()
+    return [{"id": c.id, "barcode_id": c.barcode_id, "name": c.name, "value": c.value, "package": c.package} for c in comps]
+
+@router.get("/types")
+async def list_types(db: AsyncSession = Depends(get_db)):
+    from app.models.models import ComponentType
+    result = await db.execute(select(ComponentType).order_by(ComponentType.name))
+    return [{"id": r.id, "name": r.name} for r in result.scalars().all()]
+
 
 
 @router.get("/{barcode_id}")
@@ -165,9 +183,3 @@ async def update_stock(
     await manager.broadcast("stock_change", {"barcode_id": barcode_id, "footprint_id": footprint_id, "quantity": fp.quantity, "delta": delta})
     return {"quantity": fp.quantity}
 
-
-@router.get("/types")
-async def list_types(db: AsyncSession = Depends(get_db)):
-    from app.models.models import ComponentType
-    result = await db.execute(select(ComponentType).order_by(ComponentType.name))
-    return [{"id": r.id, "name": r.name} for r in result.scalars().all()]

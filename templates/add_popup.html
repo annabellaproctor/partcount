@@ -141,10 +141,11 @@
       </div>
 
       <div class="add-popup-footer">
-        <span id="add-form-status" style="font-size:11px;color:var(--text3);"></span>
-        <div style="display:flex;gap:8px;margin-left:auto;">
+        <span id="add-form-status" style="font-size:11px;color:var(--text3);flex:1;"></span>
+        <div style="display:flex;gap:8px;">
           <button type="button" onclick="resetAddForm()" class="btn btn-danger btn-sm">Reset</button>
-          <button type="submit" id="add-submit-btn" class="btn btn-primary btn-sm">ADD COMPONENT</button>
+          <button type="button" onclick="addAnother()" id="add-another-btn" class="btn btn-primary btn-sm">+ Add Another</button>
+          <button type="submit" id="add-submit-btn" class="btn btn-primary btn-sm">Save</button>
         </div>
       </div>
     </form>

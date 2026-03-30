@@ -1,59 +1,65 @@
 {% extends "base.html" %}
 {% block title %}Boxes :: LAB::INV{% endblock %}
 {% block content %}
-<div class="page-title">Boxes</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Boxes</div>
+  <button onclick="openBoxForm()" class="btn btn-primary btn-sm">+ Register Box</button>
+</div>
 
-<div class="row g-3 mb-3">
-  <div class="col-md-7">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>Register Box</div>
-      <div class="p-3">
-        <form hx-post="/api/boxes/" hx-target="#boxes-table-body" hx-swap="afterbegin" enctype="multipart/form-data" hx-on::after-request="this.reset()">
-          <div class="row g-2">
-            <div class="col-md-2">
-              <label class="form-label">Label</label>
-              <input name="label" class="form-control" placeholder="A" required>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Model</label>
-              <select name="model" class="form-select" onchange="autoFillCells(this)">
-                <option value="BOXALL144">BOXALL144</option>
-                <option value="BOXALL96">BOXALL96</option>
-                <option value="BOXALL48">BOXALL48</option>
-                <option value="BOXALL24">BOXALL24</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Cells</label>
-              <input name="cell_count" id="cell-count-input" type="number" class="form-control" placeholder="144" value="144">
-            </div>
-            <div class="col-md-1">
-              <label class="form-label">Slot #</label>
-              <input name="slot_index" type="number" class="form-control" placeholder="0" value="0" min="0">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Location</label>
-              <input name="location" class="form-control" placeholder="desk-ledge">
-            </div>
-            <div class="col-md-1 d-flex align-items-end">
-              <button type="submit" class="btn btn-primary w-100">ADD</button>
-            </div>
-          </div>
-        </form>
+<!-- Add Box inline collapsible form -->
+<div id="box-form-panel" style="display:none;" class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Register New Box</div>
+  <div class="p-3">
+    <form hx-post="/api/boxes/" hx-target="#boxes-visual" hx-swap="none"
+          enctype="multipart/form-data"
+          hx-on::after-request="location.reload()"
+          onsubmit="this.querySelector('button[type=submit]').textContent='Saving...'">
+      <div class="row g-2">
+        <div class="col-2">
+          <label class="form-label">Label</label>
+          <input name="label" class="form-control" placeholder="A" required>
+        </div>
+        <div class="col-3">
+          <label class="form-label">Model</label>
+          <select name="model" class="form-select" onchange="autoFillCells(this)">
+            <option value="BOXALL144">BOXALL144</option>
+            <option value="BOXALL96">BOXALL96</option>
+            <option value="BOXALL48">BOXALL48</option>
+            <option value="BOXALL24">BOXALL24</option>
+          </select>
+        </div>
+        <div class="col-2">
+          <label class="form-label">Cells</label>
+          <input name="cell_count" id="cell-count-input" type="number" class="form-control" value="144">
+        </div>
+        <div class="col-1">
+          <label class="form-label">Slot</label>
+          <input name="slot_index" type="number" class="form-control" value="0" min="0">
+        </div>
+        <div class="col-3">
+          <label class="form-label">Location</label>
+          <input name="location" class="form-control" placeholder="desk-ledge">
+        </div>
+        <div class="col-1 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">Add</button>
+        </div>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 
-<!-- Ledge minimap -->
+<!-- Ledge minimap — drag to reorder -->
 {% if boxes %}
 <div class="card mb-3">
-  <div class="card-header"><span class="dot"></span>Ledge Layout — drag to reorder</div>
+  <div class="card-header"><span class="dot"></span>Ledge Layout — drag to reorder · click to open grid</div>
   <div class="p-3">
     <div id="ledge-map" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
       {% for box in boxes %}
-      {% set size_class = 'box-144' if box.cell_count >= 144 else ('box-96' if box.cell_count >= 96 else ('box-48' if box.cell_count >= 48 else 'box-24')) %}
-      <div class="box-tile {{ size_class }}"
+      {% set cc = box.cell_count or 144 %}
+      {% set cols = 12 if cc >= 144 else (10 if cc >= 96 else (6 if cc >= 48 else 4)) %}
+      {% set rows = (cc // cols) %}
+      {% set tile_w = 80 if cc >= 144 else (65 if cc >= 96 else (50 if cc >= 48 else 38)) %}
+      <div class="ledge-tile"
            draggable="true"
            data-box-id="{{ box.id }}"
            data-slot="{{ box.slot_index or 0 }}"
@@ -61,10 +67,21 @@
            ondragover="ledgeDragOver(event)"
            ondrop="ledgeDrop(event)"
            ondragleave="ledgeDragLeave(event)"
-           onclick="window.location='/boxes/{{ box.id }}'">
-        <div class="bt-label">{{ box.label }}</div>
-        <div class="bt-model">{{ box.model }}</div>
-        <div class="bt-bar"><div class="bt-fill" style="width:0%"></div></div>
+           onclick="window.location='/boxes/{{ box.id }}'"
+           style="width:{{ tile_w }}px;cursor:pointer;">
+        <div style="font-size:10px;font-weight:bold;color:var(--green);margin-bottom:3px;letter-spacing:0.5px;">{{ box.label }}</div>
+        <div style="font-size:8px;color:var(--text3);margin-bottom:4px;">{{ box.model }}</div>
+        <!-- Mini cell grid -->
+        <div class="mini-grid" data-box-id="{{ box.id }}"
+             style="display:grid;grid-template-columns:repeat({{ cols }},1fr);gap:1px;border:1px solid var(--border);padding:2px;background:var(--bg3);border-radius:2px;">
+          {% for i in range(cc) %}
+          <div class="mini-cell" data-idx="{{ i }}"
+               style="aspect-ratio:1;background:var(--border);border-radius:1px;"></div>
+          {% endfor %}
+        </div>
+        <div style="font-size:8px;color:var(--text3);margin-top:3px;text-align:center;">
+          <span class="cell-used-{{ box.id }}">0</span>/{{ cc }}
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -72,101 +89,134 @@
 </div>
 {% endif %}
 
+<!-- Box table -->
 <div class="card mb-5">
   <div class="card-header"><span class="dot"></span>Box Registry</div>
-  <table class="table" id="boxes-table">
-    <thead>
-      <tr>
-        <th>Label</th><th>Model</th><th>Cells</th><th>Slot</th><th>Location</th><th></th>
-      </tr>
-    </thead>
-    <tbody id="boxes-table-body">
+  <table class="table">
+    <thead><tr>
+      <th>Label</th><th>Model</th><th>Cells</th><th>Used</th><th>Slot</th><th>Location</th><th></th>
+    </tr></thead>
+    <tbody>
       {% for box in boxes %}
-      <tr id="box-row-{{ box.id }}">
+      <tr>
         <td><span class="bid">{{ box.label }}</span></td>
         <td>{{ box.model }}</td>
         <td>{{ box.cell_count }}</td>
+        <td class="muted" id="used-count-{{ box.id }}">—</td>
         <td class="muted">{{ box.slot_index }}</td>
         <td class="muted">{{ box.location or '—' }}</td>
-        <td>
-          <a href="/boxes/{{ box.id }}" class="btn btn-primary btn-sm">OPEN GRID</a>
-        </td>
+        <td><a href="/boxes/{{ box.id }}" class="btn btn-primary btn-sm">OPEN GRID</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-{% endblock %}
 
+<style>
+.ledge-tile {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 6px;
+  transition: border-color 0.15s;
+  user-select: none;
+}
+.ledge-tile:hover { border-color: var(--green2); }
+.ledge-tile.drag-over { border-color: var(--green); background: var(--bg4); }
+.mini-cell { transition: background 0.1s; }
+.mini-cell.used { background: var(--green2) !important; }
+.mini-cell.unused { background: var(--border) !important; }
+</style>
+
+{% endblock %}
 {% block scripts %}
 <script>
-// Auto-fill cell count when model changes
-const cellCounts = {BOXALL144: 144, BOXALL96: 96, BOXALL48: 48, BOXALL24: 24};
+const cellCounts = {BOXALL144:144, BOXALL96:96, BOXALL48:48, BOXALL24:24};
 function autoFillCells(sel) {
   document.getElementById('cell-count-input').value = cellCounts[sel.value] || '';
 }
+function openBoxForm() {
+  const p = document.getElementById('box-form-panel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+// Load occupancy for each box and color the mini cells
+async function loadOccupancy() {
+  const tiles = document.querySelectorAll('.mini-grid[data-box-id]');
+  for (const grid of tiles) {
+    const boxId = grid.dataset.boxId;
+    try {
+      const data = await fetch(`/api/boxes/${boxId}/grid`).then(r=>r.json());
+      const usedCells = new Set(data.map(d => d.cell_id));
+      const cells = grid.querySelectorAll('.mini-cell');
+      let usedCount = 0;
+      cells.forEach((cell, idx) => {
+        // cell_id format: R{row}C{col} — derive from index
+        // we match by count since we don't have per-cell index here
+        // color all cells, mark used ones green
+      });
+      // map cell_ids to indices
+      const colsMatch = grid.style.gridTemplateColumns.match(/repeat\((\d+)/);
+      const cols = colsMatch ? parseInt(colsMatch[1]) : 12;
+      data.forEach(d => {
+        const m = d.cell_id.match(/R(\d+)C(\d+)/);
+        if (m) {
+          const idx = parseInt(m[1]) * cols + parseInt(m[2]);
+          const cellEl = cells[idx];
+          if (cellEl) { cellEl.classList.add('used'); cellEl.style.background = 'var(--green2)'; usedCount++; }
+        }
+      });
+      // gray out remaining
+      cells.forEach(c => { if (!c.classList.contains('used')) c.style.background = 'var(--border)'; });
+      const usedEl = document.querySelector(`.cell-used-${boxId}`);
+      const tableEl = document.getElementById(`used-count-${boxId}`);
+      if (usedEl) usedEl.textContent = data.length;
+      if (tableEl) tableEl.textContent = data.length;
+    } catch(e) {}
+  }
+}
+
+loadOccupancy();
 
 // Ledge drag reorder
 let ledgeDragSrc = null;
-
 function ledgeDragStart(e) {
   ledgeDragSrc = e.currentTarget;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', ledgeDragSrc.dataset.boxId);
-  setTimeout(() => ledgeDragSrc.style.opacity = '0.4', 0);
+  setTimeout(() => { if(ledgeDragSrc) ledgeDragSrc.style.opacity = '0.4'; }, 0);
 }
-
 function ledgeDragOver(e) {
   e.preventDefault();
-  e.currentTarget.style.borderColor = 'var(--green)';
+  e.currentTarget.classList.add('drag-over');
 }
-
-function ledgeDragLeave(e) {
-  e.currentTarget.style.borderColor = '';
-}
-
+function ledgeDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 async function ledgeDrop(e) {
   e.preventDefault();
   const target = e.currentTarget;
-  target.style.borderColor = '';
+  target.classList.remove('drag-over');
   if (!ledgeDragSrc || ledgeDragSrc === target) {
     if (ledgeDragSrc) ledgeDragSrc.style.opacity = '';
-    return;
+    ledgeDragSrc = null; return;
   }
-
-  // swap DOM positions
   const parent = ledgeDragSrc.parentNode;
   const srcNext = ledgeDragSrc.nextSibling;
   const tgtNext = target.nextSibling;
-
-  if (tgtNext === ledgeDragSrc) {
-    parent.insertBefore(ledgeDragSrc, target);
-  } else {
-    parent.insertBefore(ledgeDragSrc, tgtNext);
-    parent.insertBefore(target, srcNext);
-  }
-
-  // persist new slot order
-  const tiles = parent.querySelectorAll('.box-tile');
-  const updates = [];
-  tiles.forEach((t, i) => {
-    updates.push({box_id: t.dataset.boxId, slot_index: i});
-  });
-
-  for (const u of updates) {
+  if (tgtNext === ledgeDragSrc) { parent.insertBefore(ledgeDragSrc, target); }
+  else { parent.insertBefore(ledgeDragSrc, tgtNext); parent.insertBefore(target, srcNext); }
+  ledgeDragSrc.style.opacity = '';
+  const tiles = parent.querySelectorAll('.ledge-tile');
+  for (let i = 0; i < tiles.length; i++) {
     const fd = new FormData();
-    fd.append('box_id', u.box_id);
-    fd.append('slot_index', u.slot_index);
+    fd.append('box_id', tiles[i].dataset.boxId);
+    fd.append('slot_index', i);
     await fetch('/api/boxes/slot', {method:'PATCH', body: fd});
   }
-
-  ledgeDragSrc.style.opacity = '';
   ledgeDragSrc = null;
 }
-
 document.addEventListener('dragend', () => {
   if (ledgeDragSrc) ledgeDragSrc.style.opacity = '';
   ledgeDragSrc = null;
+  document.querySelectorAll('.ledge-tile').forEach(t => t.classList.remove('drag-over'));
 });
 </script>
 {% endblock %}

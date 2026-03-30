@@ -1,38 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Projects :: LAB::INV{% endblock %}
 {% block content %}
-<div class="page-title">Projects</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-md-5">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>New Project</div>
-      <div class="p-3">
-        <form action="/api/projects/" method="post" enctype="multipart/form-data">
-          <div class="row g-2">
-            <div class="col-8">
-              <label class="form-label">Name</label>
-              <input name="name" class="form-control" placeholder="Gate controller v2" required>
-            </div>
-            <div class="col-4">
-              <label class="form-label">Status</label>
-              <select name="status" class="form-select">
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-                <option value="complete">Complete</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Description</label>
-              <input name="description" class="form-control" placeholder="Optional">
-            </div>
-            <div class="col-auto">
-              <button type="submit" class="btn btn-primary">CREATE</button>
-            </div>
-          </div>
-        </form>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Projects</div>
+  <button onclick="document.getElementById('proj-form').style.display=document.getElementById('proj-form').style.display==='none'?'block':'none'" class="btn btn-primary btn-sm">+ New Project</button>
+</div>
+<div id="proj-form" style="display:none;" class="card mb-3">
+  <div class="card-header"><span class="dot"></span>New Project</div>
+  <div class="p-3">
+    <form action="/api/projects/" method="post" enctype="multipart/form-data">
+      <div class="row g-2">
+        <div class="col-6"><label class="form-label">Name</label><input name="name" class="form-control" required placeholder="Gate controller v2"></div>
+        <div class="col-3"><label class="form-label">Status</label><select name="status" class="form-select"><option value="active">Active</option><option value="paused">Paused</option><option value="complete">Complete</option></select></div>
+        <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-primary w-100">Create</button></div>
+        <div class="col-12"><label class="form-label">Description</label><input name="description" class="form-control" placeholder="Optional"></div>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 

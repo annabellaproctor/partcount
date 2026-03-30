@@ -61,19 +61,9 @@
     <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:12px;">
       Assign Cell <span id="modal-cell-id" style="color:var(--green);"></span>
     </div>
-    <input id="comp-search" class="form-control mb-2" placeholder="Search component..." oninput="filterComps(this.value)" autocomplete="off">
+    <input id="comp-search" class="form-control mb-2" placeholder="Search component by name, value, barcode..." oninput="searchComps(this.value)" autocomplete="off">
     <div id="comp-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:2px;">
-      {% for comp in all_components %}
-      <div class="comp-option"
-           data-comp-id="{{ comp.id }}"
-           data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.value or '' }}"
-           onclick="assignCell(this)"
-           style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px;align-items:center;">
-        <span class="bid" style="font-size:10px;">{{ comp.barcode_id }}</span>
-        <span>{{ comp.name }}</span>
-        <span class="muted">{{ comp.value or '' }}</span>
-      </div>
-      {% endfor %}
+      <div style="padding:8px;color:var(--text3);font-size:11px;">Type to search components…</div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="btn btn-danger btn-sm" onclick="closeModal()">Cancel</button>
@@ -189,11 +179,49 @@ function closeModal() {
   activeCellEl = null;
 }
 
-function filterComps(q) {
-  q = q.toLowerCase();
-  document.querySelectorAll('.comp-option').forEach(el => {
-    el.style.display = el.dataset.search.toLowerCase().includes(q) ? '' : 'none';
-  });
+let _compSearchTimer;
+function searchComps(q) {
+  clearTimeout(_compSearchTimer);
+  const list = document.getElementById('comp-list');
+  if (!q || q.length < 1) {
+    list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Type to search…</div>';
+    return;
+  }
+  list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Searching…</div>';
+  _compSearchTimer = setTimeout(async () => {
+    const r = await fetch(`/api/components/?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+    const comps = Array.isArray(r) ? r : [];
+    if (!comps.length) {
+      list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No components found</div>';
+      return;
+    }
+    list.innerHTML = comps.map(c => `
+      <div class="comp-option"
+           data-comp-id="${c.id}"
+           data-barcode="${c.barcode_id}"
+           data-name="${c.name}"
+           data-val="${c.value||''}"
+           onclick="assignCellFromSearch(this)"
+           style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px;align-items:center;">
+        <span class="bid" style="font-size:10px;">${c.barcode_id}</span>
+        <span style="flex:1">${c.name}</span>
+        <span class="muted">${c.value||''}</span>
+      </div>`).join('');
+  }, 300);
+}
+
+function assignCellFromSearch(el) {
+  // wrap as pseudo-optEl matching old interface
+  const pseudo = {
+    dataset: {compId: el.dataset.compId},
+    querySelector: (sel) => {
+      if (sel === 'span:nth-child(2)') return {textContent: el.dataset.name};
+      if (sel === '.bid') return {textContent: el.dataset.barcode};
+      if (sel === '.muted') return {textContent: el.dataset.val};
+      return {textContent: ''};
+    }
+  };
+  assignCell(pseudo);
 }
 
 // pending assignment — preview before save
