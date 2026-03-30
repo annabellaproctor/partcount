@@ -98,9 +98,8 @@ async def search_images(q: str, limit: int = 20, db: AsyncSession = Depends(get_
                 if allowed:
                     start = time.time()
                     async with httpx.AsyncClient(timeout=10) as client:
-                        r = await client.get(
-                            "https://api.mouser.com/api/v1/search/keyword",
-                            params={"apiKey": mouser_key},
+                        r = await client.post(
+                            f"https://api.mouser.com/api/v1/search/keyword?apiKey={mouser_key}",
                             json={"SearchByKeywordRequest": {"keyword": q, "records": 10}},
                             headers={"Content-Type": "application/json"},
                         )
@@ -114,6 +113,7 @@ async def search_images(q: str, limit: int = 20, db: AsyncSession = Depends(get_
                             for part in data.get("SearchResults", {}).get("Parts", []):
                                 img = part.get("ImagePath")
                                 if img:
+                                    # Note: We aggregate search results internally but don't cache Mouser data per TOS
                                     _add_result(results, img, img, part.get("Description", ""), "mouser")
                             log.info(f"Mouser API: {len([r for r in results if r['source'] == 'mouser'])} images ({elapsed}ms)")
                         else:

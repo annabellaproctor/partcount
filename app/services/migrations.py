@@ -204,6 +204,20 @@ MIGRATIONS = [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS is_generic BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS parent_id VARCHAR REFERENCES components(id)",
     ]),
+
+    (5, "api usage tracking for rate limit monitoring", [
+        """CREATE TABLE IF NOT EXISTS api_usage (
+            id VARCHAR PRIMARY KEY,
+            api_name VARCHAR NOT NULL,
+            endpoint VARCHAR,
+            timestamp TIMESTAMP DEFAULT NOW(),
+            success BOOLEAN DEFAULT TRUE,
+            error_message TEXT,
+            response_time_ms INTEGER
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_api_usage_api_name ON api_usage (api_name)",
+        "CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage (timestamp)",
+    ]),
 ]
 
 

@@ -2,7 +2,7 @@
 API usage tracking and rate limit enforcement.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Integer
 from app.models.models import APIUsage
 from datetime import datetime, timedelta
 import logging
