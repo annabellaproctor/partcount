@@ -29,7 +29,7 @@
     *, *::before, *::after { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
     body {
-      background: var(--bg);
+      background: var(--bg) !important;
       color: var(--text);
       font-family: var(--font);
       font-size: 13px;
@@ -466,20 +466,31 @@ async function runLookup(q) {
       res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No results — try DigiKey or LCSC directly</div>';
       return;
     }
-    res.innerHTML = results.map(r => `
-      <div class="lookup-result-item" onclick='selectLookupResult(${JSON.stringify(r).replace(/'/g,"&#39;")})'>
-        <span class="lr-source ${r.source==="digikey"?"lr-dk":"lr-lc"}">${r.source||'?'}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.name||''}</span>
-        <span style="color:var(--text3);font-size:10px;white-space:nowrap;">${r.mpn||''}</span>
-        ${r.unit_price ? `<span style="color:var(--amber);font-size:10px;">$${parseFloat(r.unit_price).toFixed(3)}</span>` : ''}
-      </div>`).join('');
+    // Store results in a map to avoid JSON injection in onclick
+    window._lookupResults = {};
+    res.innerHTML = results.map((r, i) => {
+      window._lookupResults[i] = r;
+      const src = r.source || 'unknown';
+      const srcCls = src === 'digikey' ? 'lr-dk' : 'lr-lc';
+      const name = (r.name || r.mpn || 'Unknown').replace(/</g,'&lt;');
+      const mpn = (r.mpn || '').replace(/</g,'&lt;');
+      const price = r.unit_price ? '$' + parseFloat(r.unit_price).toFixed(3) : '';
+      return '<div class="lookup-result-item" onclick="selectLookupResult(' + i + ')">' +
+        '<span class="lr-source ' + srcCls + '">' + src + '</span>' +
+        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + name + '</span>' +
+        '<span style="color:var(--text3);font-size:10px;white-space:nowrap;">' + mpn + '</span>' +
+        (price ? '<span style="color:var(--amber);font-size:10px;">' + price + '</span>' : '') +
+        '</div>';
+    }).join('');
   } catch(e) {
     res.innerHTML = '<div style="padding:8px;color:var(--red);font-size:11px;">Lookup error — check console</div>';
     console.error('Lookup error:', e);
   }
 }
 
-function selectLookupResult(r) {
+function selectLookupResult(idx) {
+  const r = window._lookupResults[idx] || {};
+  if (!r) return;
   const set = (id, val) => { const el = document.getElementById(id); if(el && val) el.value = val; };
   set('f-name', r.name);
   set('f-mpn', r.mpn);

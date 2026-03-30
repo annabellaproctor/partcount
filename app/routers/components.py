@@ -26,7 +26,7 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None):
         ))
     result = await db.execute(stmt)
     comps = result.scalars().all()
-    return [{"id": c.id, "barcode_id": c.barcode_id, "name": c.name, "value": c.value, "package": c.package} for c in comps]
+    return [{"id": c.id, "barcode_id": c.barcode_id or "", "name": c.name or "", "value": c.value or "", "package": c.package or ""} for c in comps]
 
 @router.get("/types")
 async def list_types(db: AsyncSession = Depends(get_db)):

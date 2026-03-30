@@ -1,9 +1,8 @@
 """
-DigiKey Product Information V4 API
-Client credentials flow — no user OAuth needed.
-Token cached in memory, refreshed on expiry.
+DigiKey Product Information V4 API — corrected field mapping from actual API response schema.
+Client credentials (machine-to-machine), token cached in memory.
 """
-import httpx, os, time, logging
+import httpx, os, time, logging, re
 from typing import Optional
 
 log = logging.getLogger("digikey")
@@ -19,21 +18,22 @@ _token_expiry: float = 0
 
 async def _get_token() -> str:
     global _token, _token_expiry
-    if _token and time.time() < _token_expiry - 30:
+    if _token and time.time() < _token_expiry - 60:
         return _token
     if not CLIENT_ID or not CLIENT_SECRET:
-        raise RuntimeError("DIGIKEY_CLIENT_ID / DIGIKEY_CLIENT_SECRET not set")
-    async with httpx.AsyncClient(timeout=10) as client:
+        raise RuntimeError("DIGIKEY_CLIENT_ID / DIGIKEY_CLIENT_SECRET not configured")
+    async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(TOKEN_URL, data={
             "grant_type": "client_credentials",
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
         })
-        r.raise_for_status()
+        if r.status_code != 200:
+            raise RuntimeError(f"DigiKey token error {r.status_code}: {r.text[:200]}")
         data = r.json()
         _token = data["access_token"]
         _token_expiry = time.time() + data.get("expires_in", 1800)
-        log.info("DigiKey token refreshed")
+        log.info("DigiKey token acquired")
         return _token
 
 
@@ -45,14 +45,14 @@ def _headers(token: str) -> dict:
         "X-DIGIKEY-Locale-Language": "en",
         "X-DIGIKEY-Locale-Currency": "USD",
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
 
 async def search(query: str, limit: int = 10) -> list[dict]:
-    """Keyword search — returns simplified component list"""
     try:
         token = await _get_token()
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
                 f"{BASE_URL}/search/keyword",
                 headers=_headers(token),
@@ -60,60 +60,98 @@ async def search(query: str, limit: int = 10) -> list[dict]:
                     "Keywords": query,
                     "Limit": limit,
                     "Offset": 0,
-                    "FilterOptionsRequest": {"MinimumQuantity": 0},
                 },
             )
             if r.status_code != 200:
-                log.error(f"DigiKey search error {r.status_code}: {r.text[:200]}")
+                log.error(f"DigiKey search {r.status_code}: {r.text[:300]}")
                 return []
             data = r.json()
+            # v4 returns Products array
             products = data.get("Products", [])
-            return [_simplify(p) for p in products]
+            return [_simplify(p) for p in products if p]
     except Exception as e:
         log.error(f"DigiKey search failed: {e}")
         return []
 
 
 async def get_part(digikey_pn: str) -> Optional[dict]:
-    """Get full details for a specific DigiKey part number"""
     try:
         token = await _get_token()
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(
                 f"{BASE_URL}/search/{digikey_pn}/productdetails",
                 headers=_headers(token),
             )
             if r.status_code != 200:
                 return None
-            return _simplify(r.json().get("Product", {}))
+            data = r.json()
+            p = data.get("Product", data)
+            return _simplify(p)
     except Exception as e:
         log.error(f"DigiKey get_part failed: {e}")
         return None
 
 
 def _simplify(p: dict) -> dict:
-    """Flatten a DigiKey product to our fields"""
-    params = {param.get("ParameterId", 0): param.get("ValueText", "") for param in p.get("Parameters", [])}
-    # Common parameter IDs: 1=Resistance, 2=Capacitance, 25=Voltage Rating, 69=Tolerance, 16=Package/Case
+    """Map v4 API response to our internal format."""
+    # Description is nested
+    desc_obj = p.get("Description", {}) or {}
+    product_desc = desc_obj.get("ProductDescription", "") if isinstance(desc_obj, dict) else ""
+    detailed_desc = desc_obj.get("DetailedDescription", "") if isinstance(desc_obj, dict) else ""
+
+    # Manufacturer is nested
+    mfr_obj = p.get("Manufacturer", {}) or {}
+    manufacturer = mfr_obj.get("Name", "") if isinstance(mfr_obj, dict) else str(mfr_obj)
+
+    # DigiKey PN is in ProductVariations[0]
+    variations = p.get("ProductVariations", []) or []
+    digikey_pn = ""
+    package = ""
+    if variations:
+        v0 = variations[0]
+        digikey_pn = v0.get("DigiKeyProductNumber", "")
+        pkg = v0.get("PackageType", {}) or {}
+        package = pkg.get("Name", "") if isinstance(pkg, dict) else ""
+
+    # Parameters — list of {ParameterId, ParameterText, ValueId, ValueText}
+    params = {}
+    for param in (p.get("Parameters", []) or []):
+        key = param.get("ParameterText", "")
+        val = param.get("ValueText", "")
+        if key and val:
+            params[key.lower()] = val
+
+    value = (
+        params.get("resistance", "") or
+        params.get("capacitance", "") or
+        params.get("inductance", "") or
+        params.get("current rating", "") or ""
+    )
+    voltage = _parse_float(params.get("voltage - rated", params.get("voltage rating", "")))
+    tolerance = params.get("tolerance", "")
+    if not package:
+        package = params.get("package / case", params.get("supplier device package", ""))
+
     return {
-        "name": p.get("ProductDescription", ""),
-        "digikey_pn": p.get("DigiKeyPartNumber", ""),
-        "mpn": p.get("ManufacturerPartNumber", ""),
-        "manufacturer": p.get("Manufacturer", {}).get("Name", "") if isinstance(p.get("Manufacturer"), dict) else p.get("Manufacturer", ""),
-        "description": p.get("DetailedDescription", p.get("ProductDescription", "")),
-        "datasheet_url": p.get("PrimaryDatasheet", ""),
-        "image_url": p.get("PrimaryPhoto", ""),
-        "package": params.get(16, "") or p.get("PackageType", {}).get("Name", "") if isinstance(p.get("PackageType"), dict) else "",
-        "value": params.get(1, "") or params.get(2, ""),
-        "voltage_rating": _parse_float(params.get(25, "")),
-        "tolerance": params.get(69, ""),
+        "name": product_desc or p.get("ManufacturerProductNumber", ""),
+        "digikey_pn": digikey_pn or p.get("DigiKeyPartNumber", ""),
+        "mpn": p.get("ManufacturerProductNumber", ""),
+        "manufacturer": manufacturer,
+        "description": detailed_desc or product_desc,
+        "datasheet_url": p.get("DatasheetUrl", "") or "",
+        "image_url": p.get("PhotoUrl", "") or "",
+        "package": package,
+        "value": value,
+        "voltage_rating": voltage,
+        "tolerance": tolerance,
         "unit_price": p.get("UnitPrice", None),
         "lcsc_pn": "",
         "source": "digikey",
     }
 
 
-def _parse_float(s: str) -> Optional[float]:
-    import re
+def _parse_float(s) -> Optional[float]:
+    if not s:
+        return None
     m = re.search(r"[\d.]+", str(s))
     return float(m.group()) if m else None

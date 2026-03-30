@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ box.label }} Grid :: LAB::INV{% endblock %}
+{% block title %}{{ box.label }} :: LAB::INV{% endblock %}
 {% block content %}
 
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
@@ -9,21 +9,26 @@
   <span style="color:var(--text);font-size:13px;">{{ box.model }}</span>
   <span class="muted">{{ box.cell_count }} cells</span>
   <span class="muted" style="font-size:10px;">{{ box.location or '' }}</span>
-  <span style="margin-left:auto;font-size:10px;color:var(--text3);">drag to move · click empty to assign · click filled to clear</span>
+  <span style="margin-left:auto;font-size:10px;color:var(--text3);">
+    drag to move · click empty to assign · click filled to clear
+  </span>
 </div>
 
-{% set cols = 12 if box.model == 'BOXALL144' else (8 if box.model == 'BOXALL96' else (6 if box.model == 'BOXALL48' else 4)) %}
-{% set rows = (box.cell_count // cols) if box.cell_count else 12 %}
+{% set cc = box.cell_count or 144 %}
+{% set cols = 12 if cc >= 144 else (10 if cc >= 96 else (6 if cc >= 48 else 4)) %}
+{% set rows = cc // cols %}
+{% set half = rows // 2 %}
 
 <div class="card mb-3">
   <div class="card-header">
-    <span class="dot"></span>Grid — {{ box.label }}
+    <span class="dot"></span>{{ box.label }} — {{ box.model }}
     <span style="margin-left:auto;font-size:10px;color:var(--text3);" id="grid-status"></span>
   </div>
   <div class="p-3">
-    <div id="grid"
-         style="display:grid;grid-template-columns:repeat({{ cols }}, 1fr);gap:3px;user-select:none;">
-      {% for r in range(rows) %}
+    <!-- Top half -->
+    <div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Top half</div>
+    <div id="grid-top" style="display:grid;grid-template-columns:repeat({{ cols }},1fr);gap:3px;margin-bottom:2px;">
+      {% for r in range(half) %}
         {% for c in range(cols) %}
           {% set cell_id = "R" + r|string + "C" + c|string %}
           {% set comp = cell_map.get(cell_id) %}
@@ -33,6 +38,7 @@
                data-comp-id="{{ comp.id if comp else '' }}"
                data-comp-name="{{ comp.name if comp else '' }}"
                data-barcode="{{ comp.barcode_id if comp else '' }}"
+               data-val="{{ comp.value if comp else '' }}"
                draggable="{{ 'true' if comp else 'false' }}"
                onclick="cellClick(this)"
                ondragstart="dragStart(event)"
@@ -41,9 +47,43 @@
                ondragleave="dragLeave(event)"
                title="{{ comp.barcode_id + ' · ' + comp.name if comp else cell_id }}">
             {% if comp %}
-              {% if comp.image_path %}
-              <img src="{{ comp.image_path }}" class="cell-img" draggable="false">
-              {% endif %}
+              {% if comp.image_path %}<img src="{{ comp.image_path }}" class="cell-img" draggable="false">{% endif %}
+              <div class="cell-label">{{ comp.value or comp.barcode_id }}</div>
+            {% else %}
+              <div class="cell-empty-label">{{ cell_id }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+
+    <!-- Divider -->
+    <div style="height:8px;margin:4px 0;background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:8px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;">─── bottom half ───</span>
+    </div>
+
+    <!-- Bottom half -->
+    <div id="grid-bottom" style="display:grid;grid-template-columns:repeat({{ cols }},1fr);gap:3px;margin-top:2px;">
+      {% for r in range(half, rows) %}
+        {% for c in range(cols) %}
+          {% set cell_id = "R" + r|string + "C" + c|string %}
+          {% set comp = cell_map.get(cell_id) %}
+          <div class="grid-cell {% if comp %}filled{% else %}empty{% endif %}"
+               id="cell-{{ cell_id }}"
+               data-cell="{{ cell_id }}"
+               data-comp-id="{{ comp.id if comp else '' }}"
+               data-comp-name="{{ comp.name if comp else '' }}"
+               data-barcode="{{ comp.barcode_id if comp else '' }}"
+               data-val="{{ comp.value if comp else '' }}"
+               draggable="{{ 'true' if comp else 'false' }}"
+               onclick="cellClick(this)"
+               ondragstart="dragStart(event)"
+               ondragover="dragOver(event)"
+               ondrop="dropCell(event)"
+               ondragleave="dragLeave(event)"
+               title="{{ comp.barcode_id + ' · ' + comp.name if comp else cell_id }}">
+            {% if comp %}
+              {% if comp.image_path %}<img src="{{ comp.image_path }}" class="cell-img" draggable="false">{% endif %}
               <div class="cell-label">{{ comp.value or comp.barcode_id }}</div>
             {% else %}
               <div class="cell-empty-label">{{ cell_id }}</div>
@@ -55,14 +95,14 @@
   </div>
 </div>
 
-<!-- Assign modal -->
-<div id="assign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:1000;display:flex;align-items:center;justify-content:center;">
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:20px;width:380px;max-width:95vw;">
+<!-- Assign modal — correctly hidden -->
+<div id="assign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:3px;padding:20px;width:400px;max-width:95vw;">
     <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:12px;">
       Assign Cell <span id="modal-cell-id" style="color:var(--green);"></span>
     </div>
-    <input id="comp-search" class="form-control mb-2" placeholder="Search component by name, value, barcode..." oninput="searchComps(this.value)" autocomplete="off">
-    <div id="comp-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:2px;">
+    <input id="comp-search" class="form-control mb-2" placeholder="Search by name, value, barcode..." oninput="searchComps(this.value)" autocomplete="off">
+    <div id="comp-list" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:2px;background:var(--bg3);">
       <div style="padding:8px;color:var(--text3);font-size:11px;">Type to search components…</div>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -84,54 +124,19 @@
   transition: border-color 0.1s, background 0.1s;
   overflow: hidden;
   position: relative;
-  min-height: 0;
+  min-width: 0;
 }
-.grid-cell.empty {
-  background: var(--bg3);
-}
-.grid-cell.empty:hover {
-  border-color: var(--green2);
-  background: var(--bg4);
-}
-.grid-cell.filled {
-  background: var(--bg2);
-  border-color: var(--border2);
-}
-.grid-cell.filled:hover {
-  border-color: var(--green);
-}
-.grid-cell.drag-over {
-  border-color: var(--green);
-  background: rgba(61,220,132,0.08);
-}
-.grid-cell.dragging {
-  opacity: 0.4;
-}
-.cell-img {
-  width: 70%;
-  height: 60%;
-  object-fit: contain;
-  pointer-events: none;
-}
-.cell-label {
-  font-size: 9px;
-  color: var(--green);
-  text-align: center;
-  padding: 0 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-  text-align: center;
-  line-height: 1.2;
-}
-.cell-empty-label {
-  font-size: 8px;
-  color: var(--text3);
-}
-.comp-option:hover { background: var(--bg3); }
-#assign-modal { display: none; }
-#assign-modal.open { display: flex; }
+.grid-cell.empty { background: var(--bg3); }
+.grid-cell.empty:hover { border-color: var(--green2); background: var(--bg4); }
+.grid-cell.filled { background: var(--bg2); border-color: var(--border2); }
+.grid-cell.filled:hover { border-color: var(--green); }
+.grid-cell.drag-over { border-color: var(--green); background: rgba(61,220,132,0.08); }
+.grid-cell.dragging { opacity: 0.4; }
+.cell-img { width: 70%; height: 60%; object-fit: contain; pointer-events: none; }
+.cell-label { font-size: 9px; color: var(--green); text-align: center; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+.cell-empty-label { font-size: 8px; color: var(--text3); }
+.comp-result-item { padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.comp-result-item:hover { background: var(--bg4); }
 </style>
 
 {% endblock %}
@@ -140,28 +145,24 @@
 const BOX_ID = "{{ box.id }}";
 let activeCellEl = null;
 let dragSrcEl = null;
+let _pendingCell = null, _pendingComp = null;
 
 function cellClick(el) {
   if (el.classList.contains('filled')) {
-    if (confirm(`Clear ${el.dataset.barcode} from ${el.dataset.cell}?`)) {
-      clearCell(el);
-    }
+    if (confirm('Clear ' + el.dataset.barcode + ' from ' + el.dataset.cell + '?')) clearCell(el);
   } else {
     openModal(el);
   }
 }
 
 async function clearCell(el) {
-  const r = await fetch(`/api/boxes/${BOX_ID}/cell/${el.dataset.cell}`, {method:'DELETE'});
+  const r = await fetch('/api/boxes/' + BOX_ID + '/cell/' + el.dataset.cell, {method:'DELETE'});
   if (r.ok) {
-    el.classList.remove('filled');
-    el.classList.add('empty');
+    el.classList.replace('filled','empty');
     el.draggable = false;
-    el.dataset.compId = '';
-    el.dataset.compName = '';
-    el.dataset.barcode = '';
-    el.innerHTML = `<div class="cell-empty-label">${el.dataset.cell}</div>`;
-    setStatus(`Cleared ${el.dataset.cell}`);
+    el.dataset.compId = ''; el.dataset.barcode = ''; el.dataset.val = '';
+    el.innerHTML = '<div class="cell-empty-label">' + el.dataset.cell + '</div>';
+    setStatus('Cleared ' + el.dataset.cell);
   }
 }
 
@@ -169,81 +170,68 @@ function openModal(el) {
   activeCellEl = el;
   document.getElementById('modal-cell-id').textContent = el.dataset.cell;
   document.getElementById('comp-search').value = '';
-  filterComps('');
-  document.getElementById('assign-modal').classList.add('open');
-  document.getElementById('comp-search').focus();
+  document.getElementById('comp-list').innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Type to search…</div>';
+  const m = document.getElementById('assign-modal');
+  m.style.display = 'flex';
+  setTimeout(() => document.getElementById('comp-search').focus(), 50);
 }
 
 function closeModal() {
-  document.getElementById('assign-modal').classList.remove('open');
+  document.getElementById('assign-modal').style.display = 'none';
   activeCellEl = null;
 }
 
-let _compSearchTimer;
+// Search components via API
+let _searchTimer;
 function searchComps(q) {
-  clearTimeout(_compSearchTimer);
+  clearTimeout(_searchTimer);
   const list = document.getElementById('comp-list');
-  if (!q || q.length < 1) {
+  if (!q || q.trim().length < 1) {
     list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Type to search…</div>';
     return;
   }
   list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Searching…</div>';
-  _compSearchTimer = setTimeout(async () => {
-    const r = await fetch(`/api/components/?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
-    const comps = Array.isArray(r) ? r : [];
-    if (!comps.length) {
-      list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No components found</div>';
-      return;
+  _searchTimer = setTimeout(async () => {
+    try {
+      const data = await fetch('/api/components/?q=' + encodeURIComponent(q)).then(r=>r.json());
+      const comps = Array.isArray(data) ? data : [];
+      if (!comps.length) {
+        list.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No components found</div>';
+        return;
+      }
+      list.innerHTML = comps.map(c =>
+        '<div class="comp-result-item" ' +
+        'data-comp-id="' + c.id + '" ' +
+        'data-barcode="' + (c.barcode_id||'') + '" ' +
+        'data-name="' + (c.name||'').replace(/"/g,'&quot;') + '" ' +
+        'data-val="' + (c.value||'') + '" ' +
+        'onclick="selectComp(this)">' +
+        '<span class="bid" style="font-size:10px;">' + (c.barcode_id||'') + '</span>' +
+        '<span style="flex:1">' + (c.name||'') + '</span>' +
+        '<span class="muted">' + (c.value||'') + '</span>' +
+        '</div>'
+      ).join('');
+    } catch(e) {
+      list.innerHTML = '<div style="padding:8px;color:var(--red);font-size:11px;">Search error</div>';
     }
-    list.innerHTML = comps.map(c => `
-      <div class="comp-option"
-           data-comp-id="${c.id}"
-           data-barcode="${c.barcode_id}"
-           data-name="${c.name}"
-           data-val="${c.value||''}"
-           onclick="assignCellFromSearch(this)"
-           style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px;align-items:center;">
-        <span class="bid" style="font-size:10px;">${c.barcode_id}</span>
-        <span style="flex:1">${c.name}</span>
-        <span class="muted">${c.value||''}</span>
-      </div>`).join('');
   }, 300);
 }
 
-function assignCellFromSearch(el) {
-  // wrap as pseudo-optEl matching old interface
-  const pseudo = {
-    dataset: {compId: el.dataset.compId},
-    querySelector: (sel) => {
-      if (sel === 'span:nth-child(2)') return {textContent: el.dataset.name};
-      if (sel === '.bid') return {textContent: el.dataset.barcode};
-      if (sel === '.muted') return {textContent: el.dataset.val};
-      return {textContent: ''};
-    }
-  };
-  assignCell(pseudo);
-}
-
-// pending assignment — preview before save
-let _pendingCell = null;
-let _pendingComp = null;
-
-async function assignCell(optEl) {
+function selectComp(el) {
   if (!activeCellEl) return;
-  const compId = optEl.dataset.compId;
-  const name = optEl.querySelector('span:nth-child(2)').textContent.trim();
-  const bid = optEl.querySelector('.bid').textContent.trim();
-  const val = optEl.querySelector('.muted').textContent.trim();
-
-  // store pending
   _pendingCell = activeCellEl;
-  _pendingComp = {id: compId, name, bid, val};
-
-  // show preview highlight on cell
+  _pendingComp = {
+    id: el.dataset.compId,
+    barcode: el.dataset.barcode,
+    name: el.dataset.name,
+    val: el.dataset.val
+  };
+  // Show amber preview on cell
   activeCellEl.style.borderColor = 'var(--amber)';
   activeCellEl.style.background = 'rgba(240,165,0,0.08)';
-  activeCellEl.innerHTML = `<div class="cell-label" style="color:var(--amber);">${val||bid}</div><div style="font-size:7px;color:var(--amber);">PREVIEW</div>`;
-
+  activeCellEl.innerHTML =
+    '<div class="cell-label" style="color:var(--amber);">' + (_pendingComp.val || _pendingComp.barcode) + '</div>' +
+    '<div style="font-size:7px;color:var(--amber);">PREVIEW</div>';
   closeModal();
   showPendingBar();
 }
@@ -253,14 +241,15 @@ function showPendingBar() {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'pending-bar';
-    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--amber);border-radius:3px;padding:8px 16px;display:flex;gap:12px;align-items:center;z-index:300;font-size:12px;';
+    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+      'background:var(--bg2);border:1px solid var(--amber);border-radius:3px;' +
+      'padding:8px 16px;display:flex;gap:12px;align-items:center;z-index:300;font-size:12px;white-space:nowrap;';
     document.body.appendChild(bar);
   }
-  bar.innerHTML = `
-    <span style="color:var(--amber);">Preview: <strong>${_pendingComp.bid}</strong> → Cell ${_pendingCell.dataset.cell}</span>
-    <button onclick="confirmAssign()" class="btn btn-primary btn-sm">✓ Confirm</button>
-    <button onclick="cancelAssign()" class="btn btn-danger btn-sm">✕ Cancel</button>
-  `;
+  bar.innerHTML =
+    '<span style="color:var(--amber);">Preview: <strong>' + (_pendingComp.barcode||'?') + '</strong> → ' + _pendingCell.dataset.cell + '</span>' +
+    '<button onclick="confirmAssign()" class="btn btn-primary btn-sm">✓ Confirm</button>' +
+    '<button onclick="cancelAssign()" class="btn btn-danger btn-sm">✕ Cancel</button>';
   bar.style.display = 'flex';
 }
 
@@ -269,18 +258,17 @@ async function confirmAssign() {
   const fd = new FormData();
   fd.append('cell_id', _pendingCell.dataset.cell);
   fd.append('component_id', _pendingComp.id);
-  const r = await fetch(`/api/boxes/${BOX_ID}/assign`, {method:'POST', body: fd});
+  const r = await fetch('/api/boxes/' + BOX_ID + '/assign', {method:'POST', body: fd});
   if (r.ok) {
     _pendingCell.style.borderColor = '';
     _pendingCell.style.background = '';
-    _pendingCell.classList.remove('empty');
-    _pendingCell.classList.add('filled');
+    _pendingCell.classList.replace('empty','filled');
     _pendingCell.draggable = true;
     _pendingCell.dataset.compId = _pendingComp.id;
-    _pendingCell.dataset.compName = _pendingComp.name;
-    _pendingCell.dataset.barcode = _pendingComp.bid;
-    _pendingCell.innerHTML = `<div class="cell-label">${_pendingComp.val || _pendingComp.bid}</div>`;
-    setStatus(`Assigned ${_pendingComp.bid} → ${_pendingCell.dataset.cell}`);
+    _pendingCell.dataset.barcode = _pendingComp.barcode;
+    _pendingCell.dataset.val = _pendingComp.val;
+    _pendingCell.innerHTML = '<div class="cell-label">' + (_pendingComp.val || _pendingComp.barcode) + '</div>';
+    setStatus('Assigned ' + _pendingComp.barcode + ' → ' + _pendingCell.dataset.cell);
   }
   clearPending();
 }
@@ -289,10 +277,9 @@ function cancelAssign() {
   if (_pendingCell) {
     _pendingCell.style.borderColor = '';
     _pendingCell.style.background = '';
-    _pendingCell.classList.remove('filled');
-    _pendingCell.classList.add('empty');
+    _pendingCell.classList.replace('filled','empty');
     _pendingCell.draggable = false;
-    _pendingCell.innerHTML = `<div class="cell-empty-label">${_pendingCell.dataset.cell}</div>`;
+    _pendingCell.innerHTML = '<div class="cell-empty-label">' + _pendingCell.dataset.cell + '</div>';
   }
   clearPending();
 }
@@ -303,24 +290,15 @@ function clearPending() {
   if (bar) bar.style.display = 'none';
 }
 
-// ── Drag and drop ──────────────────────────────────────────────────────────
-
+// Drag and drop
 function dragStart(e) {
   dragSrcEl = e.currentTarget;
   dragSrcEl.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', dragSrcEl.dataset.cell);
 }
-
-function dragOver(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  e.currentTarget.classList.add('drag-over');
-}
-
-function dragLeave(e) {
-  e.currentTarget.classList.remove('drag-over');
-}
+function dragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 
 async function dropCell(e) {
   e.preventDefault();
@@ -328,26 +306,21 @@ async function dropCell(e) {
   target.classList.remove('drag-over');
   if (!dragSrcEl || dragSrcEl === target) {
     if (dragSrcEl) dragSrcEl.classList.remove('dragging');
-    return;
+    dragSrcEl = null; return;
   }
-
   const fromCell = dragSrcEl.dataset.cell;
   const toCell = target.dataset.cell;
-
   const fd = new FormData();
   fd.append('from_cell', fromCell);
   fd.append('to_cell', toCell);
-  const r = await fetch(`/api/boxes/${BOX_ID}/swap`, {method:'POST', body: fd});
-
+  const r = await fetch('/api/boxes/' + BOX_ID + '/swap', {method:'POST', body: fd});
   if (r.ok) {
-    // swap DOM content
     const srcHTML = dragSrcEl.innerHTML;
     const srcFilled = dragSrcEl.classList.contains('filled');
-    const srcData = {compId: dragSrcEl.dataset.compId, compName: dragSrcEl.dataset.compName, barcode: dragSrcEl.dataset.barcode};
-
+    const srcData = {compId: dragSrcEl.dataset.compId, barcode: dragSrcEl.dataset.barcode, val: dragSrcEl.dataset.val};
     const tgtHTML = target.innerHTML;
     const tgtFilled = target.classList.contains('filled');
-    const tgtData = {compId: target.dataset.compId, compName: target.dataset.compName, barcode: target.dataset.barcode};
+    const tgtData = {compId: target.dataset.compId, barcode: target.dataset.barcode, val: target.dataset.val};
 
     dragSrcEl.innerHTML = tgtHTML;
     dragSrcEl.classList.toggle('filled', tgtFilled);
@@ -361,32 +334,26 @@ async function dropCell(e) {
     target.draggable = srcFilled;
     Object.assign(target.dataset, srcData);
 
-    setStatus(`Moved ${srcData.barcode || fromCell} → ${toCell}`);
+    setStatus('Moved ' + (srcData.barcode||fromCell) + ' → ' + toCell);
   }
-
   dragSrcEl.classList.remove('dragging');
   dragSrcEl = null;
 }
 
 document.addEventListener('dragend', () => {
-  document.querySelectorAll('.grid-cell').forEach(el => {
-    el.classList.remove('dragging', 'drag-over');
-  });
+  document.querySelectorAll('.grid-cell').forEach(el => el.classList.remove('dragging','drag-over'));
   dragSrcEl = null;
 });
 
-// close modal on backdrop click
+// Close modal on backdrop click
 document.getElementById('assign-modal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
-
-document.getElementById('comp-search').addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
-});
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
 function setStatus(msg) {
-  document.getElementById('grid-status').textContent = msg;
-  setTimeout(() => document.getElementById('grid-status').textContent = '', 3000);
+  const s = document.getElementById('grid-status');
+  if(s) { s.textContent = msg; setTimeout(()=>s.textContent='', 3000); }
 }
 </script>
 {% endblock %}
