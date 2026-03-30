@@ -463,14 +463,20 @@ function findTightBounds(img) {
 function redrawCanvas() {
   if (!_canvas || !_ctx || !_img) return;
   
-  // Calculate canvas size for current rotation
-  // Use max(width, height) for square canvas that fits any rotation
-  const maxDim = Math.max(_img.width, _img.height);
-  const canvasSize = Math.ceil(maxDim * 1.5); // 1.5x for safety margin
+  // Calculate canvas size to fit rotated image
+  const angle = (_rotationDegrees * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(angle));
+  const sin = Math.abs(Math.sin(angle));
+  const rotatedWidth = _img.width * cos + _img.height * sin;
+  const rotatedHeight = _img.width * sin + _img.height * cos;
   
-  if (_canvas.width !== canvasSize || _canvas.height !== canvasSize) {
-    _canvas.width = canvasSize;
-    _canvas.height = canvasSize;
+  // Set canvas to fit the rotated image (with small padding)
+  const canvasWidth = Math.ceil(rotatedWidth * 1.1);
+  const canvasHeight = Math.ceil(rotatedHeight * 1.1);
+  
+  if (_canvas.width !== canvasWidth || _canvas.height !== canvasHeight) {
+    _canvas.width = canvasWidth;
+    _canvas.height = canvasHeight;
   }
   
   // Clear canvas
@@ -493,7 +499,6 @@ function redrawCanvas() {
   _ctx.translate(_canvas.width / 2, _canvas.height / 2);
   
   // Apply rotation
-  const angle = (_rotationDegrees * Math.PI) / 180;
   _ctx.rotate(angle);
   
   // Apply offset (for dragging)
