@@ -1,10 +1,7 @@
 """
 AI parsing via Gemini using official google-genai SDK.
-FREE TIER (no billing) - Updated March 2026: 
-- gemini-3.1-flash-lite: 15 RPM, 250K TPM, 500 RPD (BEST - highest daily quota)
-- gemini-2.5-flash-lite: 10 RPM, 250K TPM, 20 RPD
-- gemini-3-flash: 5 RPM, 250K TPM, 20 RPD
-Using gemini-3.1-flash-lite for maximum free tier quota (500 requests/day).
+Smart model selection: Automatically picks best available model based on quota.
+Falls back to alternatives when primary model quota is exhausted.
 https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException
@@ -28,9 +25,39 @@ if GEMINI_KEY:
 _failed_requests = []
 _max_failed_logs = 50
 
-# Rate limit tracking
-_last_usage_check = None
-_usage_check_interval = timedelta(minutes=30)
+# Model selection
+_current_model = None
+_last_model_check = None
+_model_check_interval = timedelta(minutes=30)
+
+# Free tier models ranked by quota (RPD)
+FREE_TIER_MODELS = [
+    {"name": "gemini-3.1-flash-lite-preview", "rpd": 500, "rpm": 15, "tpm": 250000},
+    {"name": "gemini-2.5-flash-lite", "rpd": 20, "rpm": 10, "tpm": 250000},
+    {"name": "gemini-3-flash", "rpd": 20, "rpm": 5, "tpm": 250000},
+]
+
+
+def select_best_model():
+    """
+    Select best model based on quota.
+    Strategy: Try models in order of daily quota (RPD).
+    If we get 429 rate limit, move to next model.
+    """
+    global _current_model, _last_model_check
+    
+    # Check every 30 minutes
+    now = datetime.utcnow()
+    if _current_model and _last_model_check and (now - _last_model_check) < _model_check_interval:
+        return _current_model
+    
+    _last_model_check = now
+    
+    # Default to highest quota model
+    _current_model = FREE_TIER_MODELS[0]["name"]
+    log.info(f"Selected model: {_current_model} (checked at {now.isoformat()})")
+    
+    return _current_model
 
 
 def log_failed_request(error_type: str, details: dict):
@@ -94,19 +121,19 @@ MERGE_SCHEMA = {
 }
 
 
-async def _gemini(prompt: str, schema: dict) -> dict:
-    """Call Gemini API using official SDK - Free tier optimized"""
+async def _gemini(prompt: str, schema: dict, retry_count: int = 0) -> dict:
+    """Call Gemini API with smart model selection and fallback"""
     if not client:
         raise HTTPException(
             503, 
             "Gemini AI is not configured. Add GEMINI_API_KEY to .env (free tier: no billing required)"
         )
     
+    model = select_best_model()
+    
     try:
-        # Use gemini-3.1-flash-lite-preview - best free tier quota
-        # Free tier: 15 RPM, 250K TPM, 500 RPD (no billing required)
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
+            model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -123,8 +150,17 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         log_failed_request("sdk_error", {
             "error": error_msg,
             "type": type(e).__name__,
-            "model": "gemini-3.1-flash-lite-preview",
+            "model": model,
+            "retry_count": retry_count,
         })
+        
+        # Handle 429 rate limit - try next model
+        if ('429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg) and retry_count < len(FREE_TIER_MODELS) - 1:
+            global _current_model
+            next_model_idx = retry_count + 1
+            _current_model = FREE_TIER_MODELS[next_model_idx]["name"]
+            log.warning(f"Model {model} rate limited, switching to {_current_model}")
+            return await _gemini(prompt, schema, retry_count + 1)
         
         # Better error message for 403
         if '403' in error_msg or 'Forbidden' in error_msg:
@@ -137,8 +173,14 @@ async def _gemini(prompt: str, schema: dict) -> dict:
         if '404' in error_msg or 'not found' in error_msg:
             raise HTTPException(
                 404,
-                f"Gemini model not available. Using: gemini-3.1-flash-lite-preview. "
-                f"Error: {error_msg[:200]}"
+                f"Gemini model not available: {model}. Error: {error_msg[:200]}"
+            )
+        
+        # Rate limit exhausted all models
+        if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
+            raise HTTPException(
+                429,
+                f"All free tier models exhausted. Try again later. Models tried: {', '.join([m['name'] for m in FREE_TIER_MODELS])}"
             )
         
         raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
@@ -229,8 +271,21 @@ async def get_failed_requests(limit: int = 50):
     return {
         "failed_requests": _failed_requests[-limit:],
         "total_failures": len(_failed_requests),
-        "model": "gemini-3.1-flash-lite-preview",
+        "current_model": _current_model or FREE_TIER_MODELS[0]["name"],
+        "fallback_chain": [f"{m['name']} ({m['rpd']} RPD)" for m in FREE_TIER_MODELS],
         "tier": "free (no billing)",
-        "limits": "15 RPM, 250K TPM, 500 RPD",
         "sdk": "google-genai",
+        "last_model_check": _last_model_check.isoformat() if _last_model_check else None,
+    }
+
+
+@router.get("/model-status")
+async def get_model_status():
+    """Get current model selection and quota info"""
+    return {
+        "current_model": _current_model or FREE_TIER_MODELS[0]["name"],
+        "available_models": FREE_TIER_MODELS,
+        "check_interval_minutes": _model_check_interval.total_seconds() / 60,
+        "last_check": _last_model_check.isoformat() if _last_model_check else None,
+        "strategy": "Auto-fallback on 429 rate limit errors",
     }
