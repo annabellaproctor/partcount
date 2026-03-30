@@ -6,6 +6,17 @@
   <span style="color:var(--text3);font-size:11px;">{{ kits|length }} total</span>
 </div>
 
+<div class="card mb-4">
+  <div class="card-header"><span class="dot"></span>AI Add Kit (Noisy Website Text)</div>
+  <div class="p-3">
+    <textarea id="kit-ai-input" class="form-control" rows="5" placeholder="Paste full product/cart page text from any website..."></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+      <button class="btn btn-primary btn-sm" onclick="createKitFromAi()">Parse + Create Kit</button>
+      <span id="kit-ai-status" class="muted" style="font-size:11px;"></span>
+    </div>
+  </div>
+</div>
+
 <div class="card mb-5">
   <div class="card-header"><span class="dot"></span>Kit Registry</div>
   <table class="table">
@@ -36,6 +47,58 @@ async function deleteKit(id, name) {
   if (!confirm('Delete kit "' + name + '"?')) return;
   const r = await fetch('/api/kits/' + id, { method: 'DELETE' });
   if (r.ok) location.reload();
+}
+
+async function createKitFromAi() {
+  const input = document.getElementById('kit-ai-input').value.trim();
+  const status = document.getElementById('kit-ai-status');
+  if (!input) {
+    status.textContent = 'Paste text first';
+    return;
+  }
+
+  status.textContent = 'Parsing...';
+  const parsedResp = await fetch('/api/ai/parse', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ text: input }),
+  });
+  if (!parsedResp.ok) {
+    status.textContent = 'Parse failed';
+    return;
+  }
+
+  const parsed = await parsedResp.json();
+  const components = (parsed.kit_components || []).map(c => ({
+    name: c.name,
+    type_path: c.type_path,
+    value: c.value,
+    unit: c.unit,
+    quantity: c.quantity || 1,
+    type_data: c.type_data || {},
+  })).filter(c => c.name);
+
+  if (!components.length) {
+    status.textContent = 'No kit component lines detected';
+    return;
+  }
+
+  status.textContent = 'Creating kit...';
+  const createResp = await fetch('/api/kits/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: parsed.name || 'AI Kit',
+      description: parsed.description || 'Created from noisy pasted text',
+      components,
+    }),
+  });
+  if (!createResp.ok) {
+    status.textContent = 'Create failed';
+    return;
+  }
+  status.textContent = 'Kit created';
+  setTimeout(() => location.reload(), 300);
 }
 </script>
 {% endblock %}

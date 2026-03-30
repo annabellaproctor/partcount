@@ -163,6 +163,24 @@ function uploadImage(input) {
       </div>
     </div>
 
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>AI Data Repair</div>
+      <div class="p-3">
+        <textarea id="component-ai-text" class="form-control" rows="6" placeholder="Paste full noisy webpage text from any site to add/repair/remove component data..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+          <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('repair')">AI Repair</button>
+          <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('add')">AI Add Missing</button>
+          <button class="btn btn-danger btn-sm" onclick="analyzeComponentText('remove')">AI Suggest Remove</button>
+          <span id="component-ai-status" class="muted" style="font-size:11px;"></span>
+        </div>
+        <div id="component-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <div id="component-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
+          <pre id="component-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="applyComponentAiPatch()">Apply Suggested Changes</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Footprints / stock -->
     <div class="card mb-3">
       <div class="card-header">
@@ -459,6 +477,7 @@ function uploadImage(input) {
 <script src="/static/js/image-editor.js"></script>
 <script>
 const COMP_ID = "{{ comp.id }}";
+let _componentAiPatch = null;
 
 // ESC key handler - only close if not typing in input
 document.addEventListener('keydown', (e) => {
@@ -960,6 +979,73 @@ window.uploadImage = async function(input) {
 async function uploadFromModal(input) {
   if (!input.files[0]) return;
   await uploadImage(input);
+}
+
+async function analyzeComponentText(action) {
+  const text = document.getElementById('component-ai-text').value.trim();
+  const status = document.getElementById('component-ai-status');
+  if (!text) {
+    status.textContent = 'Paste text first';
+    return;
+  }
+
+  status.textContent = 'Analyzing...';
+  const existing = {
+    name: "{{ comp.name|e }}",
+    barcode_id: "{{ comp.barcode_id|e }}",
+    value: "{{ (comp.value or '')|e }}",
+    unit: "{{ (comp.unit or '')|e }}",
+    package: "{{ (comp.package or '')|e }}",
+    tolerance: "{{ (comp.tolerance or '')|e }}",
+    description: "{{ (comp.description or '')|e }}",
+    notes: "{{ (comp.notes or '')|e }}",
+    mpn: "{{ (comp.mpn or '')|e }}",
+    type_path: "{{ (comp.type_path or '')|e }}",
+  };
+
+  const r = await fetch('/api/ai/enrich-record', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      mode: 'component',
+      action,
+      text,
+      existing_data: existing,
+    }),
+  });
+
+  if (!r.ok) {
+    status.textContent = 'AI analysis failed';
+    return;
+  }
+
+  const data = await r.json();
+  _componentAiPatch = {
+    ...(data.patch_fields || {}),
+    clear_fields: data.remove_fields || [],
+  };
+
+  document.getElementById('component-ai-preview').style.display = 'block';
+  document.getElementById('component-ai-summary').textContent = data.summary || 'AI suggestion ready';
+  document.getElementById('component-ai-patch').textContent = JSON.stringify(_componentAiPatch, null, 2);
+  status.textContent = `confidence ${(data.confidence || 0).toFixed(2)}`;
+}
+
+async function applyComponentAiPatch() {
+  if (!_componentAiPatch) return;
+  const status = document.getElementById('component-ai-status');
+  status.textContent = 'Applying...';
+  const r = await fetch('/api/components/' + COMP_ID, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(_componentAiPatch),
+  });
+  if (!r.ok) {
+    status.textContent = 'Failed to apply patch';
+    return;
+  }
+  status.textContent = 'Applied';
+  setTimeout(() => location.reload(), 300);
 }
 </script>
 {% endblock %}

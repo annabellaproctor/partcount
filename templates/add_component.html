@@ -7,6 +7,15 @@
     <div class="card">
       <div class="card-header"><span class="dot"></span>New Component — Full Form</div>
       <div class="p-4">
+        <div class="mb-4" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <label class="form-label" style="margin:0;">AI Parse Noisy Website Text</label>
+            <button type="button" class="btn btn-primary btn-xs" onclick="runAIParse()" style="margin-left:auto;">Parse</button>
+          </div>
+          <textarea id="ai-paste-input" class="form-control" rows="4" placeholder="Paste full webpage text from any site (menus, reviews, cart noise is fine)..."></textarea>
+          <div id="ai-parse-status" style="font-size:10px;color:var(--text3);margin-top:4px;"></div>
+        </div>
+
         <!-- Lookup bar -->
         <div class="mb-4" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <label class="form-label">Search DigiKey / LCSC to autofill</label>

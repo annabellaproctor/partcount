@@ -16,6 +16,30 @@
   </div>
 </div>
 
+<div class="card mb-4">
+  <div class="card-header"><span class="dot"></span>AI Kit Repair</div>
+  <div class="p-3">
+    <textarea id="kit-ai-text" class="form-control" rows="6" placeholder="Paste noisy webpage/cart text to repair kit details or suggest kit components..."></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+      <button class="btn btn-primary btn-sm" onclick="analyzeKitText('repair')">AI Repair</button>
+      <button class="btn btn-primary btn-sm" onclick="analyzeKitText('add')">AI Add Missing</button>
+      <button class="btn btn-danger btn-sm" onclick="analyzeKitText('remove')">AI Suggest Remove</button>
+      <span id="kit-ai-status" class="muted" style="font-size:11px;"></span>
+    </div>
+    <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+      <div id="kit-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
+      <pre id="kit-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+        <label style="font-size:10px;color:var(--text3);display:flex;gap:6px;align-items:center;">
+          <input type="checkbox" id="kit-replace-components">
+          Replace kit components with AI candidates
+        </label>
+        <button class="btn btn-primary btn-sm" onclick="applyKitAiPatch()">Apply Suggested Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="card mb-5">
   <div class="card-header"><span class="dot"></span>Components</div>
   <table class="table">
@@ -36,4 +60,88 @@
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _kitAiData = null;
+
+async function analyzeKitText(action) {
+  const text = document.getElementById('kit-ai-text').value.trim();
+  const status = document.getElementById('kit-ai-status');
+  if (!text) {
+    status.textContent = 'Paste text first';
+    return;
+  }
+
+  status.textContent = 'Analyzing...';
+  const existing = {
+    name: "{{ kit.name|e }}",
+    barcode_id: "{{ kit.barcode_id|e }}",
+    description: "{{ (kit.description or '')|e }}",
+    notes: "{{ (kit.notes or '')|e }}",
+  };
+
+  const r = await fetch('/api/ai/enrich-record', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      mode: 'kit',
+      action,
+      text,
+      existing_data: existing,
+    }),
+  });
+
+  if (!r.ok) {
+    status.textContent = 'AI analysis failed';
+    return;
+  }
+
+  _kitAiData = await r.json();
+  const patch = {
+    ...(_kitAiData.patch_fields || {}),
+    clear_fields: _kitAiData.remove_fields || [],
+  };
+  document.getElementById('kit-ai-summary').textContent = _kitAiData.summary || 'AI suggestion ready';
+  document.getElementById('kit-ai-patch').textContent = JSON.stringify(patch, null, 2);
+  document.getElementById('kit-ai-preview').style.display = 'block';
+  status.textContent = `confidence ${(_kitAiData.confidence || 0).toFixed(2)}`;
+}
+
+async function applyKitAiPatch() {
+  if (!_kitAiData) return;
+  const status = document.getElementById('kit-ai-status');
+  const replaceComponents = document.getElementById('kit-replace-components').checked;
+  const payload = {
+    ...(_kitAiData.patch_fields || {}),
+    clear_fields: _kitAiData.remove_fields || [],
+    replace_components: replaceComponents,
+  };
+
+  if (replaceComponents) {
+    payload.components = (_kitAiData.component_candidates || []).map(c => ({
+      name: c.name,
+      type_path: c.type_path,
+      quantity: c.quantity || 1,
+      value: c.value || null,
+      unit: c.unit || null,
+      notes: c.notes || null,
+    })).filter(c => c.name);
+  }
+
+  status.textContent = 'Applying...';
+  const r = await fetch('/api/kits/{{ kit.id }}', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    status.textContent = 'Apply failed';
+    return;
+  }
+  status.textContent = 'Applied';
+  setTimeout(() => location.reload(), 300);
+}
+</script>
 {% endblock %}

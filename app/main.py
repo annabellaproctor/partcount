@@ -5,10 +5,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from contextlib import asynccontextmanager
-import asyncio, os
+import asyncio, os, json
 
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent
+from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
 
@@ -298,6 +298,33 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
 async def scan_page(request: Request, db: AsyncSession = Depends(get_db)):
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
     return templates.TemplateResponse("scan.html", {"request": request, "profile": profile})
+
+
+@app.get("/orders", response_class=HTMLResponse)
+async def orders_page(request: Request, db: AsyncSession = Depends(get_db)):
+    profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
+    suppliers_list = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
+    orders = (await db.execute(select(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()))).scalars().all()
+    components_list = (await db.execute(select(Component).order_by(Component.barcode_id))).scalars().all()
+    kits_list = (await db.execute(select(Kit).order_by(Kit.barcode_id))).scalars().all()
+    components_json = json.dumps([
+        {"id": c.id, "name": c.name, "barcode_id": c.barcode_id}
+        for c in components_list
+    ])
+    kits_json = json.dumps([
+        {"id": k.id, "name": k.name, "barcode_id": k.barcode_id}
+        for k in kits_list
+    ])
+    return templates.TemplateResponse("orders.html", {
+        "request": request,
+        "profile": profile,
+        "suppliers": suppliers_list,
+        "orders": orders,
+        "components": components_list,
+        "kits": kits_list,
+        "components_json": components_json,
+        "kits_json": kits_json,
+    })
 
 
 @app.get("/kits", response_class=HTMLResponse)

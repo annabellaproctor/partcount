@@ -12,6 +12,7 @@ from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
 from datetime import datetime
 import os, shutil, uuid
 import json
+from sqlalchemy import or_
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/components", tags=["components"])
@@ -430,6 +431,25 @@ class SetParentRequest(BaseModel):
     parent_id: Optional[str] = None
 
 
+class ComponentPatchRequest(BaseModel):
+    name: Optional[str] = None
+    value: Optional[str] = None
+    unit: Optional[str] = None
+    package: Optional[str] = None
+    voltage_rating: Optional[float] = None
+    tolerance: Optional[str] = None
+    notes: Optional[str] = None
+    datasheet_url: Optional[str] = None
+    mpn: Optional[str] = None
+    digikey_pn: Optional[str] = None
+    lcsc_pn: Optional[str] = None
+    description: Optional[str] = None
+    type_path: Optional[str] = None
+    type_data: Optional[dict] = None
+    manufacturer_name: Optional[str] = None
+    clear_fields: list[str] = []
+
+
 @router.patch("/{component_id}/parent")
 async def set_generic_parent(
     component_id: str,
@@ -457,3 +477,46 @@ async def set_generic_parent(
 
     comp.parent_id = req.parent_id
     return {"component_id": component_id, "parent_id": comp.parent_id}
+
+
+@router.patch("/{component_id}")
+async def patch_component(
+    component_id: str,
+    req: ComponentPatchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Patch component fields (supports clear_fields for AI-assisted data cleanup)."""
+    comp = (await db.execute(
+        select(Component).where(
+            or_(Component.id == component_id, Component.barcode_id == component_id)
+        )
+    )).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    payload = req.model_dump(exclude_unset=True)
+    clear_fields = set(payload.pop("clear_fields", []))
+
+    manufacturer_name = payload.pop("manufacturer_name", None)
+    if manufacturer_name:
+        from app.models.models import Manufacturer
+        mfr = (await db.execute(
+            select(Manufacturer).where(Manufacturer.name.ilike(f"%{manufacturer_name}%")).limit(1)
+        )).scalar_one_or_none()
+        if mfr:
+            comp.manufacturer_id = mfr.id
+
+    for field, value in payload.items():
+        if hasattr(comp, field):
+            setattr(comp, field, value)
+
+    for field in clear_fields:
+        if hasattr(comp, field):
+            setattr(comp, field, None)
+
+    comp.updated_at = datetime.utcnow()
+    return {
+        "id": comp.id,
+        "barcode_id": comp.barcode_id,
+        "updated": True,
+    }

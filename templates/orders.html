@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Orders :: LAB::INV{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div class="page-title" style="margin:0;">Orders</div>
+  <span style="color:var(--text3);font-size:11px;">{{ orders|length }} total</span>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><span class="dot"></span>AI Order Parse (Noisy Website Copy/Paste)</div>
+  <div class="p-3">
+    <textarea id="order-ai-text" class="form-control" rows="7" placeholder="Paste full webpage text from any site..."></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+      <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
+      <span id="order-ai-status" class="muted" style="font-size:11px;"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><span class="dot"></span>New Order Draft</div>
+  <div class="p-3">
+    <div class="row g-2" style="margin-bottom:8px;">
+      <div class="col-md-4">
+        <label class="form-label">Supplier</label>
+        <select id="order-supplier" class="form-select">
+          <option value="">-- select --</option>
+          {% for s in suppliers %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Reference</label>
+        <input id="order-ref" class="form-control" placeholder="Order ID / invoice ref">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Total Cost</label>
+        <input id="order-total" class="form-control" type="number" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button class="btn btn-primary btn-sm" onclick="addComponentOrderRow()">+ Component Row</button>
+      <button class="btn btn-primary btn-sm" onclick="addKitOrderRow()">+ Kit Row</button>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Component Line Items</div>
+      <div id="component-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Kit Line Items (expanded into component order items on save)</div>
+      <div id="kit-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
+      <button class="btn btn-primary" onclick="createOrderFromDraft()">Create Order</button>
+      <span id="order-create-status" class="muted" style="font-size:11px;"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-header"><span class="dot"></span>Existing Orders</div>
+  <table class="table">
+    <thead>
+      <tr><th>Reference</th><th>Status</th><th>Total</th><th>Created</th></tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td>{{ o.reference or o.id }}</td>
+        <td class="muted">{{ o.status or 'pending' }}</td>
+        <td class="muted">{{ o.total_cost or '—' }}</td>
+        <td class="muted">{{ o.created_at.strftime('%Y-%m-%d') if o.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="order-components-json" type="application/json">{{ components_json | safe }}</script>
+<script id="order-kits-json" type="application/json">{{ kits_json | safe }}</script>
+<script>
+const ORDER_COMPONENT_DATA = JSON.parse(document.getElementById('order-components-json').textContent || '[]');
+const ORDER_KIT_DATA = JSON.parse(document.getElementById('order-kits-json').textContent || '[]');
+
+function _componentOptions() {
+  let html = '<option value="">-- component --</option>';
+  for (const c of ORDER_COMPONENT_DATA) {
+    html += `<option value="${c.id}">${c.barcode_id} · ${c.name}</option>`;
+  }
+  return html;
+}
+
+function _kitOptions() {
+  let html = '<option value="">-- kit --</option>';
+  for (const k of ORDER_KIT_DATA) {
+    html += `<option value="${k.id}">${k.barcode_id} · ${k.name}</option>`;
+  }
+  return html;
+}
+
+function addComponentOrderRow(prefill = {}) {
+  const container = document.getElementById('component-order-lines');
+  const row = document.createElement('div');
+  row.style.display = 'grid';
+  row.style.gridTemplateColumns = '3fr 1fr 1fr auto';
+  row.style.gap = '6px';
+  row.innerHTML = `
+    <select class="form-select order-comp">${_componentOptions()}</select>
+    <input type="number" class="form-control order-qty" min="1" value="${prefill.quantity || 1}">
+    <input type="number" class="form-control order-price" step="0.01" placeholder="unit $" value="${prefill.unit_price || ''}">
+    <button class="btn btn-danger btn-xs" onclick="this.parentElement.remove()">×</button>
+  `;
+  container.appendChild(row);
+  if (prefill.component_id) row.querySelector('.order-comp').value = prefill.component_id;
+}
+
+function addKitOrderRow(prefill = {}) {
+  const container = document.getElementById('kit-order-lines');
+  const row = document.createElement('div');
+  row.style.display = 'grid';
+  row.style.gridTemplateColumns = '3fr 1fr auto';
+  row.style.gap = '6px';
+  row.innerHTML = `
+    <select class="form-select order-kit">${_kitOptions()}</select>
+    <input type="number" class="form-control order-kit-qty" min="1" value="${prefill.quantity || 1}">
+    <button class="btn btn-danger btn-xs" onclick="this.parentElement.remove()">×</button>
+  `;
+  container.appendChild(row);
+  if (prefill.kit_id) row.querySelector('.order-kit').value = prefill.kit_id;
+}
+
+async function parseOrderText() {
+  const text = document.getElementById('order-ai-text').value.trim();
+  const status = document.getElementById('order-ai-status');
+  if (!text) {
+    status.textContent = 'Paste text first';
+    return;
+  }
+  status.textContent = 'Parsing...';
+
+  const r = await fetch('/api/ai/parse-order', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text}),
+  });
+  if (!r.ok) {
+    status.textContent = 'Parse failed';
+    return;
+  }
+
+  const data = await r.json();
+  document.getElementById('order-ref').value = data.order_reference || '';
+  if (data.supplier) {
+    const select = document.getElementById('order-supplier');
+    const target = (data.supplier || '').toLowerCase();
+    for (const opt of Array.from(select.options)) {
+      if ((opt.textContent || '').toLowerCase().includes(target) && opt.value) {
+        select.value = opt.value;
+        break;
+      }
+    }
+  }
+  if (data.items && data.items.length) {
+    const total = data.items.reduce((acc, item) => {
+      if (typeof item.line_total === 'number') return acc + item.line_total;
+      if (typeof item.unit_price === 'number' && item.quantity) return acc + (item.unit_price * item.quantity);
+      return acc;
+    }, 0);
+    if (total > 0) document.getElementById('order-total').value = total.toFixed(2);
+  }
+  const compLines = document.getElementById('component-order-lines');
+  const kitLines = document.getElementById('kit-order-lines');
+  compLines.innerHTML = '';
+  kitLines.innerHTML = '';
+
+  for (const item of (data.items || [])) {
+    const name = (item.name || '').toLowerCase();
+    if (item.is_kit) {
+      const idx = ORDER_KIT_DATA.findIndex(k => (k.name || '').toLowerCase() === name);
+      addKitOrderRow({kit_id: idx >= 0 ? ORDER_KIT_DATA[idx].id : '', quantity: item.quantity || 1});
+      continue;
+    }
+    let idx = ORDER_COMPONENT_DATA.findIndex(c => (c.name || '').toLowerCase() === name);
+    if (idx < 0) {
+      idx = ORDER_COMPONENT_DATA.findIndex(c => name && (c.name || '').toLowerCase().includes(name));
+    }
+    addComponentOrderRow({
+      component_id: idx >= 0 ? ORDER_COMPONENT_DATA[idx].id : '',
+      quantity: item.quantity || 1,
+      unit_price: item.unit_price || '',
+    });
+  }
+
+  status.textContent = (data.summary || 'Parsed') + ` (${(data.items || []).length} items)`;
+}
+
+async function createOrderFromDraft() {
+  const status = document.getElementById('order-create-status');
+  const supplierId = document.getElementById('order-supplier').value;
+  if (!supplierId) {
+    status.textContent = 'Select supplier';
+    return;
+  }
+
+  status.textContent = 'Creating order...';
+  const fd = new FormData();
+  fd.append('supplier_id', supplierId);
+  fd.append('reference', document.getElementById('order-ref').value || '');
+  fd.append('total_cost', document.getElementById('order-total').value || '');
+  const createResp = await fetch('/api/suppliers/orders', { method: 'POST', body: fd });
+  if (!createResp.ok) {
+    status.textContent = 'Failed to create order';
+    return;
+  }
+
+  const order = await createResp.json();
+  const orderId = order.id;
+
+  for (const row of document.querySelectorAll('#component-order-lines > div')) {
+    const compId = row.querySelector('.order-comp').value;
+    if (!compId) continue;
+    const qty = parseInt(row.querySelector('.order-qty').value || '1', 10);
+    const price = row.querySelector('.order-price').value || '';
+
+    const itemFd = new FormData();
+    itemFd.append('component_id', compId);
+    itemFd.append('quantity_ordered', qty);
+    if (price) itemFd.append('unit_price', price);
+    await fetch(`/api/suppliers/orders/${orderId}/items`, { method: 'POST', body: itemFd });
+  }
+
+  // Expand kits into component line-items for unified order accounting.
+  for (const row of document.querySelectorAll('#kit-order-lines > div')) {
+    const kitId = row.querySelector('.order-kit').value;
+    const kitQty = parseInt(row.querySelector('.order-kit-qty').value || '1', 10);
+    if (!kitId) continue;
+
+    const kitResp = await fetch(`/api/kits/${kitId}`);
+    if (!kitResp.ok) continue;
+    const kit = await kitResp.json();
+
+    for (const c of (kit.components || [])) {
+      const itemFd = new FormData();
+      itemFd.append('component_id', c.id);
+      itemFd.append('quantity_ordered', parseInt(c.quantity || 1, 10) * kitQty);
+      itemFd.append('notes', `From kit ${kit.barcode_id}: ${kit.name}`);
+      await fetch(`/api/suppliers/orders/${orderId}/items`, { method: 'POST', body: itemFd });
+    }
+  }
+
+  status.textContent = 'Order created';
+  setTimeout(() => location.reload(), 400);
+}
+
+addComponentOrderRow();
+</script>
+{% endblock %}

@@ -221,6 +221,17 @@ class MergeRequest(BaseModel):
     query: str = ""
 
 
+class EnrichRequest(BaseModel):
+    mode: str = "component"  # component | kit | order
+    action: str = "repair"   # add | repair | remove
+    text: str
+    existing_data: dict | None = None
+
+
+class OrderParseRequest(BaseModel):
+    text: str
+
+
 @router.post("/parse")
 async def parse_component(req: ParseRequest):
     """Extract structured component data from any text."""
@@ -237,6 +248,12 @@ Use 'type_path' for hierarchical type classification.
 For 'value', extract the electrical value (e.g. 10k, 100nF, 5V).
 For 'unit', extract the SI unit (Ω, F, H, V, A, W, Hz).
 
+IMPORTANT FOR NOISY WEBSITE COPY/PASTE:
+- Ignore navigation text, keyboard shortcuts, footer links, ad blocks, recommendations, and unrelated products.
+- Ignore reviews unless they contain concrete product specs.
+- Extract only the most likely actual purchasable product(s) and specs.
+- This must work for any website, not a single domain.
+
 KIT DETECTION RULES:
 - If text clearly contains multiple line-items or quantities, set is_kit=true.
 - Example: "10x 10k resistors + 5x 100nF caps" should produce kit_components.
@@ -246,7 +263,7 @@ SUPPORTED TYPE PATHS (pick the closest exact path):
 {available_paths}
 
 Text:
-{req.text[:4000]}"""
+{req.text[:16000]}"""
 
     result = await _gemini(prompt, COMPONENT_SCHEMA)
     type_path = result.get("type_path")
@@ -278,6 +295,108 @@ Text:
             result["missing_required_fields"] = missing
 
     result["source"] = "gemini"
+    return result
+
+
+@router.post("/enrich-record")
+async def enrich_record(req: EnrichRequest):
+    """Suggest add/repair/remove field changes for component/kit/order from noisy pasted text."""
+    if not req.text or len(req.text.strip()) < 10:
+        raise HTTPException(400, "Text too short")
+
+    existing_json = json.dumps(req.existing_data or {}, ensure_ascii=False)[:6000]
+    available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "mode": {"type": "string"},
+            "action": {"type": "string"},
+            "summary": {"type": "string"},
+            "confidence": {"type": "number"},
+            "patch_fields": {"type": "object"},
+            "remove_fields": {"type": "array", "items": {"type": "string"}},
+            "supplier_hints": {"type": "array", "items": {"type": "object"}},
+            "order_hints": {"type": "array", "items": {"type": "object"}},
+            "component_candidates": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields"],
+    }
+
+    prompt = f"""You are a data-repair assistant for an electronics inventory database.
+Task mode: {req.mode}
+Requested action: {req.action}
+
+You receive noisy copy-pasted webpage text from arbitrary sites (shopping, docs, blogs, etc).
+Ignore unrelated UI and boilerplate text such as:
+- nav menus, shortcuts, cart labels, footer links, recommendations, ad blocks, account sections.
+
+Return JSON with:
+1) patch_fields: only high-confidence fields to add/update.
+2) remove_fields: fields that look wrong or should be cleared.
+3) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
+4) order_hints: optional order number, quantities, line-items, totals, dates.
+5) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
+
+Supported type paths:
+{available_paths}
+
+Existing record:
+{existing_json}
+
+Noisy text:
+{req.text[:16000]}"""
+
+    result = await _gemini(prompt, schema)
+    result["source"] = "gemini_enrich"
+    return result
+
+
+@router.post("/parse-order")
+async def parse_order_text(req: OrderParseRequest):
+    """Extract order-centric line items from noisy page text (components + kits)."""
+    if not req.text or len(req.text.strip()) < 10:
+        raise HTTPException(400, "Text too short")
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "supplier": {"type": "string"},
+            "order_reference": {"type": "string"},
+            "currency": {"type": "string"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "quantity": {"type": "integer"},
+                        "unit_price": {"type": "number"},
+                        "line_total": {"type": "number"},
+                        "is_kit": {"type": "boolean"},
+                        "type_path": {"type": "string"},
+                        "notes": {"type": "string"},
+                    },
+                },
+            },
+            "confidence": {"type": "number"},
+        },
+        "required": ["items", "confidence"],
+    }
+
+    prompt = f"""Extract order line-items from noisy copy-pasted website text.
+Rules:
+- Keep only likely purchased items.
+- Ignore site chrome, recommendations, reviews, keyboard shortcuts, and footer.
+- Detect if an item appears to be a kit/assortment (is_kit=true).
+- Quantity defaults to 1 if unknown.
+
+Text:
+{req.text[:18000]}"""
+
+    result = await _gemini(prompt, schema)
+    result["source"] = "gemini_order_parse"
     return result
 
 

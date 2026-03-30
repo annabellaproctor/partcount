@@ -34,6 +34,16 @@ class KitCreate(BaseModel):
     components: list[KitComponentCreate]
 
 
+class KitPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    notes: str | None = None
+    image_path: str | None = None
+    clear_fields: list[str] = []
+    replace_components: bool = False
+    components: list[KitComponentCreate] | None = None
+
+
 def _component_type_from_path(type_path: str | None) -> str | None:
     if not type_path:
         return None
@@ -218,3 +228,55 @@ async def delete_kit(kit_id: str, db: AsyncSession = Depends(get_db)):
 
     await db.delete(kit)
     return {"deleted": True}
+
+
+@router.patch("/{kit_id}")
+async def patch_kit(kit_id: str, req: KitPatch, db: AsyncSession = Depends(get_db)):
+    kit = (await db.execute(
+        select(Kit).where((Kit.id == kit_id) | (Kit.barcode_id == kit_id))
+    )).scalar_one_or_none()
+    if not kit:
+        raise HTTPException(404, "Kit not found")
+
+    payload = req.model_dump(exclude_unset=True)
+    clear_fields = set(payload.pop("clear_fields", []))
+    replace_components = payload.pop("replace_components", False)
+    components = payload.pop("components", None)
+
+    for field, value in payload.items():
+        if hasattr(kit, field):
+            setattr(kit, field, value)
+
+    for field in clear_fields:
+        if hasattr(kit, field):
+            setattr(kit, field, None)
+
+    if replace_components and components is not None:
+        existing_links = (await db.execute(
+            select(KitComponent).where(KitComponent.kit_id == kit.id)
+        )).scalars().all()
+        for link in existing_links:
+            await db.delete(link)
+        await db.flush()
+
+        merged_rows: dict[str, dict] = {}
+        for idx, item in enumerate(components):
+            parsed = KitComponentCreate(**item) if isinstance(item, dict) else item
+            comp = await _resolve_or_create_component(db, parsed)
+            if comp.id in merged_rows:
+                merged_rows[comp.id]["quantity"] += parsed.quantity
+                continue
+            merged_rows[comp.id] = {
+                "component_id": comp.id,
+                "quantity": parsed.quantity,
+                "notes": parsed.notes,
+                "position": idx,
+            }
+        for row in merged_rows.values():
+            db.add(KitComponent(kit_id=kit.id, **row))
+
+    return {
+        "id": kit.id,
+        "barcode_id": kit.barcode_id,
+        "updated": True,
+    }
