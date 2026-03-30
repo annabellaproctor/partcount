@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from datetime import datetime
@@ -230,3 +230,11 @@ class PurchaseOrderItem(Base):
     order = relationship("PurchaseOrder", back_populates="items")
     component = relationship("Component")
     component_supplier = relationship("ComponentSupplier")
+
+
+class SystemSetting(Base):
+    """Key-value store for system-level settings (e.g. OAuth tokens)."""
+    __tablename__ = "system_settings"
+    key = Column(String, primary_key=True)
+    value = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
