@@ -262,6 +262,7 @@ function showCropModal(data) {
     return;
   }
   cropModal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
   
   // Get image URL
   const imageUrl = typeof data === 'string' ? data : (data.preview || data);
@@ -277,6 +278,10 @@ function showCropModal(data) {
 
 function closeCropModal() {
   document.getElementById('crop-modal').style.display = 'none';
+  document.body.style.overflow = '';
+  if (typeof window.destroyCropperEditor === 'function') {
+    window.destroyCropperEditor();
+  }
 }
 
 function autoAdjust() {

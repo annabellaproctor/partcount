@@ -106,6 +106,7 @@ async function _runAutomaticPreprocessOnLoad() {
 // Initialize Cropper.js when image is loaded
 function initCropper(imageUrl) {
   const img = document.getElementById('crop-image');
+  if (!img) return;
   const loadToken = ++_cropperLoadToken;
   _autoPreprocessDone = false;
   
@@ -113,30 +114,6 @@ function initCropper(imageUrl) {
   if (cropper) {
     cropper.destroy();
     cropper = null;
-  }
-  
-  // Load image (proxy external URLs)
-  const isExternal = (
-    imageUrl.startsWith('http://') || imageUrl.startsWith('https://')
-  ) && !imageUrl.includes(window.location.hostname) && !imageUrl.startsWith('data:');
-  
-  if (isExternal) {
-    // Proxy through server for CORS
-    fetch('/api/images/proxy', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: new URLSearchParams({image_url: imageUrl})
-    })
-    .then(r => r.json())
-    .then(data => {
-      img.src = data.data_url;
-    })
-    .catch(err => {
-      console.error('Failed to proxy image:', err);
-      alert('Failed to load image: ' + err.message);
-    });
-  } else {
-    img.src = imageUrl;
   }
   
   // Initialize cropper after image loads
@@ -179,6 +156,31 @@ function initCropper(imageUrl) {
     if (loadToken !== _cropperLoadToken) return;
     console.error('Failed to load crop image');
   };
+
+  // Load image (proxy external URLs) AFTER handlers are attached to avoid missed onload races.
+  const isExternal = (
+    imageUrl.startsWith('http://') || imageUrl.startsWith('https://')
+  ) && !imageUrl.includes(window.location.hostname) && !imageUrl.startsWith('data:');
+
+  if (isExternal) {
+    fetch('/api/images/proxy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({image_url: imageUrl})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (loadToken !== _cropperLoadToken) return;
+      img.src = data.data_url;
+    })
+    .catch(err => {
+      if (loadToken !== _cropperLoadToken) return;
+      console.error('Failed to proxy image:', err);
+      alert('Failed to load image: ' + err.message);
+    });
+  } else {
+    img.src = imageUrl;
+  }
 }
 
 function _initCropperInstance() {
@@ -356,6 +358,23 @@ function cropperAutoCrop() {
       }
     }
   }
+
+  // Fallback for bright/washed photos: treat almost-any non-transparent pixel as content.
+  if (!found) {
+    for (let y = 0; y < tempCanvas.height; y++) {
+      for (let x = 0; x < tempCanvas.width; x++) {
+        const i = (y * tempCanvas.width + x) * 4;
+        const a = data[i + 3];
+        if (a > 25) {
+          found = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+  }
   
   if (!found) {
     alert('No content found to crop');
@@ -375,8 +394,8 @@ function cropperAutoCrop() {
   const canvasData = cropper.getCanvasData();
   const left = canvasData.left + (minX / tempCanvas.width) * canvasData.width;
   const top = canvasData.top + (minY / tempCanvas.height) * canvasData.height;
-  const width = ((maxX - minX) / tempCanvas.width) * canvasData.width;
-  const height = ((maxY - minY) / tempCanvas.height) * canvasData.height;
+  const width = Math.max(24, ((maxX - minX) / tempCanvas.width) * canvasData.width);
+  const height = Math.max(24, ((maxY - minY) / tempCanvas.height) * canvasData.height);
 
   cropper.setCropBoxData({ left, top, width, height });
   
@@ -418,9 +437,8 @@ async function saveCroppedImage() {
     const status = document.getElementById('crop-status');
     if (status) {
       status.style.color = 'var(--amber)';
-      status.textContent = 'Image background looks mostly white. Please apply Mechanical removal or Try with AI isolation before saving.';
+      status.textContent = 'Image background looks mostly white. Saving anyway; consider Mechanical removal for cleaner edges.';
     }
-    return;
   }
 
   const dataUrl = await getCroppedImage();
@@ -468,4 +486,16 @@ async function saveCroppedImage() {
 window.cropperApplyMechanicalBg = function() { return _cropperApplyMechanicalBg(false); };
 window.cropperApplyAiBg = _cropperApplyAiBg;
 window.cropperRevertBackgroundRemoval = _cropperRevertBackgroundRemoval;
+window.destroyCropperEditor = function() {
+  if (cropper) {
+    cropper.destroy();
+    cropper = null;
+  }
+  const img = document.getElementById('crop-image');
+  if (img) {
+    img.onload = null;
+    img.onerror = null;
+    img.removeAttribute('src');
+  }
+};
 
