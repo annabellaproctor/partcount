@@ -2,6 +2,32 @@
 {% block title %}{{ comp.barcode_id }} :: LAB::INV{% endblock %}
 {% block content %}
 
+<script>
+// Define functions that are called from inline onclick handlers
+// These must be available before the HTML loads
+function toggleImageMenu(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById('image-menu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function openCropEditor() {
+  // Defined properly later, but stub here to prevent errors
+  console.log('openCropEditor called');
+}
+
+function openImageSearch() {
+  // Defined properly later, but stub here to prevent errors  
+  console.log('openImageSearch called');
+}
+
+function uploadImage(input) {
+  // Defined properly later, but stub here to prevent errors
+  console.log('uploadImage called');
+}
+</script>
+
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
   <a href="/components" class="muted" style="font-size:11px;">← Components</a>
   <span class="sep">/</span>
@@ -508,12 +534,16 @@ async function touchComponent(id) {
   }
 }
 
-// Image menu functions
-function toggleImageMenu(event) {
+// Image menu functions (overwrite stub from top of file)
+window.toggleImageMenu = function(event) {
   if (event) event.stopPropagation();
   const menu = document.getElementById('image-menu');
+  if (!menu) {
+    console.error('image-menu element not found');
+    return;
+  }
   menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-}
+};
 
 // Close menu when clicking outside
 document.addEventListener('click', (e) => {
@@ -523,7 +553,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-async function openCropEditor() {
+window.openCropEditor = async function() {
   toggleImageMenu();
   
   // CRITICAL: Close image search modal if it exists
@@ -537,7 +567,7 @@ async function openCropEditor() {
   _currentImageUrl = img.src;
   _removeBgChoice = null;
   showCropModal(img.src);  // Pass URL directly
-}
+};
 
 function closeImageSearch() {
   document.getElementById('img-modal').style.display = 'none';
@@ -837,7 +867,7 @@ async function confirmCrop() {
   }
 }
 
-async function uploadImage(input) {
+window.uploadImage = async function(input) {
   if (!input.files[0]) return;
   const file = input.files[0];
   
@@ -849,7 +879,7 @@ async function uploadImage(input) {
     showCropModal(e.target.result);
   };
   reader.readAsDataURL(file);
-}
+};
 
 async function uploadFromModal(input) {
   if (!input.files[0]) return;
