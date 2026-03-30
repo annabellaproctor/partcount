@@ -155,3 +155,18 @@ def _parse_float(s) -> Optional[float]:
         return None
     m = re.search(r"[\d.]+", str(s))
     return float(m.group()) if m else None
+
+
+async def debug_raw(query: str) -> dict:
+    """Returns raw API response for debugging — call via /api/lookup/debug"""
+    try:
+        token = await _get_token()
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                f"{BASE_URL}/search/keyword",
+                headers=_headers(token),
+                json={"Keywords": query, "Limit": 2, "Offset": 0},
+            )
+            return {"status": r.status_code, "body": r.json()}
+    except Exception as e:
+        return {"error": str(e)}

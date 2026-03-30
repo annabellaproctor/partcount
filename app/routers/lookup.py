@@ -12,6 +12,12 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/lookup", tags=["lookup"])
 
+
+@router.get("/debug")
+async def debug_lookup(q: str = "esp32"):
+    from app.services.digikey import debug_raw
+    return await debug_raw(q)
+
 CACHE_TTL_HOURS = 24
 
 
