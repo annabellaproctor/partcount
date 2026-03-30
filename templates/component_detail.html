@@ -496,19 +496,8 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-let _currentImageUrl = null;
-let _currentImageData = null;
-let _selectedImageUrl = null;
-let _selectedImageSource = null;
-let _rotationDegrees = 0;
-let _canvas = null;
-let _ctx = null;
-let _img = null;
-let _isDragging = false;
-let _dragStart = {x: 0, y: 0};
-let _imgOffset = {x: 0, y: 0};
-let _removeBgChoice = null;  // null, 'mechanical', 'skip'
 
+// Component-specific function (not in image-editor.js)
 async function touchComponent(id) {
   const status = document.getElementById('touch-status');
   status.textContent = 'Refreshing...';
