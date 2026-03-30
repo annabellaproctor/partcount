@@ -306,25 +306,51 @@
     
     <!-- Main layout: canvas on left, controls on right -->
     <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;">
-      <!-- Canvas container with gray grid outline -->
-      <div style="position:relative;background:var(--bg3);border:2px solid #555;border-radius:2px;min-height:600px;display:flex;align-items:center;justify-content:center;">
+      <!-- Canvas container with transparency checkerboard -->
+      <div style="position:relative;min-height:600px;display:flex;align-items:center;justify-content:center;border-radius:2px;overflow:hidden;
+                  background-image: repeating-conic-gradient(#f0f 0% 25%, #9f9 0% 50%);
+                  background-size: 20px 20px;
+                  background-position: 0 0, 10px 10px;">
         <canvas id="crop-canvas" style="display:block;max-width:100%;max-height:600px;cursor:move;"></canvas>
-        <!-- Rotation handle (bottom-right corner) -->
-        <div id="rotation-handle" style="display:none;position:absolute;bottom:10px;right:10px;width:40px;height:40px;background:var(--green);border-radius:50%;cursor:grab;display:flex;align-items:center;justify-content:center;color:#000;font-size:18px;user-select:none;">↻</div>
+        
+        <!-- Rotation handle (bottom-right corner of canvas, tracks with canvas) -->
+        <div id="rotation-handle" 
+             style="position:absolute;width:50px;height:50px;background:var(--green);border-radius:50%;
+                    cursor:grab;display:flex;align-items:center;justify-content:center;
+                    color:#000;font-size:24px;font-weight:bold;user-select:none;
+                    box-shadow:0 2px 8px rgba(0,0,0,0.3);border:3px solid #000;">
+          ↻
+        </div>
+        
         <!-- Dragging minimap loupe -->
         <canvas id="minimap-loupe" style="display:none;position:absolute;width:120px;height:120px;border:2px solid var(--green);border-radius:50%;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></canvas>
+        
+        <!-- Slider drag loupe (for crop bounds) -->
+        <canvas id="slider-loupe" style="display:none;position:absolute;width:150px;height:150px;border:2px solid var(--amber);pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></canvas>
       </div>
       
       <!-- Controls sidebar -->
-      <div>
-        <!-- BG Removal status (if mechanical was applied) -->
-        <div id="bg-removal-status" style="display:none;margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--green);border-radius:2px;">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Background Removal Applied</div>
-          <div style="display:flex;gap:6px;margin-bottom:8px;">
-            <button class="btn btn-secondary btn-sm" onclick="revertBackgroundRemoval()" style="flex:1;">Revert to Original</button>
-            <button class="btn btn-primary btn-sm" onclick="reselectBgColor()" style="flex:1;">Pick Color</button>
+      <div style="overflow-y:auto;max-height:600px;">
+        <!-- BG Removal controls -->
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Background Removal</div>
+          
+          <div id="bg-not-applied" style="display:block;">
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <button class="btn btn-primary btn-sm" onclick="applyMechanicalBg()" style="flex:1;">Apply Mechanical</button>
+              <button class="btn btn-primary btn-sm" onclick="applyAiBg()" style="flex:1;">Try with AI</button>
+            </div>
+            <div style="font-size:9px;color:var(--text3);">Mechanical removes selected color, AI uses ML model</div>
           </div>
-          <div style="font-size:9px;color:var(--text3);">Current: removing white/near-white pixels</div>
+          
+          <div id="bg-applied" style="display:none;">
+            <div style="font-size:10px;color:var(--green);margin-bottom:8px;">✓ Background removed (<span id="bg-method">mechanical</span>)</div>
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <button class="btn btn-secondary btn-sm" onclick="revertBackgroundRemoval()" style="flex:1;">Revert</button>
+              <button class="btn btn-primary btn-sm" onclick="showColorPicker()" style="flex:1;">Pick Color</button>
+            </div>
+            <div style="font-size:9px;color:var(--text3);">Current: <span id="bg-color-display">white/near-white</span></div>
+          </div>
         </div>
         
         <!-- Rotation controls -->
@@ -339,8 +365,13 @@
             <input type="number" id="rotation-degrees" min="0" max="359" step="0.1" value="0" 
                    style="width:70px;padding:4px;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:2px;"
                    oninput="setRotationDegrees(this.value)">
-            <span style="font-size:10px;color:var(--text3);">degrees (or drag corner handle)</span>
+            <span style="font-size:10px;color:var(--text3);">° (drag corner handle)</span>
           </div>
+        </div>
+        
+        <!-- Auto-adjust button -->
+        <div style="margin-bottom:16px;">
+          <button class="btn btn-primary w-100" onclick="autoAdjust()">🪄 Auto-Rotate & Crop</button>
         </div>
         
         <!-- Crop sliders -->
@@ -349,22 +380,26 @@
           
           <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
             <label style="font-size:10px;color:var(--text3);">Left</label>
-            <input type="range" id="crop-left" min="-25" max="100" value="0" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+            <input type="range" id="crop-left" min="-25" max="100" value="0" step="0.1" style="width:100%;" 
+                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'left')" onmouseup="endSliderDrag()">
           </div>
           
           <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
             <label style="font-size:10px;color:var(--text3);">Top</label>
-            <input type="range" id="crop-top" min="-25" max="100" value="0" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+            <input type="range" id="crop-top" min="-25" max="100" value="0" step="0.1" style="width:100%;" 
+                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'top')" onmouseup="endSliderDrag()">
           </div>
           
           <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
             <label style="font-size:10px;color:var(--text3);">Right</label>
-            <input type="range" id="crop-right" min="0" max="125" value="100" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+            <input type="range" id="crop-right" min="0" max="125" value="100" step="0.1" style="width:100%;" 
+                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'right')" onmouseup="endSliderDrag()">
           </div>
           
           <div style="display:grid;grid-template-columns:50px 1fr;gap:8px;align-items:center;margin-bottom:8px;">
             <label style="font-size:10px;color:var(--text3);">Bottom</label>
-            <input type="range" id="crop-bottom" min="0" max="125" value="100" step="0.1" style="width:100%;" oninput="updateCropPreview()">
+            <input type="range" id="crop-bottom" min="0" max="125" value="100" step="0.1" style="width:100%;" 
+                   oninput="updateCropPreview()" onmousedown="startSliderDrag(event, 'bottom')" onmouseup="endSliderDrag()">
           </div>
           
           <div style="font-size:9px;color:var(--text3);margin-top:4px;">Drag image to reposition. Sliders allow +25% overscan.</div>
@@ -372,11 +407,33 @@
         
         <!-- Actions -->
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset to Auto-Crop</button>
+          <button class="btn btn-secondary btn-sm" onclick="resetCrop()">Reset Crop</button>
           <button class="btn btn-primary" onclick="confirmCrop()">Save Image</button>
         </div>
         <div id="crop-status" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Color picker dialog -->
+<div id="color-picker-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1003;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:3px;padding:24px;max-width:400px;">
+    <div style="font-size:14px;color:var(--text);margin-bottom:12px;">Pick Background Color</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:16px;">
+      Click on the image to select which color to remove
+    </div>
+    <canvas id="color-picker-canvas" style="max-width:100%;cursor:crosshair;border:1px solid var(--border);"></canvas>
+    <div style="margin-top:12px;padding:8px;background:var(--bg3);border-radius:2px;display:flex;align-items:center;gap:8px;">
+      <div id="color-preview" style="width:30px;height:30px;border:1px solid var(--border);border-radius:2px;"></div>
+      <div style="flex:1;font-size:11px;">
+        <div id="color-rgb">Click image to select</div>
+        <div id="color-threshold" style="font-size:9px;color:var(--text3);">Tolerance: ±20 RGB</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-secondary" onclick="closeColorPicker()" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" onclick="applyColorPick()" style="flex:1;" id="apply-color-btn" disabled>Apply</button>
     </div>
   </div>
 </div>
