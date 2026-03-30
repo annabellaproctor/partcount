@@ -39,6 +39,19 @@
           <button onclick="clearPreview()" class="btn btn-danger btn-xs" style="margin-top:6px;">Clear</button>
         </div>
       </div>
+
+    <!-- AI Paste parser -->
+    <div style="margin-top:8px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+        <span style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Or paste listing text / description</span>
+        <button type="button" onclick="runAIParse()" class="btn btn-primary btn-xs" style="margin-left:auto;">AI Parse</button>
+      </div>
+      <textarea id="ai-paste-input" class="form-control" rows="2"
+        style="font-size:11px;resize:vertical;"
+        placeholder="Paste Amazon listing, datasheet text, product description..."></textarea>
+      <div id="ai-parse-status" style="font-size:10px;color:var(--text3);margin-top:3px;"></div>
+    </div>
+
     </div>
 
     <!-- Form -->

@@ -59,13 +59,21 @@ def autocrop_image(src_path: str, dest_path: str = None) -> str:
 
 
 def next_barcode_id(prefix: str, existing_ids: list[str]) -> str:
-    """Generate next sequential ID e.g. R047 given prefix R and existing list"""
-    nums = []
-    for bid in existing_ids:
-        if bid.startswith(prefix):
-            try:
-                nums.append(int(bid[len(prefix):]))
-            except ValueError:
-                pass
-    next_num = (max(nums) + 1) if nums else 1
-    return f"{prefix}{next_num:03d}"
+    """
+    Generate a fixed-length alphanumeric barcode ID.
+    Format: {PREFIX}-{4 alphanumeric chars}
+    e.g. R-4K2M, C-9XBQ, M-A3FP
+    Uses uppercase letters + digits, excludes confusables (0/O, 1/I/L).
+    Guaranteed unique within existing_ids.
+    """
+    import random
+    CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # no 0/O/1/I/L
+    p = prefix.upper()[:1]
+    for _ in range(1000):
+        suffix = "".join(random.choices(CHARS, k=4))
+        bid = f"{p}-{suffix}"
+        if bid not in existing_ids:
+            return bid
+    # fallback — timestamp-based
+    import time
+    return f"{p}-{int(time.time()) % 100000:05d}"

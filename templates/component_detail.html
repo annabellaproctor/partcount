@@ -219,6 +219,13 @@
       <input id="img-search-input" class="form-control" value="{{ comp.name }} {{ comp.package or '' }} component" placeholder="Search query">
       <button class="btn btn-primary" onclick="doImageSearch()">Search</button>
     </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;font-size:11px;color:var(--text2);">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="remove-bg-toggle" style="accent-color:var(--green);">
+        Remove background (makes transparent PNG)
+      </label>
+      <span style="color:var(--text3);">· UI renders white behind transparent images</span>
+    </div>
     <!-- Upload tab -->
     <div style="margin-bottom:12px;padding:10px;background:var(--bg3);border:1px dashed var(--border2);border-radius:2px;text-align:center;">
       <label style="cursor:pointer;font-size:11px;color:var(--text2);">
@@ -261,19 +268,35 @@ async function doImageSearch() {
   });
 }
 
+const _removeBg = () => document.getElementById('remove-bg-toggle')?.checked || false;
+
 async function selectImage(url) {
-  document.getElementById('img-status').textContent = 'Downloading...';
+  const status = document.getElementById('img-status');
+  status.textContent = 'Downloading' + (_removeBg() ? ' + removing background' : '') + '...';
   const fd = new FormData();
   fd.append('component_id', COMP_ID);
   fd.append('image_url', url);
-  const r = await fetch('/api/images/fetch', {method:'POST', body: fd});
-  if (r.ok) {
-    const data = await r.json();
-    document.querySelectorAll('#comp-img, #comp-img-placeholder').forEach(el => {
-      if (el.tagName === 'IMG') el.src = data.image_path + '?t=' + Date.now();
-      else { el.outerHTML = `<img src="${data.image_path}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">`; }
-    });
-    closeImageSearch();
+  fd.append('remove_bg', _removeBg() ? 'true' : 'false');
+  try {
+    const r = await fetch('/api/images/fetch', {method:'POST', body: fd});
+    if (r.ok) {
+      const data = await r.json();
+      // replace or create img element
+      const existing = document.getElementById('comp-img');
+      if (existing) {
+        existing.src = data.image_path + '?t=' + Date.now();
+      } else {
+        const ph = document.getElementById('comp-img-placeholder');
+        if (ph) ph.outerHTML = `<img src="${data.image_path}" style="max-width:100%;max-height:160px;object-fit:contain;background:white;" id="comp-img">`;
+      }
+      status.textContent = '✓ Saved';
+      closeImageSearch();
+    } else {
+      const err = await r.text();
+      status.textContent = 'Error: ' + err.slice(0, 100);
+    }
+  } catch(e) {
+    status.textContent = 'Network error: ' + e.message;
   }
 }
 

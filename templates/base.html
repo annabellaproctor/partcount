@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}LAB::INV{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
@@ -20,10 +22,10 @@
       --amber:    #f0a500;
       --red:      #e05555;
       --blue:     #4a9eff;
-      --text:     #d4d4d4;
-      --text2:    #888;
-      --text3:    #555;
-      --font:     'Courier New', Courier, monospace;
+      --text:     #e8e8e8;
+      --text2:    #a0a0a0;
+      --text3:    #686868;
+      --font:     'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
       --radius:   3px;
     }
     *, *::before, *::after { box-sizing: border-box; }
@@ -32,7 +34,7 @@
       background: var(--bg) !important;
       color: var(--text);
       font-family: var(--font);
-      font-size: 13px;
+      font-size: 14px;
       display: flex;
       flex-direction: column;
       min-height: 100vh;
@@ -139,19 +141,19 @@
     }
 
     /* ── tables ── */
-    .table { color: var(--text); font-size: 12px; margin: 0; }
+    .table { color: var(--text); font-size: 13px; margin: 0; --bs-table-bg: var(--bg2); --bs-table-striped-bg: var(--bg2); --bs-table-hover-bg: var(--bg3); --bs-table-color: var(--text); }
     .table th {
-      color: var(--text3);
-      font-size: 10px;
+      color: var(--text2);
+      font-size: 11px;
       letter-spacing: 1px;
       text-transform: uppercase;
       border-color: var(--border);
-      background: var(--bg3);
+      background: var(--bg3) !important;
       font-weight: normal;
-      padding: 6px 12px;
+      padding: 7px 12px;
     }
-    .table td { border-color: var(--border); vertical-align: middle; padding: 6px 12px; }
-    .table tbody tr:hover { background: var(--bg3); }
+    .table td { border-color: var(--border); vertical-align: middle; padding: 7px 12px; background: var(--bg2) !important; color: var(--text); }
+    .table tbody tr:hover td { background: var(--bg3) !important; }
 
     /* ── badges ── */
     .bid {
@@ -597,6 +599,49 @@ function resetAddForm() {
   clearPreview();
   const res = document.getElementById('lookup-results');
   if(res) res.style.display='none';
+}
+
+
+async function runAIParse() {
+  const txt = document.getElementById('ai-paste-input')?.value?.trim();
+  const status = document.getElementById('ai-parse-status');
+  if (!txt || txt.length < 5) { if(status) status.textContent = 'Paste some text first'; return; }
+  if(status) status.textContent = 'Parsing…';
+  try {
+    const r = await fetch('/api/ai/parse', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: txt}),
+    });
+    if (!r.ok) { if(status) status.textContent = 'Parse failed'; return; }
+    const d = await r.json();
+    const set = (id, val) => { const el = document.getElementById(id); if(el && val && val !== 'null') el.value = val; };
+    set('f-name', d.name);
+    set('f-mpn', d.mpn);
+    set('f-value', d.value);
+    set('f-package', d.package);
+    set('f-tolerance', d.tolerance);
+    set('f-mfr', d.manufacturer);
+    set('f-datasheet', d.datasheet_url);
+    set('f-imgurl', d.image_url);
+    if(d.voltage_rating) set('f-voltage', d.voltage_rating);
+    // auto-select type
+    if (d.type && _types.length) {
+      const match = _types.find(t => t.name === d.type);
+      if (match) { const sel = document.getElementById('f-type'); if(sel) sel.value = match.id; }
+    }
+    if(status) status.textContent = '✓ Fields filled (' + (d.source||'') + ')';
+    if(d.image_url) {
+      set('f-imgurl', d.image_url);
+      const pi = document.getElementById('preview-img');
+      if(pi) { pi.src = d.image_url; pi.style.display=''; }
+      const pb = document.getElementById('lookup-preview');
+      if(pb) pb.style.display='block';
+    }
+    setTimeout(() => { if(status) status.textContent=''; }, 4000);
+  } catch(e) {
+    if(status) status.textContent = 'Error: ' + e.message;
+  }
 }
 
 // keyboard: A = open, Escape = close
