@@ -151,6 +151,7 @@
         </div>
         <div id="component-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <div id="component-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
+          <div id="component-ai-needed" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
           <pre id="component-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
           <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="applyComponentAiPatch()">Apply Suggested Changes</button>
         </div>
@@ -561,7 +562,8 @@ async function analyzeComponentText(action) {
   });
 
   if (!r.ok) {
-    status.textContent = 'AI analysis failed';
+    const errText = await r.text();
+    status.textContent = `AI analysis failed (${r.status}): ${errText.slice(0, 140)}`;
     return;
   }
 
@@ -573,6 +575,15 @@ async function analyzeComponentText(action) {
 
   document.getElementById('component-ai-preview').style.display = 'block';
   document.getElementById('component-ai-summary').textContent = data.summary || 'AI suggestion ready';
+  const needed = document.getElementById('component-ai-needed');
+  const neededItems = Array.isArray(data.needed_details) ? data.needed_details.filter(Boolean) : [];
+  if (neededItems.length) {
+    needed.style.display = 'block';
+    needed.textContent = 'Needed details: ' + neededItems.join(' | ');
+  } else {
+    needed.style.display = 'none';
+    needed.textContent = '';
+  }
   document.getElementById('component-ai-patch').textContent = JSON.stringify(_componentAiPatch, null, 2);
   status.textContent = `confidence ${(data.confidence || 0).toFixed(2)}`;
 }

@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import os, json, logging, re
 from datetime import datetime, timedelta
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from google import genai
 from google.genai import types
 from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
@@ -16,11 +18,17 @@ log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10"))
+GEMINI_MAX_WORKERS = int(os.getenv("GEMINI_MAX_WORKERS", "2"))
 
 # Initialize client
 client = None
 if GEMINI_KEY:
     client = genai.Client(api_key=GEMINI_KEY)
+
+# Run Gemini SDK work outside the async event loop so websocket/http I/O remains responsive.
+_gemini_executor = ThreadPoolExecutor(max_workers=GEMINI_MAX_WORKERS, thread_name_prefix="gemini-worker")
+_gemini_semaphore = asyncio.Semaphore(GEMINI_MAX_WORKERS)
 
 # Failed request logging
 _failed_requests = []
@@ -37,6 +45,60 @@ FREE_TIER_MODELS = [
     {"name": "gemini-2.5-flash-lite", "rpd": 20, "rpm": 10, "tpm": 250000},
     {"name": "gemini-3-flash", "rpd": 20, "rpm": 5, "tpm": 250000},
 ]
+
+
+def _gemini_call_sync(prompt: str, schema: dict, model: str):
+    """Blocking Gemini SDK call executed in dedicated worker threads."""
+    sdk_client = genai.Client(api_key=GEMINI_KEY)
+    response = sdk_client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.1,
+        )
+    )
+    raw_text = (response.text or "").strip()
+    if not raw_text:
+        raise ValueError("Gemini returned empty response body")
+    return json.loads(raw_text)
+
+
+def _suggest_needed_details(mode: str, existing_data: dict | None) -> list[str]:
+    existing = existing_data or {}
+    out: list[str] = []
+
+    if mode == "component":
+        wanted = [
+            ("exact manufacturer + MPN", existing.get("mpn")),
+            ("electrical value + unit (e.g. 10k Ω, 100 nF)", existing.get("value") or existing.get("unit")),
+            ("package / footprint (e.g. 0805, QFN32)", existing.get("package")),
+            ("datasheet URL", existing.get("datasheet_url")),
+            ("type path classification (module/...)", existing.get("type_path")),
+        ]
+    elif mode == "kit":
+        wanted = [
+            ("complete list of included components", None),
+            ("quantity per included component", None),
+            ("kit variant/model identifier", existing.get("mpn") or existing.get("barcode_id")),
+            ("supplier/store URL for the exact kit", None),
+        ]
+    else:
+        wanted = [
+            ("supplier/store name", None),
+            ("order reference / order number", None),
+            ("line-item quantities", None),
+            ("unit price or line total", None),
+        ]
+
+    for label, present in wanted:
+        if present not in (None, "", []):
+            continue
+        out.append(label)
+
+    # Keep response concise and deterministic.
+    return out[:6]
 
 
 def select_best_model():
@@ -148,69 +210,76 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list
         )
     
     model = select_best_model()
-    
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-                temperature=0.1,
-            )
-        )
-        
-        # Parse JSON response
-        result = json.loads(response.text)
-        
-        # Handle case where Gemini returns a list instead of object
-        if isinstance(result, list) and collapse_list:
-            if len(result) > 0:
-                result = result[0]
-            else:
-                raise ValueError("Gemini returned empty list")
-        
-        return result
-        
-    except Exception as e:
-        error_msg = str(e)
-        log_failed_request("sdk_error", {
-            "error": error_msg,
-            "type": type(e).__name__,
-            "model": model,
-            "retry_count": retry_count,
-        })
-        
-        # Handle 429 rate limit - try next model
-        if ('429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg) and retry_count < len(FREE_TIER_MODELS) - 1:
+
+    for attempt in range(retry_count, len(FREE_TIER_MODELS)):
+        if attempt > retry_count:
+            model = FREE_TIER_MODELS[attempt]["name"]
             global _current_model
-            next_model_idx = retry_count + 1
-            _current_model = FREE_TIER_MODELS[next_model_idx]["name"]
-            log.warning(f"Model {model} rate limited, switching to {_current_model}")
-            return await _gemini(prompt, schema, retry_count + 1, collapse_list)
-        
-        # Better error message for 403
-        if '403' in error_msg or 'Forbidden' in error_msg:
-            raise HTTPException(
-                403,
-                "Gemini API key forbidden. Check API key permissions at https://aistudio.google.com/apikey"
-            )
-        
-        # Handle 404 model not found
-        if '404' in error_msg or 'not found' in error_msg:
-            raise HTTPException(
-                404,
-                f"Gemini model not available: {model}. Error: {error_msg[:200]}"
-            )
-        
-        # Rate limit exhausted all models
-        if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
-            raise HTTPException(
-                429,
-                f"All free tier models exhausted. Try again later. Models tried: {', '.join([m['name'] for m in FREE_TIER_MODELS])}"
-            )
-        
-        raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
+            _current_model = model
+
+        try:
+            async with _gemini_semaphore:
+                loop = asyncio.get_running_loop()
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(_gemini_executor, _gemini_call_sync, prompt, schema, model),
+                    timeout=GEMINI_TIMEOUT_SECONDS,
+                )
+
+            # Handle case where Gemini returns a list instead of object
+            if isinstance(result, list) and collapse_list:
+                if len(result) > 0:
+                    result = result[0]
+                else:
+                    raise ValueError("Gemini returned empty list")
+
+            return result
+
+        except asyncio.TimeoutError:
+            log_failed_request("timeout", {
+                "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+                "model": model,
+                "attempt": attempt,
+            })
+            raise HTTPException(504, f"Gemini request timed out after {GEMINI_TIMEOUT_SECONDS:.0f}s")
+        except Exception as e:
+            error_msg = str(e)
+            log_failed_request("sdk_error", {
+                "error": error_msg,
+                "type": type(e).__name__,
+                "model": model,
+                "attempt": attempt,
+            })
+
+            # Handle 429 rate limit - try next model
+            if ('429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg) and attempt < len(FREE_TIER_MODELS) - 1:
+                next_model = FREE_TIER_MODELS[attempt + 1]["name"]
+                log.warning(f"Model {model} rate limited, switching to {next_model}")
+                continue
+
+            # Better error message for 403
+            if '403' in error_msg or 'Forbidden' in error_msg:
+                raise HTTPException(
+                    403,
+                    "Gemini API key forbidden. Check API key permissions at https://aistudio.google.com/apikey"
+                )
+
+            # Handle 404 model not found
+            if '404' in error_msg or 'not found' in error_msg:
+                raise HTTPException(
+                    404,
+                    f"Gemini model not available: {model}. Error: {error_msg[:200]}"
+                )
+
+            # Rate limit exhausted all models
+            if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
+                raise HTTPException(
+                    429,
+                    f"All free tier models exhausted. Try again later. Models tried: {', '.join([m['name'] for m in FREE_TIER_MODELS])}"
+                )
+
+            raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
+
+    raise HTTPException(429, "Gemini models unavailable due to quota/rate limits")
 
 
 class ParseRequest(BaseModel):
@@ -395,11 +464,12 @@ async def enrich_record(req: EnrichRequest):
             "confidence": {"type": "number"},
             "patch_fields": {"type": "object"},
             "remove_fields": {"type": "array", "items": {"type": "string"}},
+            "needed_details": {"type": "array", "items": {"type": "string"}},
             "supplier_hints": {"type": "array", "items": {"type": "object"}},
             "order_hints": {"type": "array", "items": {"type": "object"}},
             "component_candidates": {"type": "array", "items": {"type": "object"}},
         },
-        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields"],
+        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields", "needed_details"],
     }
 
     prompt = f"""You are a data-repair assistant for an electronics inventory database.
@@ -413,9 +483,15 @@ Ignore unrelated UI and boilerplate text such as:
 Return JSON with:
 1) patch_fields: only high-confidence fields to add/update.
 2) remove_fields: fields that look wrong or should be cleared.
-3) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
-4) order_hints: optional order number, quantities, line-items, totals, dates.
-5) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
+3) needed_details: explicit list of missing details the user should add next.
+4) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
+5) order_hints: optional order number, quantities, line-items, totals, dates.
+6) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
+
+IMPORTANT:
+- If patch_fields is empty, needed_details must include at least 3 concrete items.
+- Do not return vague advice like "more details needed"; list specific missing fields.
+- Prefer actionable details such as exact MPN, package, voltage/current limits, pin count, flash size, official product URL, and datasheet URL.
 
 Supported type paths:
 {available_paths}
@@ -427,6 +503,11 @@ Noisy text:
 {req.text[:16000]}"""
 
     result = await _gemini(prompt, schema)
+    result["patch_fields"] = result.get("patch_fields") or {}
+    result["remove_fields"] = result.get("remove_fields") or []
+    result["needed_details"] = [str(x).strip() for x in (result.get("needed_details") or []) if str(x).strip()]
+    if not result["needed_details"] and not result["patch_fields"] and not result["remove_fields"]:
+        result["needed_details"] = _suggest_needed_details(req.mode, req.existing_data)
     result["source"] = "gemini_enrich"
     return result
 
@@ -555,6 +636,8 @@ async def get_failed_requests(limit: int = 50):
         "fallback_chain": [f"{m['name']} ({m['rpd']} RPD)" for m in FREE_TIER_MODELS],
         "tier": "free (no billing)",
         "sdk": "google-genai",
+        "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+        "max_workers": GEMINI_MAX_WORKERS,
         "last_model_check": _last_model_check.isoformat() if _last_model_check else None,
     }
 
@@ -566,6 +649,8 @@ async def get_model_status():
         "current_model": _current_model or FREE_TIER_MODELS[0]["name"],
         "available_models": FREE_TIER_MODELS,
         "check_interval_minutes": _model_check_interval.total_seconds() / 60,
+        "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+        "max_workers": GEMINI_MAX_WORKERS,
         "last_check": _last_model_check.isoformat() if _last_model_check else None,
         "strategy": "Auto-fallback on 429 rate limit errors",
     }
