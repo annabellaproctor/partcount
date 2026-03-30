@@ -464,12 +464,12 @@ async def enrich_record(req: EnrichRequest):
             "confidence": {"type": "number"},
             "patch_fields": {"type": "object"},
             "remove_fields": {"type": "array", "items": {"type": "string"}},
-            "needed_details": {"type": "array", "items": {"type": "string"}},
+            "assumptions": {"type": "array", "items": {"type": "string"}},
             "supplier_hints": {"type": "array", "items": {"type": "object"}},
             "order_hints": {"type": "array", "items": {"type": "object"}},
             "component_candidates": {"type": "array", "items": {"type": "object"}},
         },
-        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields", "needed_details"],
+        "required": ["mode", "action", "summary", "confidence", "patch_fields", "remove_fields", "assumptions"],
     }
 
     prompt = f"""You are a data-repair assistant for an electronics inventory database.
@@ -483,15 +483,15 @@ Ignore unrelated UI and boilerplate text such as:
 Return JSON with:
 1) patch_fields: only high-confidence fields to add/update.
 2) remove_fields: fields that look wrong or should be cleared.
-3) needed_details: explicit list of missing details the user should add next.
+3) assumptions: concise list of what you inferred/guessed when data is ambiguous.
 4) supplier_hints: optional seller, marketplace, store, sku/mpn, price, url.
 5) order_hints: optional order number, quantities, line-items, totals, dates.
 6) component_candidates: when mode=kit/order, candidate components with quantity/type_path.
 
 IMPORTANT:
-- If patch_fields is empty, needed_details must include at least 3 concrete items.
-- Do not return vague advice like "more details needed"; list specific missing fields.
-- Prefer actionable details such as exact MPN, package, voltage/current limits, pin count, flash size, official product URL, and datasheet URL.
+- Do not ask follow-up questions, do not ask for confirmation, and do not request more user input.
+- Make best-effort guesses and put uncertain choices in assumptions.
+- Prefer concrete inferred values for technical fields (pin count, package, flash/ram, interface, protocol, dimensions) rather than returning empty patch_fields.
 
 Supported type paths:
 {available_paths}
@@ -505,9 +505,10 @@ Noisy text:
     result = await _gemini(prompt, schema)
     result["patch_fields"] = result.get("patch_fields") or {}
     result["remove_fields"] = result.get("remove_fields") or []
-    result["needed_details"] = [str(x).strip() for x in (result.get("needed_details") or []) if str(x).strip()]
-    if not result["needed_details"] and not result["patch_fields"] and not result["remove_fields"]:
-        result["needed_details"] = _suggest_needed_details(req.mode, req.existing_data)
+    result["assumptions"] = [str(x).strip() for x in (result.get("assumptions") or []) if str(x).strip()]
+    if not result["assumptions"] and not result["patch_fields"] and not result["remove_fields"]:
+        hints = _suggest_needed_details(req.mode, req.existing_data)
+        result["assumptions"] = [f"Best-effort inference; unresolved ambiguity around: {', '.join(hints[:3])}"] if hints else ["Best-effort inference from noisy text."]
     result["source"] = "gemini_enrich"
     return result
 

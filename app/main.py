@@ -11,6 +11,7 @@ from app.models.database import get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
+from app.schemas.type_hierarchy import get_fields_for_type
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 
@@ -270,6 +271,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
     generic_stock = None
     generic_parent = None
     generic_children = []
+    archetype_details = []
     if comp.is_generic:
         # Aggregate own + children stock
         children_result = await db.execute(select(Component).where(Component.parent_id == comp.id))
@@ -284,6 +286,34 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         parent_result = await db.execute(select(Component).where(Component.id == comp.parent_id))
         generic_parent = parent_result.scalar_one_or_none()
 
+    # Build type/archetype-specific details from direct fields + JSON type_data.
+    type_data = comp.type_data if isinstance(comp.type_data, dict) else {}
+    if comp.type_path:
+        rules = get_fields_for_type(comp.type_path)
+        seen = set()
+        for field in rules.get("fields", []):
+            val = getattr(comp, field, None)
+            if val in (None, ""):
+                val = type_data.get(field)
+            if val in (None, ""):
+                continue
+            seen.add(field)
+            archetype_details.append({
+                "key": field,
+                "label": field.replace("_", " ").title(),
+                "value": val,
+            })
+
+        # Show additional inferred details even if not part of current schema node.
+        for key, val in type_data.items():
+            if key in seen or val in (None, ""):
+                continue
+            archetype_details.append({
+                "key": key,
+                "label": key.replace("_", " ").title(),
+                "value": val,
+            })
+
     return templates.TemplateResponse("component_detail.html", {
         "request": request, "comp": comp, "ctype": ctype, "footprints": footprints,
         "bins": bins_with_box, "used_in": bom_projects,
@@ -292,6 +322,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         "generic_stock": generic_stock,
         "generic_parent": generic_parent,
         "generic_children": generic_children,
+        "archetype_details": archetype_details,
     })
 
 @app.get("/scan", response_class=HTMLResponse)

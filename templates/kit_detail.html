@@ -28,7 +28,7 @@
     </div>
     <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
       <div id="kit-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
-      <div id="kit-ai-needed" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
+      <div id="kit-ai-assumptions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
       <pre id="kit-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
         <label style="font-size:10px;color:var(--text3);display:flex;gap:6px;align-items:center;">
@@ -106,14 +106,14 @@ async function analyzeKitText(action) {
     clear_fields: _kitAiData.remove_fields || [],
   };
   document.getElementById('kit-ai-summary').textContent = _kitAiData.summary || 'AI suggestion ready';
-  const needed = document.getElementById('kit-ai-needed');
-  const neededItems = Array.isArray(_kitAiData.needed_details) ? _kitAiData.needed_details.filter(Boolean) : [];
-  if (neededItems.length) {
-    needed.style.display = 'block';
-    needed.textContent = 'Needed details: ' + neededItems.join(' | ');
+  const assumptions = document.getElementById('kit-ai-assumptions');
+  const assumptionItems = Array.isArray(_kitAiData.assumptions) ? _kitAiData.assumptions.filter(Boolean) : [];
+  if (assumptionItems.length) {
+    assumptions.style.display = 'block';
+    assumptions.textContent = 'Assumptions used: ' + assumptionItems.join(' | ');
   } else {
-    needed.style.display = 'none';
-    needed.textContent = '';
+    assumptions.style.display = 'none';
+    assumptions.textContent = '';
   }
   document.getElementById('kit-ai-patch').textContent = JSON.stringify(patch, null, 2);
   document.getElementById('kit-ai-preview').style.display = 'block';

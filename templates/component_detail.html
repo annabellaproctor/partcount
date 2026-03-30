@@ -113,7 +113,10 @@
           {{ row("Tolerance", comp.tolerance) }}
           {{ row("Voltage Rating", comp.voltage_rating) }}
           {{ row("Type", ctype.name if ctype else None) }}
-          {{ row("Datasheet", "") }}
+          {{ row("Type Path", comp.type_path) }}
+          {{ row("MPN", comp.mpn) }}
+          {{ row("DigiKey PN", comp.digikey_pn) }}
+          {{ row("LCSC PN", comp.lcsc_pn) }}
           {% if comp.datasheet_url %}
           <tr>
             <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Datasheet</td>
@@ -125,6 +128,19 @@
             <td style="font-size:11px;color:var(--text2);">{{ comp.created_at.strftime('%Y-%m-%d') }}</td>
           </tr>
         </table>
+        {% if archetype_details %}
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);">
+          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Archetype Details</div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            {% for item in archetype_details %}
+            <tr>
+              <td style="color:var(--text3);padding:3px 0;width:160px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;">{{ item.label }}</td>
+              <td style="padding:3px 0;color:var(--text);">{{ item.value }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </div>
+        {% endif %}
         {% if comp.notes %}
         <div style="margin-top:10px;padding:8px;background:var(--bg3);border-radius:2px;font-size:11px;color:var(--text2);">{{ comp.notes }}</div>
         {% endif %}
@@ -151,7 +167,7 @@
         </div>
         <div id="component-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <div id="component-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
-          <div id="component-ai-needed" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
+          <div id="component-ai-assumptions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
           <pre id="component-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
           <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="applyComponentAiPatch()">Apply Suggested Changes</button>
         </div>
@@ -543,11 +559,17 @@ async function analyzeComponentText(action) {
     value: "{{ (comp.value or '')|e }}",
     unit: "{{ (comp.unit or '')|e }}",
     package: "{{ (comp.package or '')|e }}",
+    voltage_rating: "{{ (comp.voltage_rating or '')|e }}",
     tolerance: "{{ (comp.tolerance or '')|e }}",
     description: "{{ (comp.description or '')|e }}",
     notes: "{{ (comp.notes or '')|e }}",
     mpn: "{{ (comp.mpn or '')|e }}",
+    digikey_pn: "{{ (comp.digikey_pn or '')|e }}",
+    lcsc_pn: "{{ (comp.lcsc_pn or '')|e }}",
+    datasheet_url: "{{ (comp.datasheet_url or '')|e }}",
+    type: "{{ (ctype.name if ctype else '')|e }}",
     type_path: "{{ (comp.type_path or '')|e }}",
+    type_data: {{ (comp.type_data or {}) | tojson }},
   };
 
   const r = await fetch('/api/ai/enrich-record', {
@@ -575,14 +597,14 @@ async function analyzeComponentText(action) {
 
   document.getElementById('component-ai-preview').style.display = 'block';
   document.getElementById('component-ai-summary').textContent = data.summary || 'AI suggestion ready';
-  const needed = document.getElementById('component-ai-needed');
-  const neededItems = Array.isArray(data.needed_details) ? data.needed_details.filter(Boolean) : [];
-  if (neededItems.length) {
-    needed.style.display = 'block';
-    needed.textContent = 'Needed details: ' + neededItems.join(' | ');
+  const assumptions = document.getElementById('component-ai-assumptions');
+  const assumptionItems = Array.isArray(data.assumptions) ? data.assumptions.filter(Boolean) : [];
+  if (assumptionItems.length) {
+    assumptions.style.display = 'block';
+    assumptions.textContent = 'Assumptions used: ' + assumptionItems.join(' | ');
   } else {
-    needed.style.display = 'none';
-    needed.textContent = '';
+    assumptions.style.display = 'none';
+    assumptions.textContent = '';
   }
   document.getElementById('component-ai-patch').textContent = JSON.stringify(_componentAiPatch, null, 2);
   status.textContent = `confidence ${(data.confidence || 0).toFixed(2)}`;
