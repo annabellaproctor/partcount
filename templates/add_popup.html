@@ -14,7 +14,7 @@
     <div class="add-popup-lookup">
       <div style="display:flex;gap:6px;">
         <input id="lookup-input" class="form-control" placeholder="Search by name, MPN, value... (e.g. 10k resistor 0805)"
-               oninput="debounceLookup(this.value)" autocomplete="off" style="flex:1;">
+               oninput="debounceLookup(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();runLookup(this.value,event.shiftKey);}" autocomplete="off" style="flex:1;">
         <select id="lookup-source" class="form-select" style="width:100px;">
           <option value="auto">Auto</option>
           <option value="digikey">DigiKey</option>

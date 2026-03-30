@@ -452,15 +452,16 @@ function debounceLookup(val) {
   _lookupTimer = setTimeout(() => runLookup(val), 450);
 }
 
-async function runLookup(q) {
+async function runLookup(q, force) {
   const sourceEl = document.getElementById('lookup-source');
   const source = sourceEl ? sourceEl.value : 'auto';
   const res = document.getElementById('lookup-results');
   if (!res) return;
   res.style.display = 'block';
-  res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">Searching...</div>';
+  res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">' + (force ? 'Force refreshing…' : 'Searching…') + '</div>';
   try {
-    const data = await fetch(`/api/lookup/search?q=${encodeURIComponent(q)}&source=${source}`).then(r=>r.json());
+    const url = `/api/lookup/search?q=${encodeURIComponent(q)}&source=${source}` + (force ? '&force=true' : '');
+    const data = await fetch(url).then(r=>r.json());
     const results = data.results || [];
     if (!results.length) {
       res.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:11px;">No results — try DigiKey or LCSC directly</div>';

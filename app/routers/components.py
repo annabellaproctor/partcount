@@ -161,8 +161,17 @@ async def scan_component(barcode_id: str, db: AsyncSession = Depends(get_db)):
     box_label = bin_assign.box.label if bin_assign and bin_assign.box else "unknown"
     cell_id = bin_assign.cell_id if bin_assign else "unknown"
     write_scan_event(barcode_id, comp.name, box_label, cell_id)
-    await manager.broadcast("scan", {"barcode_id": barcode_id, "name": comp.name, "box": box_label, "cell": cell_id})
-    return {"barcode_id": barcode_id, "name": comp.name, "box": box_label, "cell": cell_id}
+    payload = {
+        "barcode_id": barcode_id,
+        "name": comp.name,
+        "box": box_label,
+        "cell": cell_id,
+        "value": comp.value or "",
+        "package": comp.package or "",
+        "image_path": comp.image_path or "",
+    }
+    await manager.broadcast("scan", payload)
+    return payload
 
 
 @router.patch("/{barcode_id}/stock")
