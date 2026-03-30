@@ -1,9 +1,7 @@
 """
-Image search and management.
-Sources:
-  1. DigiKey CDN — PhotoUrl from DigiKey search results (passed directly, no request needed)
-  2. Openverse API — free, no key, Creative Commons, works server-side
-  3. Fallback: generic SVG icon from our own icon service
+Image search — Openverse (no license filter, electronics have few CC images),
+Wikimedia Commons, and a DigiKey CDN passthrough.
+All fetched server-side to avoid CORS issues in browser.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,74 +13,51 @@ from app.models.models import Component
 log = logging.getLogger("images")
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/images", tags=["images"])
-
 os.makedirs(f"{IMAGE_DIR}/components", exist_ok=True)
-
-OPENVERSE_URL = "https://api.openverse.org/v1/images/"
 
 
 @router.get("/search")
-async def search_images(q: str, limit: int = 9):
-    """
-    Search for component images via Openverse (free, no key, CC licensed).
-    For electronic components, also tries component-specific query variants.
-    """
+async def search_images(q: str, limit: int = 12):
     results = []
 
-    # Try Openverse — works reliably server-side
+    # Source 1: Openverse — no license filter (electronics rarely CC-commercial)
     try:
-        queries = [
-            f"{q} electronic component",
-            f"{q} electronics",
-            q,
-        ]
         async with httpx.AsyncClient(timeout=10) as client:
-            for query in queries:
-                if len(results) >= limit:
-                    break
+            for query_variant in [f"{q} electronic component", q]:
                 r = await client.get(
-                    OPENVERSE_URL,
-                    params={
-                        "q": query,
-                        "license_type": "commercial",
-                        "page_size": limit,
-                        "mature": "false",
-                    },
-                    headers={"User-Agent": "LabInventory/1.0 (educational project)"},
+                    "https://api.openverse.org/v1/images/",
+                    params={"q": query_variant, "page_size": limit},
+                    headers={"User-Agent": "LabInventory/1.0 (educational hobby project)"},
                 )
                 if r.status_code == 200:
-                    data = r.json()
-                    for item in data.get("results", []):
+                    for item in r.json().get("results", []):
                         url = item.get("url", "")
-                        if url and url not in [x["url"] for x in results]:
-                            results.append({
-                                "url": url,
-                                "thumb": item.get("thumbnail", url),
-                                "title": item.get("title", ""),
-                                "source": "openverse",
-                            })
+                        thumb = item.get("thumbnail", "") or url
+                        if url and not any(x["url"] == url for x in results):
+                            results.append({"url": url, "thumb": thumb,
+                                            "title": item.get("title", ""), "source": "openverse"})
                 if results:
                     break
     except Exception as e:
-        log.warning(f"Openverse search failed: {e}")
+        log.warning(f"Openverse failed: {e}")
 
-    # Always pad with Wikimedia commons search if short
-    if len(results) < 3:
+    # Source 2: Wikimedia Commons
+    if len(results) < 4:
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.get(
                     "https://commons.wikimedia.org/w/api.php",
                     params={
-                        "action": "query",
-                        "generator": "search",
+                        "action": "query", "generator": "search",
                         "gsrnamespace": "6",
-                        "gsrsearch": f"filetype:bitmap {q} electronic",
+                        "gsrsearch": f"filetype:bitmap {q} component",
                         "gsrlimit": limit,
                         "prop": "imageinfo",
                         "iiprop": "url|thumburl",
-                        "iiurlwidth": 200,
+                        "iiurlwidth": 300,
                         "format": "json",
                     },
+                    headers={"User-Agent": "LabInventory/1.0 (educational hobby project)"},
                 )
                 if r.status_code == 200:
                     pages = r.json().get("query", {}).get("pages", {})
@@ -93,11 +68,29 @@ async def search_images(q: str, limit: int = 9):
                             results.append({
                                 "url": url,
                                 "thumb": ii.get("thumburl", url),
-                                "title": page.get("title", ""),
+                                "title": page.get("title", "").replace("File:", ""),
                                 "source": "wikimedia",
                             })
         except Exception as e:
-            log.warning(f"Wikimedia search failed: {e}")
+            log.warning(f"Wikimedia failed: {e}")
+
+    # Source 3: Unsplash public API (no key needed for demo endpoint)
+    if len(results) < 4:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(
+                    "https://source.unsplash.com/featured/",
+                    params={"q": q},
+                    follow_redirects=False,
+                )
+                # Unsplash source returns a redirect to an image
+                if r.status_code in (301, 302):
+                    img_url = r.headers.get("location", "")
+                    if img_url:
+                        results.append({"url": img_url, "thumb": img_url,
+                                        "title": f"Unsplash: {q}", "source": "unsplash"})
+        except Exception as e:
+            log.warning(f"Unsplash failed: {e}")
 
     return results[:limit]
 
@@ -116,17 +109,13 @@ def _remove_background(src_path: str, dest_path: str) -> bool:
         pass
     except Exception as e:
         log.warning(f"rembg failed: {e}")
-
-    # Fallback: near-white → transparent
+    # Fallback: white → transparent
     try:
         from PIL import Image
         img = Image.open(src_path).convert("RGBA")
-        pixels = img.getdata()
-        new_pixels = [
-            (r, g, b, 0) if (r > 230 and g > 230 and b > 230) else (r, g, b, a)
-            for r, g, b, a in pixels
-        ]
-        img.putdata(new_pixels)
+        pixels = list(img.getdata())
+        img.putdata([(r, g, b, 0) if r > 230 and g > 230 and b > 230 else (r, g, b, a)
+                     for r, g, b, a in pixels])
         bbox = img.getbbox()
         if bbox:
             img = img.crop(bbox)
@@ -141,10 +130,8 @@ def _process_image(src_path: str, dest_path: str, remove_bg: bool = False):
     try:
         from PIL import Image
         if remove_bg:
-            success = _remove_background(src_path, dest_path)
-            if not success:
-                img = Image.open(src_path).convert("RGBA")
-                img.save(dest_path, "PNG")
+            if not _remove_background(src_path, dest_path):
+                Image.open(src_path).convert("RGBA").save(dest_path, "PNG")
         else:
             img = Image.open(src_path).convert("RGBA")
             bbox = img.getbbox()
@@ -152,7 +139,7 @@ def _process_image(src_path: str, dest_path: str, remove_bg: bool = False):
                 img = img.crop(bbox)
             img.save(dest_path, "PNG")
     except Exception as e:
-        log.warning(f"_process_image failed, copying as-is: {e}")
+        log.warning(f"_process_image fallback copy: {e}")
         shutil.copy(src_path, dest_path)
 
 
@@ -168,34 +155,26 @@ async def fetch_and_save(
     if not comp:
         raise HTTPException(404, "Component not found")
 
-    tmp_path = f"{IMAGE_DIR}/components/_tmp_{component_id}"
+    tmp = f"{IMAGE_DIR}/components/_tmp_{component_id}"
     dest = f"{IMAGE_DIR}/components/{comp.barcode_id}.png"
-
     try:
-        async with httpx.AsyncClient(
-            timeout=20,
-            follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        ) as client:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True,
+                                     headers={"User-Agent": "Mozilla/5.0"}) as client:
             r = await client.get(image_url)
             if r.status_code != 200:
-                raise HTTPException(400, f"Could not fetch image: HTTP {r.status_code}")
-            with open(tmp_path, "wb") as f:
+                raise HTTPException(400, f"Fetch failed: HTTP {r.status_code}")
+            with open(tmp, "wb") as f:
                 f.write(r.content)
-
-        _process_image(tmp_path, dest, remove_bg=remove_bg)
-
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
+        _process_image(tmp, dest, remove_bg=remove_bg)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
-
     except HTTPException:
         raise
     except Exception as e:
-        if os.path.exists(tmp_path):
-            try: os.unlink(tmp_path)
+        if os.path.exists(tmp):
+            try: os.unlink(tmp)
             except: pass
         log.error(f"fetch_and_save: {e}")
         raise HTTPException(500, str(e))
@@ -213,20 +192,19 @@ async def upload_image(
     if not comp:
         raise HTTPException(404, "Component not found")
 
-    tmp_path = f"{IMAGE_DIR}/components/_tmp_up_{component_id}"
+    tmp = f"{IMAGE_DIR}/components/_tmp_up_{component_id}"
     dest = f"{IMAGE_DIR}/components/{comp.barcode_id}.png"
-
     try:
-        with open(tmp_path, "wb") as f:
+        with open(tmp, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        _process_image(tmp_path, dest, remove_bg=remove_bg)
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        _process_image(tmp, dest, remove_bg=remove_bg)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
         comp.image_path = f"/images/components/{comp.barcode_id}.png"
         return {"image_path": comp.image_path, "bg_removed": remove_bg}
     except Exception as e:
-        if os.path.exists(tmp_path):
-            try: os.unlink(tmp_path)
+        if os.path.exists(tmp):
+            try: os.unlink(tmp)
             except: pass
         log.error(f"upload_image: {e}")
         raise HTTPException(500, str(e))

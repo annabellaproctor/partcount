@@ -58,6 +58,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 
+
+@app.get("/api/sources")
+async def get_sources():
+    """Returns which supplier APIs are currently configured and available."""
+    import os
+    return {
+        "digikey": bool(os.getenv("DIGIKEY_CLIENT_ID")),
+        "mouser":  bool(os.getenv("MOUSER_API_KEY")),
+        "gemini":  bool(os.getenv("GEMINI_API_KEY")),
+        "trustedparts": False,  # pending
+    }
+
 @app.get("/api/icons/{component_type}")
 async def get_icon(component_type: str):
     from app.services.generic_icons import get_icon

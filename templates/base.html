@@ -407,6 +407,27 @@ async function _loadFormData() {
       });
     }
     _formLoaded = true;
+
+    // Load available supplier sources and update dropdown
+    fetch('/api/sources').then(r => r.ok ? r.json() : null).then(sources => {
+      if (!sources) return;
+      const sel = document.getElementById('lookup-source');
+      if (!sel) return;
+      // Clear and rebuild
+      sel.innerHTML = '<option value="auto">Auto</option>';
+      if (sources.digikey) sel.innerHTML += '<option value="digikey">DigiKey</option>';
+      if (sources.mouser)  sel.innerHTML += '<option value="mouser">Mouser ✓</option>';
+      sel.innerHTML += '<option value="digikey" disabled>─────</option>';
+      // Status hint
+      const hints = [];
+      if (!sources.mouser) hints.push('Mouser: add MOUSER_API_KEY');
+      if (!sources.gemini) hints.push('Gemini: add GEMINI_API_KEY');
+      if (hints.length) {
+        const hint = document.getElementById('lookup-source-hint');
+        if (hint) hint.textContent = hints.join(' · ');
+      }
+    }).catch(() => {});
+
   } catch(e) {
     console.error('_loadFormData error:', e);
   }

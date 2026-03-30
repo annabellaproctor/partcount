@@ -17,6 +17,9 @@ async def lookup_search(
     force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
+    # normalize source
+    valid = {'auto', 'digikey', 'mouser', 'lcsc'}
+    source = source if source in valid else 'auto'
     return await engine_search(q, source=source, force=force, db=db)
 
 
