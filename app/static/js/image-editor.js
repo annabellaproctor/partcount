@@ -716,8 +716,6 @@ function endDrag() {
   _isDraggingCrop = false;
   _cropDragEdge = null;
 }
-  _isDragging = false;
-}
 
 async function confirmCrop() {
   document.getElementById('crop-status').textContent = 'Saving...';
