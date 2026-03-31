@@ -376,6 +376,10 @@ def _full_cross_point_for_cell(seed: int, idx: int) -> tuple[float, float]:
 def _build_calibration_corner_overlay(style: str, settings: dict, cols: int, rows: int) -> str:
   style_name = "inverse_angle" if style == "inverse_angle" else "dot"
   marker_class = "corner-angle" if style_name == "inverse_angle" else "corner-dot"
+  ml = float(settings["margin_left_in"])
+  mt = float(settings["margin_top_in"])
+  mr = float(settings["margin_right_in"])
+  mb = float(settings["margin_bottom_in"])
   cw = float(settings["cell_width_in"])
   ch = float(settings["cell_height_in"])
   gx = float(settings["gap_x_in"])
@@ -383,22 +387,24 @@ def _build_calibration_corner_overlay(style: str, settings: dict, cols: int, row
 
   grid_w = (cols * cw) + (max(0, cols - 1) * gx)
   grid_h = (rows * ch) + (max(0, rows - 1) * gy)
-  # Corner overlay sits inside .page (the padded content box), so 0,0 is already
-  # the grid origin. Do not add margins again or corners drift inward.
-  left = 0.0
-  top = 0.0
-  right = grid_w
-  bottom = grid_h
+  # Corner overlay coordinates are in page space; grid starts at configured margins.
+  left = ml
+  top = mt
+  right = ml + grid_w
+  bottom = mt + grid_h
 
-  def _mark(corner_class: str, x_in: float, y_in: float) -> str:
-    return f'<div class="{marker_class} {corner_class}" style="left:{x_in:.6f}in;top:{y_in:.6f}in;"></div>'
+  def _mark(corner_class: str, x_in: float, y_in: float, hlen_in: float, vlen_in: float) -> str:
+    return (
+      f'<div class="{marker_class} {corner_class}" '
+      f'style="left:{x_in:.6f}in;top:{y_in:.6f}in;--hlen:{max(0.02, hlen_in):.6f}in;--vlen:{max(0.02, vlen_in):.6f}in;"></div>'
+    )
 
   return (
     f'<div class="corner-debug {style_name}">'
-    f'{_mark("tl", left, top)}'
-    f'{_mark("tr", right, top)}'
-    f'{_mark("bl", left, bottom)}'
-    f'{_mark("br", right, bottom)}'
+    f'{_mark("tl", left, top, ml, mt)}'
+    f'{_mark("tr", right, top, mr, mt)}'
+    f'{_mark("bl", left, bottom, ml, mb)}'
+    f'{_mark("br", right, bottom, mr, mb)}'
     '</div>'
   )
 
@@ -788,8 +794,8 @@ async def print_sheet_designer(
   .corner-dot.br {{ transform: translate(-100%, -100%); }}
   .corner-angle {{
     position: absolute;
-    width: 6mm;
-    height: 6mm;
+    width: 0;
+    height: 0;
   }}
   .corner-angle.tl {{ transform: translate(0, 0); }}
   .corner-angle.tr {{ transform: translate(-100%, 0); }}
@@ -801,14 +807,14 @@ async def print_sheet_designer(
     position: absolute;
     background: #000;
   }}
-  .corner-angle.tl::before {{ left: 0; top: 0; width: 100%; height: 0.5mm; }}
-  .corner-angle.tl::after {{ left: 0; top: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.tr::before {{ right: 0; top: 0; width: 100%; height: 0.5mm; }}
-  .corner-angle.tr::after {{ right: 0; top: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.bl::before {{ left: 0; bottom: 0; width: 100%; height: 0.5mm; }}
-  .corner-angle.bl::after {{ left: 0; bottom: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.br::before {{ right: 0; bottom: 0; width: 100%; height: 0.5mm; }}
-  .corner-angle.br::after {{ right: 0; bottom: 0; width: 0.5mm; height: 100%; }}
+  .corner-angle.tl::before {{ right: 0; top: 0; width: var(--hlen); height: 0.5mm; }}
+  .corner-angle.tl::after {{ left: 0; bottom: 0; width: 0.5mm; height: var(--vlen); }}
+  .corner-angle.tr::before {{ left: 0; top: 0; width: var(--hlen); height: 0.5mm; }}
+  .corner-angle.tr::after {{ right: 0; bottom: 0; width: 0.5mm; height: var(--vlen); }}
+  .corner-angle.bl::before {{ right: 0; bottom: 0; width: var(--hlen); height: 0.5mm; }}
+  .corner-angle.bl::after {{ left: 0; top: 0; width: 0.5mm; height: var(--vlen); }}
+  .corner-angle.br::before {{ left: 0; bottom: 0; width: var(--hlen); height: 0.5mm; }}
+  .corner-angle.br::after {{ right: 0; top: 0; width: 0.5mm; height: var(--vlen); }}
   </style>
 </head>
 <body onload=\"window.print()\">
