@@ -49,6 +49,16 @@
               <input id="show-cut-grid" type="checkbox"> Show criss-cross cut grid
             </label>
           </div>
+          <div class="col-4 d-flex align-items-end">
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="show-full-cut-grid" type="checkbox"> Show full cut grid
+            </label>
+          </div>
+          <div class="col-3 d-flex align-items-end">
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="show-debug-grid" type="checkbox"> Debug grid labels
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -153,7 +163,7 @@
         <div class="muted" style="font-size:11px;line-height:1.5;">
           Front/barcode output uses <strong>2 micro-labels per cell</strong> for tiny stock workflows.
           Front keeps a reserved <strong>0.25in bottom-right circle zone</strong> for color stickers.
-          Barcode sheets print a <strong>unique word ID</strong> in top/bottom margins, plus compact row/col headers for placement tracking.
+          Front and barcode sheets print a <strong>unique word ID</strong> in top/bottom margins, plus compact row/col headers for placement tracking.
           Barcodes are normalized (hyphen-free) and scaled to fill each micro label block.
           Calibration outputs a <strong>cover page</strong> with predicted grid + edge distances, then <strong>cross-only verification sheets</strong> (no borders/cut lines).
         </div>
@@ -192,6 +202,8 @@ const mapFields = {
   gap_y_in: 'gap-y',
   corner_radius_mm: 'corner-radius',
   show_cut_grid: 'show-cut-grid',
+  show_full_cut_grid: 'show-full-cut-grid',
+  show_debug_grid: 'show-debug-grid',
   cut_marker_style: 'cut-marker-style',
   show_image: 'show-image',
   image_min_height_in: 'image-min-h',

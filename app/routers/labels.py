@@ -41,6 +41,8 @@ DEFAULT_LABEL_SETTINGS = {
   "gap_y_in": 0.0,
   "corner_radius_mm": 0.6,
   "show_cut_grid": True,
+  "show_full_cut_grid": False,
+  "show_debug_grid": False,
   "cut_marker_style": "cross",
   "show_image": False,
   "image_min_height_in": 0.8,
@@ -147,6 +149,8 @@ def _clean_settings(settings: dict | None) -> dict:
   _clamp_number("comp_skew_y_deg", -2.0, 2.0)
 
   s["show_cut_grid"] = bool(s.get("show_cut_grid", True))
+  s["show_full_cut_grid"] = bool(s.get("show_full_cut_grid", False))
+  s["show_debug_grid"] = bool(s.get("show_debug_grid", False))
   s["show_image"] = bool(s.get("show_image", False))
   s["cut_marker_style"] = str(s.get("cut_marker_style", "cross")).lower()
   if s["cut_marker_style"] not in {"cross", "dot"}:
@@ -231,7 +235,7 @@ async def _component_sort_slots(db: AsyncSession) -> dict[str, tuple[int, str, i
   return out
 
 
-def _build_sheet_margin_headers(settings: dict, cols: int, rows: int, sheet_code: str, printed_at: str) -> str:
+def _build_sheet_margin_headers(settings: dict, cols: int, rows: int, sheet_code: str, printed_at: str, mode: str) -> str:
   ml = float(settings["margin_left_in"])
   mt = float(settings["margin_top_in"])
   cw = float(settings["cell_width_in"])
@@ -253,30 +257,32 @@ def _build_sheet_margin_headers(settings: dict, cols: int, rows: int, sheet_code
     row_marks.append(f'<div class="sheet-row left" style="top:{y:.6f}in;">R{r}</div>')
     row_marks.append(f'<div class="sheet-row right" style="top:{y:.6f}in;">R{r}</div>')
 
+  sheet_label = "FRONT SHEET" if mode == "front" else "BARCODE SHEET"
   return (
-    f'<div class="sheet-meta top">BARCODE SHEET {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
-    f'<div class="sheet-meta bottom">BARCODE SHEET {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
+    f'<div class="sheet-meta top">{sheet_label} {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
+    f'<div class="sheet-meta bottom">{sheet_label} {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
     f'<div class="sheet-meta-rail">{"".join(col_marks)}{"".join(row_marks)}</div>'
     f'<div class="sheet-corners-note tl" style="left:0.06in;top:{(mt * 0.5):.6f}in;">{html.escape(sheet_code)}</div>'
     f'<div class="sheet-corners-note br" style="right:0.06in;bottom:{(max(0.04, (ph - ((mt + rows * ch) + max(0, rows-1) * gy)) * 0.5)):.6f}in;">{html.escape(sheet_code)}</div>'
   )
 
 
-async def _record_barcode_print_job(
+async def _record_sheet_print_job(
   db: AsyncSession,
   profile_id: str,
   sheet_code: str,
+  print_mode: str,
   placements: list[dict],
 ):
   job_id = str(uuid.uuid4())
   await db.execute(
     text(
       """
-      INSERT INTO barcode_print_jobs (id, sheet_code, profile_id, printed_at)
-      VALUES (:id, :sheet_code, :profile_id, NOW())
+      INSERT INTO barcode_print_jobs (id, sheet_code, profile_id, print_mode, printed_at)
+      VALUES (:id, :sheet_code, :profile_id, :print_mode, NOW())
       """
     ),
-    {"id": job_id, "sheet_code": sheet_code, "profile_id": profile_id},
+    {"id": job_id, "sheet_code": sheet_code, "profile_id": profile_id, "print_mode": print_mode},
   )
 
   if placements:
@@ -284,9 +290,9 @@ async def _record_barcode_print_job(
       text(
         """
         INSERT INTO barcode_print_items (
-          id, job_id, component_id, barcode_id, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col
+          id, job_id, component_id, barcode_id, print_mode, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col
         ) VALUES (
-          :id, :job_id, :component_id, :barcode_id, :sheet_row, :sheet_col, :cell_slot, :box_label, :box_row, :box_col
+          :id, :job_id, :component_id, :barcode_id, :print_mode, :sheet_row, :sheet_col, :cell_slot, :box_label, :box_row, :box_col
         )
         """
       ),
@@ -296,6 +302,7 @@ async def _record_barcode_print_job(
           "job_id": job_id,
           "component_id": p.get("component_id"),
           "barcode_id": p.get("barcode_id"),
+          "print_mode": print_mode,
           "sheet_row": p.get("sheet_row"),
           "sheet_col": p.get("sheet_col"),
           "cell_slot": p.get("cell_slot"),
@@ -668,7 +675,7 @@ async def get_barcode_sheet_tracking(sheet_code: str, db: AsyncSession = Depends
   job_row = (await db.execute(
     text(
       """
-      SELECT id, sheet_code, profile_id, printed_at
+      SELECT id, sheet_code, profile_id, print_mode, printed_at
       FROM barcode_print_jobs
       WHERE LOWER(sheet_code) = :code
       LIMIT 1
@@ -682,7 +689,7 @@ async def get_barcode_sheet_tracking(sheet_code: str, db: AsyncSession = Depends
   items = (await db.execute(
     text(
       """
-      SELECT component_id, barcode_id, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col, created_at
+      SELECT component_id, barcode_id, print_mode, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col, created_at
       FROM barcode_print_items
       WHERE job_id = :job_id
       ORDER BY sheet_row, sheet_col, cell_slot
@@ -694,6 +701,7 @@ async def get_barcode_sheet_tracking(sheet_code: str, db: AsyncSession = Depends
   return {
     "sheet_code": job_row["sheet_code"],
     "profile_id": job_row["profile_id"],
+    "print_mode": job_row["print_mode"],
     "printed_at": str(job_row["printed_at"]),
     "count": len(items),
     "items": [dict(x) for x in items],
@@ -788,8 +796,9 @@ async def print_sheet_designer(
     run_count = 1
 
   page_blocks = []
-  sheet_code = _new_sheet_code() if mode == "barcode" else ""
-  printed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC") if mode == "barcode" else ""
+  tracked_mode = mode if mode in {"front", "barcode"} else ""
+  sheet_code = _new_sheet_code() if tracked_mode else ""
+  printed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC") if tracked_mode else ""
   placements: list[dict] = []
   seeds_by_run: list[int] = []
   marks_by_run: list[list[int]] = []
@@ -847,10 +856,18 @@ async def print_sheet_designer(
         classes = "cell"
 
       cross = ""
+      full_grid = ""
+      debug_grid = ""
       if settings["show_cut_grid"] and mode not in {"calibration", "grid_test"}:
         cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
+      if settings.get("show_full_cut_grid") and mode != "calibration":
+        full_grid = '<div class="cell-full-grid"></div>'
+      if settings.get("show_debug_grid") and mode != "calibration":
+        rr = i // cols
+        cc = i % cols
+        debug_grid = f'<div class="cell-debug-grid">R{rr} C{cc}</div>'
 
-      cells.append(f'<div class="{classes}">{cross}{inner}</div>')
+      cells.append(f'<div class="{classes}">{full_grid}{cross}{debug_grid}{inner}</div>')
 
     sheet = "".join(cells)
     header = ""
@@ -858,14 +875,14 @@ async def print_sheet_designer(
     if mode == "calibration":
       seed_show = seeds_by_run[run_no - 1]
       header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
-    elif mode == "barcode":
-      margin_headers = _build_sheet_margin_headers(settings, cols, rows, sheet_code, printed_at)
+    elif tracked_mode:
+      margin_headers = _build_sheet_margin_headers(settings, cols, rows, sheet_code, printed_at, tracked_mode)
     page_blocks.append(f'<div class="print-page">{header}{margin_headers}<div class="page">{corner_overlay}{sheet}</div></div>')
 
   if mode == "calibration":
     cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
     page_blocks.insert(0, cover)
-  elif mode == "barcode":
+  elif tracked_mode:
     for i, comp in enumerate(comps[:capacity]):
       r = i // cols
       c = i % cols
@@ -891,7 +908,7 @@ async def print_sheet_designer(
         "box_row": box_r,
         "box_col": box_c,
       })
-    await _record_barcode_print_job(db, profile_id, sheet_code, placements)
+    await _record_sheet_print_job(db, profile_id, sheet_code, tracked_mode, placements)
 
   pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
@@ -1031,7 +1048,8 @@ async def print_sheet_designer(
     left: 50%;
     transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
-    z-index: 2;
+    z-index: 1;
+    opacity: 0.7;
     pointer-events: none;
   }}
   .front-mini {{
@@ -1045,6 +1063,7 @@ async def print_sheet_designer(
     box-sizing: border-box;
     position: relative;
     overflow: hidden;
+    z-index: 2;
   }}
   .front-img-wrap {{ height: 42%; width: 100%; display: flex; align-items: center; justify-content: center; }}
   .front-img {{ max-height: 100%; max-width: 95%; object-fit: contain; }}
@@ -1101,7 +1120,8 @@ async def print_sheet_designer(
     left: 50%;
     transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
-    z-index: 2;
+    z-index: 1;
+    opacity: 0.7;
     pointer-events: none;
   }}
   .barcode-mini {{
@@ -1111,11 +1131,30 @@ async def print_sheet_designer(
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    z-index: 2;
   }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
   .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
+    .cell-full-grid {{
+      position: absolute;
+      inset: 0;
+      border: 0.35pt dotted #666;
+      border-radius: 0;
+      pointer-events: none;
+      z-index: 3;
+    }}
+    .cell-debug-grid {{
+      position: absolute;
+      left: 0.6mm;
+      top: 0.45mm;
+      font-size: 4.6pt;
+      color: #666;
+      font-family: monospace;
+      z-index: 4;
+      pointer-events: none;
+    }}
   .grid-test::before {{
     content: '';
     position: absolute;
@@ -1124,7 +1163,8 @@ async def print_sheet_designer(
     left: 50%;
     transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
-    z-index: 2;
+    z-index: 1;
+    opacity: 0.7;
     pointer-events: none;
   }}
   .calibration {{ position: absolute; inset: 0; }}

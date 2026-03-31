@@ -354,6 +354,13 @@ MIGRATIONS = [
                          WHERE t.barcode_id = 'M0001'
                              AND EXISTS (SELECT 1 FROM pick)""",
         ]),
+
+                (15, "sheet tracking mode columns for front/barcode parity", [
+                    "ALTER TABLE barcode_print_jobs ADD COLUMN IF NOT EXISTS print_mode VARCHAR DEFAULT 'barcode'",
+                    "ALTER TABLE barcode_print_items ADD COLUMN IF NOT EXISTS print_mode VARCHAR DEFAULT 'barcode'",
+                    "UPDATE barcode_print_jobs SET print_mode = 'barcode' WHERE print_mode IS NULL",
+                    "UPDATE barcode_print_items SET print_mode = 'barcode' WHERE print_mode IS NULL",
+                ]),
 ]
 
 
