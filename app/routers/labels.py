@@ -50,6 +50,10 @@ DEFAULT_LABEL_SETTINGS = {
   "calibration_corner_marks": False,
   "calibration_corner_style": "dot",
   "calibration_line_style": "solid",
+  "comp_shift_x_mm": 0.0,
+  "comp_shift_y_mm": 0.0,
+  "comp_skew_x_deg": 0.0,
+  "comp_skew_y_deg": 0.0,
 }
 
 
@@ -130,6 +134,10 @@ def _clean_settings(settings: dict | None) -> dict:
   _clamp_number("calibration_seed", 0, 9_999_999)
   _clamp_number("calibration_runs", 1, 9)
   _clamp_number("calibration_mark_count", 1, 200)
+  _clamp_number("comp_shift_x_mm", -10.0, 10.0)
+  _clamp_number("comp_shift_y_mm", -10.0, 10.0)
+  _clamp_number("comp_skew_x_deg", -2.0, 2.0)
+  _clamp_number("comp_skew_y_deg", -2.0, 2.0)
 
   s["show_cut_grid"] = bool(s.get("show_cut_grid", True))
   s["show_image"] = bool(s.get("show_image", False))
@@ -682,6 +690,8 @@ async def print_sheet_designer(
     column-gap: {settings['gap_x_in']}in;
     row-gap: {settings['gap_y_in']}in;
     overflow: hidden;
+    transform-origin: top left;
+    transform: translate({settings['comp_shift_x_mm']}mm, {settings['comp_shift_y_mm']}mm) skewX({settings['comp_skew_x_deg']}deg) skewY({settings['comp_skew_y_deg']}deg);
   }}
   .cell {{
     position: relative;

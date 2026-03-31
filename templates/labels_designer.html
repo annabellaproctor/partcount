@@ -123,6 +123,19 @@
         </div>
       </div>
     </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Printer Compensation (Micro)</div>
+      <div class="p-3">
+        <div class="row g-2">
+          <div class="col-3"><label class="form-label">Shift X (mm)</label><input id="comp-shift-x" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Shift Y (mm)</label><input id="comp-shift-y" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Bottom Shift (deg)</label><input id="comp-skew-x" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Side Higher (deg)</label><input id="comp-skew-y" class="form-control" type="number" step="0.01"></div>
+          <div class="col-12 muted" style="font-size:11px;">Use tiny values only. Side Higher corrects left-vs-right height mismatch. Bottom Shift corrects bottom drifting left/right.</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="col-lg-5">
@@ -192,6 +205,10 @@ const mapFields = {
   calibration_line_style: 'cal-line-style',
   calibration_corner_marks: 'cal-corner-marks',
   calibration_corner_style: 'cal-corner-style',
+  comp_shift_x_mm: 'comp-shift-x',
+  comp_shift_y_mm: 'comp-shift-y',
+  comp_skew_x_deg: 'comp-skew-x',
+  comp_skew_y_deg: 'comp-skew-y',
 };
 
 function getSettingsFromForm() {
