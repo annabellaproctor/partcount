@@ -193,6 +193,7 @@ let _currentProfile = null;
 let _displayUnit = 'in';
 
 const IN_TO_MM = 25.4;
+const UNIT_DECIMALS = 4;
 const inchSettingKeys = new Set([
   'page_width_in',
   'page_height_in',
@@ -259,8 +260,10 @@ function getSettingsFromForm() {
     else if (id === 'cal-run-label') out[k] = (el.value || '').trim();
     else {
       const raw = parseFloat(el.value || '0');
-      if (inchSettingKeys.has(k) && _displayUnit === 'mm') out[k] = raw / IN_TO_MM;
-      else out[k] = raw;
+      const parsed = Number.isFinite(raw) ? raw : 0;
+      if (inchSettingKeys.has(k) && _displayUnit === 'mm') out[k] = _roundTo(parsed / IN_TO_MM, UNIT_DECIMALS);
+      else if (inchSettingKeys.has(k)) out[k] = _roundTo(parsed, UNIT_DECIMALS);
+      else out[k] = parsed;
     }
   });
   return out;
@@ -271,20 +274,31 @@ function setFormFromSettings(s) {
     const el = document.getElementById(id);
     if (!el) return;
     if (el.type === 'checkbox') el.checked = !!s[k];
-    else if (inchSettingKeys.has(k) && _displayUnit === 'mm') el.value = ((parseFloat(s[k] || '0') * IN_TO_MM).toFixed(3));
+    else if (inchSettingKeys.has(k) && _displayUnit === 'mm') el.value = _formatNumber((parseFloat(s[k] || '0') * IN_TO_MM), UNIT_DECIMALS);
+    else if (inchSettingKeys.has(k)) el.value = _formatNumber((parseFloat(s[k] || '0')), UNIT_DECIMALS);
     else el.value = s[k];
   });
   renderGridReadout();
 }
 
+function _roundTo(value, decimals) {
+  const f = Math.pow(10, decimals);
+  return Math.round((value + Number.EPSILON) * f) / f;
+}
+
+function _formatNumber(value, decimals) {
+  const fixed = _roundTo(Number.isFinite(value) ? value : 0, decimals).toFixed(decimals);
+  return fixed.replace(/\.0+$/, '').replace(/(\.\d*?[1-9])0+$/, '$1');
+}
+
 function _toDisplayUnits(inchesValue) {
-  if (_displayUnit === 'mm') return inchesValue * IN_TO_MM;
-  return inchesValue;
+  if (_displayUnit === 'mm') return _roundTo(inchesValue * IN_TO_MM, UNIT_DECIMALS);
+  return _roundTo(inchesValue, UNIT_DECIMALS);
 }
 
 function _fromDisplayUnits(displayValue) {
-  if (_displayUnit === 'mm') return displayValue / IN_TO_MM;
-  return displayValue;
+  if (_displayUnit === 'mm') return _roundTo(displayValue / IN_TO_MM, UNIT_DECIMALS);
+  return _roundTo(displayValue, UNIT_DECIMALS);
 }
 
 function _updateUnitToggleText() {
@@ -300,7 +314,7 @@ function _updateUnitLabels() {
 }
 
 function _updateInchFieldSteps() {
-  const step = _displayUnit === 'in' ? '0.01' : '0.1';
+  const step = '0.0001';
   Object.entries(mapFields).forEach(([k, id]) => {
     if (!inchSettingKeys.has(k)) return;
     const el = document.getElementById(id);
@@ -330,7 +344,7 @@ function renderGridReadout() {
   const cellWDisplay = _toDisplayUnits(s.cell_width_in);
   const cellHDisplay = _toDisplayUnits(s.cell_height_in);
   const unitName = _displayUnit === 'in' ? 'in' : 'mm';
-  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Cell: ${cellWDisplay.toFixed(2)}${unitName} x ${cellHDisplay.toFixed(2)}${unitName}. Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
+  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Cell: ${_formatNumber(cellWDisplay, UNIT_DECIMALS)}${unitName} x ${_formatNumber(cellHDisplay, UNIT_DECIMALS)}${unitName}. Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
 }
 
 async function loadProfiles() {
