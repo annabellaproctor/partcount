@@ -96,6 +96,19 @@
           </div>
           <div class="col-3"><label class="form-label">Run Label</label><input id="cal-run-label" class="form-control" type="text" maxlength="16" placeholder="RUN"></div>
           <div class="col-3 d-flex align-items-end muted" style="font-size:11px;">Use same seed to reproduce; tweak sequence to verify x3 passes.</div>
+
+          <div class="col-4 d-flex align-items-end">
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="cal-corner-marks" type="checkbox"> Show page-corner debug marks
+            </label>
+          </div>
+          <div class="col-4"><label class="form-label">Corner Mark Style</label>
+            <select id="cal-corner-style" class="form-select">
+              <option value="dot">Dot</option>
+              <option value="inverse_angle">Inverse corner angle</option>
+            </select>
+          </div>
+          <div class="col-4 d-flex align-items-end muted" style="font-size:11px;">Prints marks at all 4 page corners for scale and drift checks.</div>
         </div>
       </div>
     </div>
@@ -165,6 +178,8 @@ const mapFields = {
   calibration_sequence: 'cal-sequence',
   calibration_mark_count: 'cal-mark-count',
   calibration_run_label: 'cal-run-label',
+  calibration_corner_marks: 'cal-corner-marks',
+  calibration_corner_style: 'cal-corner-style',
 };
 
 function getSettingsFromForm() {

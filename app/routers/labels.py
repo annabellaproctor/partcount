@@ -47,6 +47,8 @@ DEFAULT_LABEL_SETTINGS = {
   "calibration_sequence": "same_seed_then_random",
   "calibration_mark_count": 12,
   "calibration_run_label": "RUN",
+  "calibration_corner_marks": False,
+  "calibration_corner_style": "dot",
 }
 
 
@@ -146,6 +148,10 @@ def _clean_settings(settings: dict | None) -> dict:
   s["calibration_runs"] = int(round(s.get("calibration_runs", 3)))
   s["calibration_mark_count"] = int(round(s.get("calibration_mark_count", 12)))
   s["calibration_run_label"] = (str(s.get("calibration_run_label", "RUN")).strip() or "RUN")[:16]
+  s["calibration_corner_marks"] = bool(s.get("calibration_corner_marks", False))
+  s["calibration_corner_style"] = str(s.get("calibration_corner_style", "dot")).lower()
+  if s["calibration_corner_style"] not in {"dot", "inverse_angle"}:
+    s["calibration_corner_style"] = "dot"
   return s
 
 
@@ -331,6 +337,19 @@ def _build_calibration_cover_page(
   """
 
 
+def _build_calibration_corner_overlay(style: str) -> str:
+  style_name = "inverse_angle" if style == "inverse_angle" else "dot"
+  marker_class = "corner-angle" if style_name == "inverse_angle" else "corner-dot"
+  return (
+    f'<div class="corner-debug {style_name}">'
+    f'<div class="{marker_class} tl"></div>'
+    f'<div class="{marker_class} tr"></div>'
+    f'<div class="{marker_class} bl"></div>'
+    f'<div class="{marker_class} br"></div>'
+    '</div>'
+  )
+
+
 async def _ensure_presets(db: AsyncSession):
   existing = (await db.execute(select(LabelPrintProfile))).scalars().all()
   names = {p.name for p in existing}
@@ -495,6 +514,7 @@ async def print_sheet_designer(
     cells = []
     marked_set = set()
     marker_style = "cross"
+    corner_overlay = ""
     if mode == "calibration":
       marked, _ = _calibration_indices(settings, cols, rows, run_no, rev)
       marked_set = set(marked)
@@ -505,6 +525,8 @@ async def print_sheet_designer(
         run_no,
         settings.get("calibration_sequence", "same_seed_then_random"),
       ))
+      if settings.get("calibration_corner_marks"):
+        corner_overlay = _build_calibration_corner_overlay(str(settings.get("calibration_corner_style", "dot")))
 
     for i in range(capacity):
       if mode == "calibration":
@@ -534,7 +556,7 @@ async def print_sheet_designer(
     if mode == "calibration":
       seed_show = seeds_by_run[run_no - 1]
       header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
-    page_blocks.append(f'<div class="print-page">{header}<div class="page">{sheet}</div></div>')
+    page_blocks.append(f'<div class="print-page">{header}<div class="page">{corner_overlay}{sheet}</div></div>')
 
   if mode == "calibration":
     cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
@@ -574,6 +596,7 @@ async def print_sheet_designer(
     margin: 0.06in {settings['margin_left_in']}in 0.02in;
   }}
   .page {{
+    position: relative;
     width: {settings['page_width_in']}in;
     height: {settings['page_height_in']}in;
     box-sizing: border-box;
@@ -652,6 +675,46 @@ async def print_sheet_designer(
     position: absolute; right: 0.7mm; bottom: 0.4mm;
     font-size: 5pt; opacity: 0.9; font-family: monospace;
   }}
+  .corner-debug {{
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+  }}
+  .corner-dot {{
+    position: absolute;
+    width: 2.6mm;
+    height: 2.6mm;
+    border-radius: 50%;
+    background: #000;
+  }}
+  .corner-dot.tl {{ left: 0; top: 0; transform: translate(-50%, -50%); }}
+  .corner-dot.tr {{ right: 0; top: 0; transform: translate(50%, -50%); }}
+  .corner-dot.bl {{ left: 0; bottom: 0; transform: translate(-50%, 50%); }}
+  .corner-dot.br {{ right: 0; bottom: 0; transform: translate(50%, 50%); }}
+  .corner-angle {{
+    position: absolute;
+    width: 6mm;
+    height: 6mm;
+  }}
+  .corner-angle::before,
+  .corner-angle::after {{
+    content: '';
+    position: absolute;
+    background: #000;
+  }}
+  .corner-angle.tl {{ left: 0; top: 0; }}
+  .corner-angle.tl::before {{ left: 0; top: 0; width: 100%; height: 0.5mm; }}
+  .corner-angle.tl::after {{ left: 0; top: 0; width: 0.5mm; height: 100%; }}
+  .corner-angle.tr {{ right: 0; top: 0; }}
+  .corner-angle.tr::before {{ right: 0; top: 0; width: 100%; height: 0.5mm; }}
+  .corner-angle.tr::after {{ right: 0; top: 0; width: 0.5mm; height: 100%; }}
+  .corner-angle.bl {{ left: 0; bottom: 0; }}
+  .corner-angle.bl::before {{ left: 0; bottom: 0; width: 100%; height: 0.5mm; }}
+  .corner-angle.bl::after {{ left: 0; bottom: 0; width: 0.5mm; height: 100%; }}
+  .corner-angle.br {{ right: 0; bottom: 0; }}
+  .corner-angle.br::before {{ right: 0; bottom: 0; width: 100%; height: 0.5mm; }}
+  .corner-angle.br::after {{ right: 0; bottom: 0; width: 0.5mm; height: 100%; }}
   </style>
 </head>
 <body onload=\"window.print()\">
