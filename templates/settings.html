@@ -79,6 +79,22 @@
         </div>
       </div>
     </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><span class="dot"></span>Archetype Field Explorer</div>
+      <div class="p-3">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <select id="archetype-path" class="form-select" style="max-width:420px;" onchange="loadArchetypeFields()">
+            <option value="">Select type path...</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="loadArchetypeFields()">Load Fields</button>
+        </div>
+        <div id="archetype-status" class="muted" style="font-size:11px;margin-bottom:6px;"></div>
+        <pre id="archetype-fields" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:3px;min-height:130px;white-space:pre-wrap;">Select a type path to inspect fields/required/defaults...</pre>
+        <div style="font-size:10px;color:var(--text3);margin:8px 0 6px;letter-spacing:1px;text-transform:uppercase;">Hierarchy Tree</div>
+        <pre id="archetype-tree" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:3px;max-height:280px;overflow:auto;white-space:pre-wrap;">Loading hierarchy...</pre>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -122,7 +138,82 @@ async function refreshUsage() {
   }
 }
 
+function renderHierarchyTree(node, prefix = '', name = '') {
+  if (!node || typeof node !== 'object') return '';
+  let out = '';
+  const keys = Object.keys(node).filter(k => !k.startsWith('_'));
+  keys.forEach((k, idx) => {
+    const branch = idx === keys.length - 1 ? '└─ ' : '├─ ';
+    const child = node[k];
+    out += `${prefix}${branch}${k}\n`;
+    if (child && typeof child === 'object') {
+      const nextPrefix = prefix + (idx === keys.length - 1 ? '   ' : '│  ');
+      if (Array.isArray(child.fields) && child.fields.length) {
+        out += `${nextPrefix}• fields: ${child.fields.join(', ')}\n`;
+      }
+      if (Array.isArray(child.required) && child.required.length) {
+        out += `${nextPrefix}• required: ${child.required.join(', ')}\n`;
+      }
+      if (child.defaults && Object.keys(child.defaults).length) {
+        out += `${nextPrefix}• defaults: ${JSON.stringify(child.defaults)}\n`;
+      }
+      if (child.subcategories && typeof child.subcategories === 'object') {
+        out += renderHierarchyTree(child.subcategories, nextPrefix, k);
+      }
+    }
+  });
+  return out;
+}
+
+async function loadArchetypeCatalog() {
+  const sel = document.getElementById('archetype-path');
+  const tree = document.getElementById('archetype-tree');
+  if (!sel || !tree) return;
+  try {
+    const [pathsRes, hierarchyRes] = await Promise.all([
+      fetch('/api/components/type-paths').then(r => r.ok ? r.json() : { paths: [] }),
+      fetch('/api/components/type-hierarchy').then(r => r.ok ? r.json() : { hierarchy: {} }),
+    ]);
+    const paths = Array.isArray(pathsRes.paths) ? pathsRes.paths : [];
+    paths.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      sel.appendChild(opt);
+    });
+    tree.textContent = renderHierarchyTree(hierarchyRes.hierarchy || {}) || 'No hierarchy data';
+  } catch (e) {
+    tree.textContent = 'Failed to load hierarchy';
+  }
+}
+
+async function loadArchetypeFields() {
+  const sel = document.getElementById('archetype-path');
+  const out = document.getElementById('archetype-fields');
+  const status = document.getElementById('archetype-status');
+  if (!sel || !out || !status) return;
+  const typePath = sel.value;
+  if (!typePath) {
+    out.textContent = 'Select a type path to inspect fields/required/defaults...';
+    status.textContent = '';
+    return;
+  }
+  status.textContent = 'Loading...';
+  try {
+    const r = await fetch('/api/components/type-fields?type_path=' + encodeURIComponent(typePath));
+    if (!r.ok) throw new Error('failed');
+    const data = await r.json();
+    out.textContent = JSON.stringify(data, null, 2);
+    status.textContent = `Loaded ${typePath}`;
+  } catch (_) {
+    status.textContent = 'Failed to load type fields';
+  }
+}
+
 // Load on page load
-document.addEventListener('DOMContentLoaded', refreshUsage);
+document.addEventListener('DOMContentLoaded', () => {
+  refreshUsage();
+  loadArchetypeCatalog();
+});
 </script>
 {% endblock %}

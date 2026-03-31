@@ -12,7 +12,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from google import genai
 from google.genai import types
-from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
+from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
 
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -46,6 +46,161 @@ FREE_TIER_MODELS = [
     {"name": "gemini-3-flash", "rpd": 20, "rpm": 5, "tpm": 250000},
 ]
 GEMINI_RENAME_MODEL = os.getenv("GEMINI_RENAME_MODEL", "gemini-3-flash")
+
+COMPONENT_EDITABLE_FIELDS = {
+    "name", "value", "unit", "package", "voltage_rating", "tolerance", "notes",
+    "datasheet_url", "mpn", "digikey_pn", "lcsc_pn", "description", "short_title",
+    "short_title_manual", "type_path", "type_data", "sticker_tag_no", "search_alias",
+}
+
+
+def _to_snake(name: str) -> str:
+    s = (name or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    return re.sub(r"_+", "_", s).strip("_")
+
+
+def _collect_type_fields(tree: dict) -> set[str]:
+    out: set[str] = set()
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        for k in node.get("fields", []) or []:
+            if isinstance(k, str):
+                out.add(_to_snake(k))
+        for k in node.get("_fields", []) or []:
+            if isinstance(k, str):
+                out.add(_to_snake(k))
+        subs = node.get("subcategories")
+        if isinstance(subs, dict):
+            for sub in subs.values():
+                walk(sub)
+
+    if isinstance(tree, dict):
+        for v in tree.values():
+            walk(v)
+    return out
+
+
+ALL_TYPE_FIELDS = _collect_type_fields(TYPE_HIERARCHY)
+
+
+def _normalize_patch_fields(existing: dict, patch_fields: dict) -> dict:
+    existing = existing or {}
+    patch_fields = patch_fields if isinstance(patch_fields, dict) else {}
+
+    normalized: dict = {}
+    td_patch = patch_fields.get("type_data") if isinstance(patch_fields.get("type_data"), dict) else {}
+    effective_type_path = (
+        patch_fields.get("type_path")
+        or existing.get("type_path")
+        or ""
+    )
+    rule_fields = get_fields_for_type(effective_type_path).get("fields", []) if effective_type_path else []
+    allowed_type_fields = { _to_snake(f) for f in (rule_fields or []) if isinstance(f, str) }
+    if not allowed_type_fields:
+        allowed_type_fields = set(ALL_TYPE_FIELDS)
+
+    normalized_type_data = {}
+
+    for k, v in td_patch.items():
+        if v in (None, "", []):
+            continue
+        nk = _to_snake(str(k))
+        normalized_type_data[nk] = v
+
+    for k, v in patch_fields.items():
+        if k == "type_data":
+            continue
+        if v in (None, "", []):
+            continue
+
+        if k in COMPONENT_EDITABLE_FIELDS:
+            normalized[k] = v
+            continue
+
+        nk = _to_snake(str(k))
+        if nk in COMPONENT_EDITABLE_FIELDS:
+            normalized[nk] = v
+            continue
+
+        # Unknown top-level fields are preserved as archetype attributes.
+        if nk in allowed_type_fields or nk:
+            normalized_type_data[nk] = v
+
+    if normalized_type_data:
+        existing_td = existing.get("type_data") if isinstance(existing.get("type_data"), dict) else {}
+        merged = dict(existing_td)
+        merged.update(normalized_type_data)
+        normalized["type_data"] = merged
+
+    return normalized
+
+
+def _normalize_remove_fields(remove_fields: list, effective_type_path: str) -> list[str]:
+    fields = remove_fields if isinstance(remove_fields, list) else []
+    rule_fields = get_fields_for_type(effective_type_path).get("fields", []) if effective_type_path else []
+    allowed_type_fields = { _to_snake(f) for f in (rule_fields or []) if isinstance(f, str) }
+    if not allowed_type_fields:
+        allowed_type_fields = set(ALL_TYPE_FIELDS)
+
+    out: list[str] = []
+    for f in fields:
+        if not isinstance(f, str):
+            continue
+        raw = f.strip()
+        if not raw:
+            continue
+        if raw in COMPONENT_EDITABLE_FIELDS:
+            out.append(raw)
+            continue
+        nf = _to_snake(raw)
+        if nf in COMPONENT_EDITABLE_FIELDS:
+            out.append(nf)
+            continue
+        if raw.startswith("type_data."):
+            key = _to_snake(raw.split(".", 1)[1])
+            if key:
+                out.append(f"type_data.{key}")
+            continue
+        if nf in allowed_type_fields or nf:
+            out.append(f"type_data.{nf}")
+    return list(dict.fromkeys(out))
+
+
+def _normalize_suggested_add_fields(existing: dict, patch_fields: dict, suggested: list) -> list[dict]:
+    out: list[dict] = []
+
+    # Always include deterministic suggestions from normalized patch.
+    out.extend(_build_suggested_add_fields(existing or {}, patch_fields or {}))
+
+    raw = suggested if isinstance(suggested, list) else []
+    for item in raw:
+        if isinstance(item, dict):
+            field = item.get("field")
+            value = item.get("value")
+            reason = item.get("reason") or "inferred update"
+            if field is None and len(item) == 1:
+                k, v = next(iter(item.items()))
+                field, value = k, v
+            if field is not None and value not in (None, "", []):
+                out.append({"field": str(field), "value": value, "reason": str(reason)})
+        elif isinstance(item, str) and ":" in item:
+            left, right = item.split(":", 1)
+            if left.strip() and right.strip():
+                out.append({"field": left.strip(), "value": right.strip(), "reason": "inferred update"})
+
+    # de-dup by field+value
+    seen = set()
+    dedup: list[dict] = []
+    for row in out:
+        key = (str(row.get("field", "")).strip(), str(row.get("value", "")).strip())
+        if not key[0] or not key[1] or key in seen:
+            continue
+        seen.add(key)
+        dedup.append(row)
+    return dedup[:30]
 
 
 def _gemini_call_sync(prompt: str, schema: dict, model: str):
@@ -629,6 +784,12 @@ async def enrich_record(req: EnrichRequest):
     existing_json = json.dumps(req.existing_data or {}, ensure_ascii=False)[:6000]
     available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
 
+    existing_obj = req.existing_data or {}
+    existing_type_path = (existing_obj.get("type_path") or "").strip()
+    archetype_fields = get_fields_for_type(existing_type_path).get("fields", []) if existing_type_path else []
+    editable_fields_txt = ", ".join(sorted(COMPONENT_EDITABLE_FIELDS))
+    archetype_fields_txt = ", ".join(archetype_fields) if archetype_fields else "(none yet)"
+
     schema = {
         "type": "object",
         "properties": {
@@ -675,6 +836,18 @@ Supported type paths:
 Existing record:
 {existing_json}
 
+Editable top-level component fields:
+{editable_fields_txt}
+
+Current archetype/sub-archetype fields for type_data (from type_path={existing_type_path or 'n/a'}):
+{archetype_fields_txt}
+
+Strict output rules for patch_fields:
+- Use only editable top-level fields above for direct updates.
+- Put archetype-specific and extra technical keys under patch_fields.type_data.
+- Never invent unknown top-level keys.
+- If source uses labels like "Main Material", map to snake_case (e.g. main_material) in type_data.
+
 Noisy text:
 {req.text[:16000]}"""
 
@@ -684,9 +857,18 @@ Noisy text:
     result["assumptions"] = [str(x).strip() for x in (result.get("assumptions") or []) if str(x).strip()]
     result["suggested_add_fields"] = result.get("suggested_add_fields") or []
 
+    # Normalize AI output so unknown fields become type_data keys instead of being dropped.
+    result["patch_fields"] = _normalize_patch_fields(existing_obj, result["patch_fields"])
+    effective_type_path = (
+        result["patch_fields"].get("type_path")
+        or existing_type_path
+        or ""
+    )
+    result["remove_fields"] = _normalize_remove_fields(result["remove_fields"], effective_type_path)
+
     # Deterministic fallback enrichment for common module/dev-board texts.
     if req.mode == "component":
-        existing = req.existing_data or {}
+        existing = existing_obj
         patch_fields = result["patch_fields"]
         inferred_type_path = _infer_component_type_path(req.text, existing, patch_fields)
         if inferred_type_path and not patch_fields.get("type_path"):
@@ -702,15 +884,14 @@ Noisy text:
                 patch_fields["package"] = inferred_type_data.get("form_factor")
 
         result["patch_fields"] = patch_fields
-        if not result["suggested_add_fields"]:
-            result["suggested_add_fields"] = _build_suggested_add_fields(existing, patch_fields)
+        result["suggested_add_fields"] = _normalize_suggested_add_fields(existing, patch_fields, result.get("suggested_add_fields"))
 
     if not result["assumptions"] and not result["patch_fields"] and not result["remove_fields"]:
         hints = _suggest_needed_details(req.mode, req.existing_data)
         result["assumptions"] = [f"Best-effort inference; unresolved ambiguity around: {', '.join(hints[:3])}"] if hints else ["Best-effort inference from noisy text."]
 
-    if not result["suggested_add_fields"] and req.mode == "component":
-        result["suggested_add_fields"] = _build_suggested_add_fields(req.existing_data or {}, result["patch_fields"])
+    if req.mode == "component":
+        result["suggested_add_fields"] = _normalize_suggested_add_fields(existing_obj, result["patch_fields"], result.get("suggested_add_fields"))
 
     result["source"] = "gemini_enrich"
     return result

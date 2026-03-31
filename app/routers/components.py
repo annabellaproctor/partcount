@@ -9,7 +9,7 @@ from app.services.barcode_svc import generate_code128_svg, generate_qr, autocrop
 from app.services.short_title import generate_short_title
 from app.services.influx import write_scan_event, write_stock_change
 from app.services.ws_manager import manager
-from app.schemas.type_hierarchy import flatten_type_paths, get_fields_for_type
+from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
 from datetime import datetime
 import os, shutil, uuid
 import json
@@ -215,6 +215,11 @@ async def list_type_paths():
 @router.get("/type-fields")
 async def get_type_fields(type_path: str):
     return get_fields_for_type(type_path)
+
+
+@router.get("/type-hierarchy")
+async def get_type_hierarchy():
+    return {"hierarchy": TYPE_HIERARCHY}
 
 
 
@@ -739,6 +744,13 @@ async def patch_component(
             setattr(comp, field, value)
 
     for field in clear_fields:
+        if isinstance(field, str) and field.startswith("type_data."):
+            key = field.split(".", 1)[1].strip()
+            if key and isinstance(comp.type_data, dict) and key in comp.type_data:
+                td = dict(comp.type_data)
+                td.pop(key, None)
+                comp.type_data = td
+            continue
         if hasattr(comp, field):
             setattr(comp, field, None)
 
@@ -981,6 +993,13 @@ async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession =
                         _append_search_alias(comp, comp.name)
                     setattr(comp, field, val)
             for field in clear_fields:
+                if isinstance(field, str) and field.startswith("type_data."):
+                    key = field.split(".", 1)[1].strip()
+                    if key and isinstance(comp.type_data, dict) and key in comp.type_data:
+                        td = dict(comp.type_data)
+                        td.pop(key, None)
+                        comp.type_data = td
+                    continue
                 if hasattr(comp, field):
                     setattr(comp, field, None)
             if not comp.short_title_manual:

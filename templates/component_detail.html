@@ -657,7 +657,16 @@ async function analyzeComponentText(action) {
   if (suggestionItems.length) {
     suggestions.style.display = 'block';
     suggestions.textContent = 'Suggested adds: ' + suggestionItems
-      .map(s => `${s.field}: ${s.value}`)
+      .map((s) => {
+        const field = (s && typeof s === 'object' && s.field !== undefined) ? s.field : null;
+        const value = (s && typeof s === 'object' && s.value !== undefined) ? s.value : null;
+        if (field !== null && value !== null) return `${field}: ${value}`;
+        if (s && typeof s === 'object') {
+          const entries = Object.entries(s);
+          if (entries.length) return `${entries[0][0]}: ${entries[0][1]}`;
+        }
+        return String(s);
+      })
       .join(' | ');
   } else {
     suggestions.style.display = 'none';
