@@ -261,6 +261,18 @@ MIGRATIONS = [
     (10, "component sticker tag number", [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS sticker_tag_no INTEGER",
     ]),
+
+    (11, "label print profiles and calibration revisions", [
+        """CREATE TABLE IF NOT EXISTS label_print_profiles (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL UNIQUE,
+            settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+            is_default BOOLEAN NOT NULL DEFAULT FALSE,
+            calibration_revision INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+    ]),
 ]
 
 

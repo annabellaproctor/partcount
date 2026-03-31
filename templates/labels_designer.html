@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Label Designer :: LAB::INV{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+  <div class="page-title" style="margin:0;">Label Designer</div>
+  <span class="muted" style="font-size:11px;">Laser B/W friendly sheets, profile based</span>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><span class="dot"></span>Profile</div>
+  <div class="p-3" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <select id="profile-select" class="form-select" style="max-width:360px;"></select>
+    <button class="btn btn-primary btn-sm" onclick="saveCurrentProfile()">Save Profile</button>
+    <button class="btn btn-primary btn-sm" onclick="saveAsNewProfile()">Save As New</button>
+    <span id="profile-status" class="muted" style="font-size:11px;"></span>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Sheet + Cell Geometry</div>
+      <div class="p-3">
+        <div class="row g-2">
+          <div class="col-3"><label class="form-label">Page W (in)</label><input id="page-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Page H (in)</label><input id="page-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cell W (in)</label><input id="cell-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cell H (in)</label><input id="cell-height" class="form-control" type="number" step="0.01"></div>
+
+          <div class="col-3"><label class="form-label">Cut W (in)</label><input id="cut-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cut H (in)</label><input id="cut-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Gap X (in)</label><input id="gap-x" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Gap Y (in)</label><input id="gap-y" class="form-control" type="number" step="0.01"></div>
+
+          <div class="col-3"><label class="form-label">Margin Top</label><input id="margin-top" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Right</label><input id="margin-right" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Bottom</label><input id="margin-bottom" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Left</label><input id="margin-left" class="form-control" type="number" step="0.01"></div>
+
+          <div class="col-3"><label class="form-label">Corner Radius (mm)</label><input id="corner-radius" class="form-control" type="number" step="0.1"></div>
+          <div class="col-4"><label class="form-label">Cut Marker Style</label>
+            <select id="cut-marker-style" class="form-select">
+              <option value="cross">Cross</option>
+              <option value="dot">Dot</option>
+            </select>
+          </div>
+          <div class="col-5 d-flex align-items-end">
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="show-cut-grid" type="checkbox"> Show criss-cross cut grid
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Front + Barcode Content Rules</div>
+      <div class="p-3">
+        <div class="row g-2">
+          <div class="col-3"><label class="form-label">Name Font (pt)</label><input id="name-font" class="form-control" type="number" step="0.1"></div>
+          <div class="col-3"><label class="form-label">ID Font (pt)</label><input id="id-font" class="form-control" type="number" step="0.1"></div>
+          <div class="col-3"><label class="form-label">Barcode Height Ratio</label><input id="barcode-ratio" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Barcode Max H (in)</label><input id="barcode-max-h" class="form-control" type="number" step="0.01"></div>
+
+          <div class="col-5 d-flex align-items-end">
+            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input id="show-image" type="checkbox"> Allow front image (optional)
+            </label>
+          </div>
+          <div class="col-4"><label class="form-label">Image Min Cell H (in)</label><input id="image-min-h" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3 d-flex align-items-end muted" style="font-size:11px;">Image only appears on bigger labels.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>What To Print</div>
+      <div class="p-3" style="display:flex;flex-direction:column;gap:8px;">
+        <input id="filter-q" class="form-control" placeholder="Component filter query (name/value/package/barcode)">
+        <textarea id="barcode-list" class="form-control" rows="4" placeholder="Optional explicit barcode list, comma-separated"></textarea>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print Front Sheet</button>
+          <button class="btn btn-primary btn-sm" onclick="openPrint('barcode')">Print Barcode Sheet</button>
+          <button class="btn btn-danger btn-sm" onclick="openPrint('calibration')">Print Calibration (1 page)</button>
+        </div>
+        <div class="muted" style="font-size:11px;line-height:1.5;">
+          Front content is fixed to: <strong>Name</strong> (bold narrow) and <strong>ID: XXXXX</strong> below it.
+          Barcodes are centered and stretched vertically within configured limits.
+          Calibration prints micro marks + revision text to sacrifice only one page.
+        </div>
+        <div id="print-status" class="muted" style="font-size:11px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="dot"></span>Computed Grid</div>
+      <div class="p-3">
+        <div id="grid-readout" style="font-size:12px;color:var(--text2);">-</div>
+        <div class="muted" style="font-size:11px;margin-top:8px;">Tip: set Gap X/Y to 0 for tight label stock.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _profiles = [];
+let _currentProfile = null;
+
+const mapFields = {
+  page_width_in: 'page-width',
+  page_height_in: 'page-height',
+  margin_top_in: 'margin-top',
+  margin_right_in: 'margin-right',
+  margin_bottom_in: 'margin-bottom',
+  margin_left_in: 'margin-left',
+  cell_width_in: 'cell-width',
+  cell_height_in: 'cell-height',
+  cut_width_in: 'cut-width',
+  cut_height_in: 'cut-height',
+  gap_x_in: 'gap-x',
+  gap_y_in: 'gap-y',
+  corner_radius_mm: 'corner-radius',
+  show_cut_grid: 'show-cut-grid',
+  cut_marker_style: 'cut-marker-style',
+  show_image: 'show-image',
+  image_min_height_in: 'image-min-h',
+  name_font_pt: 'name-font',
+  id_font_pt: 'id-font',
+  barcode_height_ratio: 'barcode-ratio',
+  barcode_max_height_in: 'barcode-max-h',
+};
+
+function getSettingsFromForm() {
+  const out = {};
+  Object.entries(mapFields).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') out[k] = !!el.checked;
+    else if (el.tagName === 'SELECT') out[k] = el.value;
+    else out[k] = parseFloat(el.value || '0');
+  });
+  return out;
+}
+
+function setFormFromSettings(s) {
+  Object.entries(mapFields).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!s[k];
+    else el.value = s[k];
+  });
+  renderGridReadout();
+}
+
+function renderGridReadout() {
+  const s = getSettingsFromForm();
+  const usableW = s.page_width_in - s.margin_left_in - s.margin_right_in;
+  const usableH = s.page_height_in - s.margin_top_in - s.margin_bottom_in;
+  const cols = Math.max(1, Math.floor((usableW + s.gap_x_in) / (s.cell_width_in + s.gap_x_in)));
+  const rows = Math.max(1, Math.floor((usableH + s.gap_y_in) / (s.cell_height_in + s.gap_y_in)));
+  const capacity = cols * rows;
+  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} labels / sheet`;
+}
+
+async function loadProfiles() {
+  const r = await fetch('/labels/profiles');
+  _profiles = await r.json();
+  const sel = document.getElementById('profile-select');
+  sel.innerHTML = '';
+  _profiles.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.is_default ? `${p.name} (default)` : p.name;
+    sel.appendChild(opt);
+  });
+  const first = _profiles.find(p => p.is_default) || _profiles[0];
+  if (first) {
+    sel.value = first.id;
+    _currentProfile = first;
+    setFormFromSettings(first.settings || {});
+  }
+}
+
+async function saveCurrentProfile() {
+  const sel = document.getElementById('profile-select');
+  const status = document.getElementById('profile-status');
+  const id = sel.value;
+  if (!id) return;
+  status.textContent = 'Saving...';
+  const r = await fetch('/labels/profiles/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({settings: getSettingsFromForm()}),
+  });
+  status.textContent = r.ok ? 'Saved' : 'Save failed';
+  if (r.ok) await loadProfiles();
+}
+
+async function saveAsNewProfile() {
+  const status = document.getElementById('profile-status');
+  const name = prompt('New profile name:');
+  if (!name) return;
+  status.textContent = 'Saving...';
+  const r = await fetch('/labels/profiles', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, settings: getSettingsFromForm()}),
+  });
+  status.textContent = r.ok ? 'Saved new profile' : 'Save failed';
+  if (r.ok) await loadProfiles();
+}
+
+function openPrint(mode) {
+  const sel = document.getElementById('profile-select');
+  const q = encodeURIComponent(document.getElementById('filter-q').value || '');
+  const barcodeIds = encodeURIComponent((document.getElementById('barcode-list').value || '').replace(/\n/g, ','));
+  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}`;
+  window.open(url, '_blank');
+  document.getElementById('print-status').textContent = `Opened ${mode} print view`;
+}
+
+document.getElementById('profile-select').addEventListener('change', (e) => {
+  const p = _profiles.find(x => x.id === e.target.value);
+  if (!p) return;
+  _currentProfile = p;
+  setFormFromSettings(p.settings || {});
+});
+
+Object.values(mapFields).forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', renderGridReadout);
+  el.addEventListener('change', renderGridReadout);
+});
+
+loadProfiles();
+</script>
+{% endblock %}

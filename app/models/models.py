@@ -41,6 +41,17 @@ class APIKey(Base):
     profile = relationship("Profile", back_populates="api_keys")
 
 
+class LabelPrintProfile(Base):
+    __tablename__ = "label_print_profiles"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    name = Column(String, nullable=False, unique=True)
+    settings = Column(JSON, nullable=False, default=dict)
+    is_default = Column(Boolean, default=False, nullable=False)
+    calibration_revision = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Project(Base):
     __tablename__ = "projects"
     id = Column(String, primary_key=True, default=gen_uuid)
