@@ -6,22 +6,23 @@ from typing import Any
 
 
 COLOR_MAP = {
-    "black": "#1a1a1a",
-    "brown": "#6f4e37",
-    "red": "#d63b3b",
-    "orange": "#f08c00",
-    "yellow": "#f5c542",
-    "green": "#2f9e44",
-    "blue": "#3b82f6",
-    "violet": "#7c3aed",
-    "purple": "#7c3aed",
-    "gray": "#6b7280",
-    "grey": "#6b7280",
-    "white": "#f3f4f6",
-    "gold": "#c9a227",
-    "silver": "#b0b7c3",
-    "pink": "#ec4899",
-    "beige": "#d9c7a3",
+    # Muted resistor-like palette so brighter section stickers remain dominant.
+    "black": "#2b2b2b",
+    "brown": "#7a5a3a",
+    "red": "#b24a4a",
+    "orange": "#c4873d",
+    "yellow": "#c9b458",
+    "green": "#5b8a63",
+    "blue": "#4d6f9e",
+    "violet": "#7a6093",
+    "purple": "#7a6093",
+    "gray": "#8a8f97",
+    "grey": "#8a8f97",
+    "white": "#dcdfe3",
+    "gold": "#b39a5d",
+    "silver": "#aeb3ba",
+    "pink": "#b987a2",
+    "beige": "#cbb89a",
 }
 
 DEFAULT_BG = COLOR_MAP["beige"]
