@@ -257,6 +257,10 @@ MIGRATIONS = [
     (9, "component image generation query", [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS image_query TEXT",
     ]),
+
+    (10, "component sticker tag number", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS sticker_tag_no INTEGER",
+    ]),
 ]
 
 

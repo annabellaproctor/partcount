@@ -117,6 +117,7 @@
           {{ row("MPN", comp.mpn) }}
           {{ row("DigiKey PN", comp.digikey_pn) }}
           {{ row("LCSC PN", comp.lcsc_pn) }}
+          {{ row("Sticker Tag", ('#' ~ comp.sticker_tag_no) if comp.sticker_tag_no else None) }}
           {{ row("Search Aliases", comp.search_alias) }}
           {% if comp.datasheet_url %}
           <tr>
@@ -158,6 +159,12 @@
             <button class="btn btn-primary btn-sm" onclick="saveLabelTitle()">Save Name</button>
             <span id="label-title-status" class="muted" style="font-size:11px;"></span>
           </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+            <select id="sticker-tag-select" class="form-select form-select-sm" style="max-width:320px;"></select>
+            <button class="btn btn-primary btn-sm" onclick="saveStickerTag()">Save Sticker Tag</button>
+            <span id="sticker-tag-status" class="muted" style="font-size:11px;"></span>
+          </div>
+          <div class="muted" style="font-size:10px;margin-top:4px;">Ordered for quick visual distinction while preserving sticker sheet numbers.</div>
         </div>
 
         <!-- Touch / cache-bust button -->
@@ -702,6 +709,51 @@ async function saveLabelTitle() {
   setTimeout(() => location.reload(), 200);
 }
 
+const STICKER_TAGS = {
+  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
+  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
+  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
+  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+};
+// Curated display order for easier adjacent distinction while keeping sticker numbers.
+const STICKER_TAG_DISPLAY_ORDER = [1, 11, 3, 12, 8, 17, 19, 13, 7, 15, 2, 10, 18, 5, 14, 9, 16, 4, 20, 6];
+
+function initStickerTagSelector() {
+  const sel = document.getElementById('sticker-tag-select');
+  if (!sel) return;
+  const current = {{ comp.sticker_tag_no if comp.sticker_tag_no is not none else 'null' }};
+  sel.innerHTML = '<option value="">No sticker tag</option>';
+  STICKER_TAG_DISPLAY_ORDER.forEach((n) => {
+    const hex = STICKER_TAGS[n];
+    const opt = document.createElement('option');
+    opt.value = String(n);
+    opt.textContent = `#${n}  ${hex}`;
+    opt.style.background = hex;
+    opt.style.color = (n === 1 || n === 2 || n === 3 || n === 4 || n === 15 || n === 17) ? '#ffffff' : '#111111';
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = String(current);
+}
+
+async function saveStickerTag() {
+  const sel = document.getElementById('sticker-tag-select');
+  const status = document.getElementById('sticker-tag-status');
+  if (!sel) return;
+  const v = sel.value ? parseInt(sel.value, 10) : null;
+  status.textContent = 'Saving...';
+  const r = await fetch('/api/components/' + COMP_ID, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ sticker_tag_no: Number.isFinite(v) ? v : null }),
+  });
+  if (!r.ok) {
+    status.textContent = 'Save failed';
+    return;
+  }
+  status.textContent = 'Saved';
+  setTimeout(() => location.reload(), 180);
+}
+
 let _markingsSvg = '';
 let _markingsDataUrl = '';
 
@@ -763,6 +815,8 @@ async function applyMarkingsAsImage() {
   status.textContent = data.image_query ? 'Component image replaced + query saved' : 'Component image replaced';
   setTimeout(() => location.reload(), 180);
 }
+
+initStickerTagSelector();
 
 async function copyMarkingsSvg() {
   const status = document.getElementById('markings-status');

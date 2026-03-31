@@ -90,7 +90,7 @@
     </thead>
     <tbody id="comp-table-body">
       {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
-      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.search_alias or '' }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }}"
+      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.search_alias or '' }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }} {{ comp.sticker_tag_no or '' }}"
           data-is-generic="{{ 'true' if comp.is_generic else 'false' }}"
           data-component-id="{{ comp.id }}"
           data-barcode-id="{{ comp.barcode_id }}"
@@ -117,6 +117,9 @@
           {% endif %}
           {% if comp.notes and '[CONFLICT]' in comp.notes %}
           <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(224,85,85,0.15);color:var(--red);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(224,85,85,0.25);">CONFLICT</span>
+          {% endif %}
+          {% if comp.sticker_tag_no %}
+          <span style="font-size:9px;letter-spacing:0.5px;background:var(--bg3);color:var(--text2);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid var(--border);">TAG #{{ comp.sticker_tag_no }}</span>
           {% endif %}
         </td>
         <td>{{ comp.value or '—' }}</td>
