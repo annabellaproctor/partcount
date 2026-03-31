@@ -151,6 +151,26 @@ function getSelectedRows() {
     .filter(r => r.querySelector('.row-select')?.checked)
 }
 
+function getVisibleRows() {
+  return Array.from(document.querySelectorAll('#comp-table tbody tr'))
+    .filter(r => r.style.display !== 'none')
+}
+
+function syncSelectAllState() {
+  const selectAll = document.getElementById('select-all-rows')
+  if (!selectAll) return
+  const visibleRows = getVisibleRows()
+  const visibleChecks = visibleRows.map(r => r.querySelector('.row-select')).filter(Boolean)
+  const selectedVisible = visibleChecks.filter(cb => cb.checked).length
+  if (!visibleChecks.length) {
+    selectAll.checked = false
+    selectAll.indeterminate = false
+    return
+  }
+  selectAll.checked = selectedVisible === visibleChecks.length
+  selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleChecks.length
+}
+
 function getSelectedIds() {
   return getSelectedRows().map(r => r.dataset.componentId)
 }
@@ -159,10 +179,14 @@ function updateBatchSelection() {
   const count = getSelectedIds().length
   const el = document.getElementById('batch-selection-count')
   if (el) el.textContent = `${count} selected`
+  syncSelectAllState()
 }
 
 function toggleSelectAll(checked) {
-  document.querySelectorAll('.row-select').forEach(cb => { cb.checked = checked })
+  getVisibleRows().forEach(r => {
+    const cb = r.querySelector('.row-select')
+    if (cb) cb.checked = checked
+  })
   updateBatchSelection()
 }
 
@@ -174,6 +198,7 @@ function applyFilters() {
     const genericMatch = !genericOnly || r.dataset.isGeneric === 'true';
     r.style.display = (textMatch && genericMatch) ? '' : 'none';
   });
+  syncSelectAllState()
 }
 
 async function postJson(url, payload) {
@@ -362,6 +387,9 @@ async function runCollectionCommand() {
   setTimeout(() => location.reload(), 250)
 }
 
-document.addEventListener('DOMContentLoaded', updateBatchSelection)
+document.addEventListener('DOMContentLoaded', () => {
+  updateBatchSelection()
+  applyFilters()
+})
 </script>
 {% endblock %}

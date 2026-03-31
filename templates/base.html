@@ -41,6 +41,16 @@
     }
     a { color: var(--green2); text-decoration: none; }
     a:hover { color: var(--green); }
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--green);
+      outline-offset: 2px;
+      box-shadow: 0 0 0 3px rgba(61,220,132,0.15);
+    }
     ::selection { background: rgba(61,220,132,0.2); }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: var(--bg2); }
@@ -380,6 +390,27 @@ document.addEventListener('keydown', (e) => {
     clearTimeout(bufTimer);
     bufTimer = setTimeout(() => buf = '', 500);
   }
+});
+
+// Make non-semantic clickable elements keyboard accessible across pages.
+document.addEventListener('DOMContentLoaded', () => {
+  const clickable = Array.from(document.querySelectorAll('[onclick]')).filter(el => {
+    const tag = (el.tagName || '').toUpperCase();
+    return !['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL', 'SUMMARY'].includes(tag);
+  });
+
+  clickable.forEach(el => {
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+    if (el.dataset.kbdBound === '1') return;
+    el.dataset.kbdBound = '1';
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.click();
+      }
+    });
+  });
 });
 </script>
 
