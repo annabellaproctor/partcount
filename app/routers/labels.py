@@ -1,12 +1,40 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.database import get_db
 from app.models.models import Component, BinAssignment, Box
 from app.services.barcode_svc import generate_code128_svg
+from app.services.markings_svg import build_markings_svg
 
 router = APIRouter(prefix="/labels", tags=["labels"])
+
+
+class MarkingsRequest(BaseModel):
+  text: str | None = None
+  tokens: list[str] | None = None
+  width: int = 720
+  height: int = 96
+
+
+@router.post("/markings-svg")
+async def generate_markings_svg(req: MarkingsRequest):
+  if not req.text and not req.tokens:
+    raise HTTPException(400, "Provide text or tokens")
+  return build_markings_svg(
+    text=req.text,
+    tokens=req.tokens,
+    width=req.width,
+    height=req.height,
+  )
+
+
+@router.get("/markings-svg")
+async def generate_markings_svg_get(text: str, width: int = 720, height: int = 96):
+  if not text or len(text.strip()) < 1:
+    raise HTTPException(400, "Text is required")
+  return build_markings_svg(text=text, width=width, height=height)
 
 
 @router.get("/print/{barcode_id}", response_class=HTMLResponse)

@@ -190,6 +190,20 @@
       </div>
     </div>
 
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Markings Creator</div>
+      <div class="p-3">
+        <div class="muted" style="font-size:11px;margin-bottom:6px;">Generate mixed color/text markings SVG (resistor bands, cap codes, LED tags).</div>
+        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. grey gold blue green | orange 104 | green LED" value="{{ (comp.value or comp.name or '')|e }}">
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="generateMarkingsSvg()">Generate SVG</button>
+          <button class="btn btn-primary btn-sm" onclick="copyMarkingsSvg()">Copy SVG</button>
+          <span id="markings-status" class="muted" style="font-size:11px;"></span>
+        </div>
+        <div id="markings-preview" style="margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;display:none;"></div>
+      </div>
+    </div>
+
     <!-- Footprints / stock -->
     <div class="card mb-3">
       <div class="card-header">
@@ -677,6 +691,51 @@ async function saveLabelTitle() {
   }
   status.textContent = autoMode ? 'Auto title enabled' : 'Saved';
   setTimeout(() => location.reload(), 200);
+}
+
+let _markingsSvg = '';
+
+async function generateMarkingsSvg() {
+  const input = document.getElementById('markings-text');
+  const status = document.getElementById('markings-status');
+  const preview = document.getElementById('markings-preview');
+  const text = (input.value || '').trim();
+  if (!text) {
+    status.textContent = 'Enter colors/text first';
+    return;
+  }
+
+  status.textContent = 'Generating...';
+  const r = await fetch('/labels/markings-svg', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text, width: 720, height: 96}),
+  });
+  if (!r.ok) {
+    status.textContent = 'Generation failed';
+    return;
+  }
+
+  const data = await r.json();
+  _markingsSvg = data.svg || '';
+  preview.style.display = 'block';
+  preview.innerHTML = _markingsSvg || '<span class="muted">No SVG output</span>';
+  const count = Array.isArray(data.entries) ? data.entries.length : 0;
+  status.textContent = `Generated ${count} band(s)/token(s)`;
+}
+
+async function copyMarkingsSvg() {
+  const status = document.getElementById('markings-status');
+  if (!_markingsSvg) {
+    status.textContent = 'Generate SVG first';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(_markingsSvg);
+    status.textContent = 'SVG copied';
+  } catch (e) {
+    status.textContent = 'Clipboard copy failed';
+  }
 }
 </script>
 {% endblock %}
