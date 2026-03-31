@@ -332,7 +332,7 @@ def _build_front_cell(comp: Component, settings: dict) -> str:
   micro = (
     '<div class="front-mini">'
     f'<div class="front-name">{title}</div>'
-    f'<div class="front-id">ID: {bid}</div>'
+    f'<div class="front-id">{bid}</div>'
     '</div>'
   )
   return (
@@ -1025,10 +1025,10 @@ async def print_sheet_designer(
     left: 0; top: 0;
     width: 100%; height: 100%;
     pointer-events: none;
-    opacity: {0.22 if mode == 'calibration' else 0.14};
+    opacity: {0.35 if mode == 'calibration' else 0.24};
   }}
-  .cut-a {{ border-top: 0.3pt solid #777; transform: rotate(25deg) scale(1.35); transform-origin: center; }}
-  .cut-b {{ border-top: 0.3pt solid #777; transform: rotate(-25deg) scale(1.35); transform-origin: center; }}
+  .cut-a {{ border-top: 0.45pt dotted #444; transform: rotate(25deg) scale(1.35); transform-origin: center; }}
+  .cut-b {{ border-top: 0.45pt dotted #444; transform: rotate(-25deg) scale(1.35); transform-origin: center; }}
   .front {{
     position: absolute; inset: 0;
     display: flex;
@@ -1065,6 +1065,8 @@ async def print_sheet_designer(
     overflow: hidden;
     z-index: 2;
   }}
+  .front-mini:first-child {{ padding-right: 0.75mm; }}
+  .front-mini:last-child {{ padding-left: 1.4mm; }}
   .front-img-wrap {{ height: 42%; width: 100%; display: flex; align-items: center; justify-content: center; }}
   .front-img {{ max-height: 100%; max-width: 95%; object-fit: contain; }}
   .front-name {{
@@ -1085,13 +1087,16 @@ async def print_sheet_designer(
   }}
   .front-id {{
     font-family: 'Bahnschrift Condensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
-    font-weight: 700;
-    font-size: {settings['id_font_pt']}pt;
+    font-style: italic;
+    font-weight: 500;
+    font-size: {max(4.2, float(settings['id_font_pt']) - 0.7):.2f}pt;
     line-height: 1;
     margin-top: auto;
     text-align: left;
     width: 100%;
     padding-top: 0.35mm;
+    color: #555;
+    letter-spacing: 0.05pt;
   }}
   .sticker-zone {{
     position: absolute;
@@ -1133,28 +1138,43 @@ async def print_sheet_designer(
     overflow: hidden;
     z-index: 2;
   }}
+  .barcode-mini:first-child {{ padding-right: 0.7mm; }}
+  .barcode-mini:last-child {{ padding-left: 1.2mm; }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
   .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
-    .cell-full-grid {{
-      position: absolute;
-      inset: 0;
-      border: 0.35pt dotted #666;
-      border-radius: 0;
-      pointer-events: none;
-      z-index: 3;
-    }}
-    .cell-debug-grid {{
-      position: absolute;
-      left: 0.6mm;
-      top: 0.45mm;
-      font-size: 4.6pt;
-      color: #666;
-      font-family: monospace;
-      z-index: 4;
-      pointer-events: none;
-    }}
+  .cell-full-grid {{
+    position: absolute;
+    inset: 0;
+    border: 0.5pt dashed #333;
+    border-radius: 0;
+    pointer-events: none;
+    z-index: 5;
+  }}
+  .cell-full-grid::before,
+  .cell-full-grid::after {{
+    content: '';
+    position: absolute;
+    background: repeating-linear-gradient(to right, #444 0 1.1mm, transparent 1.1mm 2.1mm);
+    opacity: 0.45;
+  }}
+  .cell-full-grid::before {{ left: 0; right: 0; top: 50%; height: 0.4pt; transform: translateY(-50%); }}
+  .cell-full-grid::after {{ top: 0; bottom: 0; left: 50%; width: 0.4pt; transform: translateX(-50%); background: repeating-linear-gradient(to bottom, #444 0 1.1mm, transparent 1.1mm 2.1mm); }}
+  .cell-debug-grid {{
+    position: absolute;
+    left: 0.6mm;
+    top: 0.45mm;
+    font-size: 5.1pt;
+    color: #111;
+    background: rgba(255,255,255,0.82);
+    border: 0.35pt solid #666;
+    border-radius: 0.7mm;
+    padding: 0.1mm 0.45mm;
+    font-family: monospace;
+    z-index: 6;
+    pointer-events: none;
+  }}
   .grid-test::before {{
     content: '';
     position: absolute;
