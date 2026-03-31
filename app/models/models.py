@@ -186,11 +186,31 @@ class Footprint(Base):
     stripe_color = Column(String)
     tape_color = Column(String)
     quantity = Column(Integer, default=0)
+    sigma_adjustment = Column(Integer, default=0, nullable=False)
     low_stock_threshold = Column(Integer, default=10)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     component = relationship("Component", back_populates="footprints")
     bin_assignments = relationship("BinAssignment", back_populates="footprint")
+
+
+class InventoryEvent(Base):
+    __tablename__ = "inventory_events"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    component_id = Column(String, ForeignKey("components.id"), nullable=False)
+    footprint_id = Column(String, ForeignKey("footprints.id"), nullable=True)
+    event_type = Column(String, nullable=False)  # take, put, restock, order, calibrate
+    quantity_input = Column(Integer, default=0, nullable=False)
+    quantity_change = Column(Integer, default=0, nullable=False)
+    sigma_change = Column(Integer, default=0, nullable=False)
+    resulting_raw_quantity = Column(Integer, default=0, nullable=False)
+    resulting_effective_quantity = Column(Integer, default=0, nullable=False)
+    reference_id = Column(String)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    component = relationship("Component")
+    footprint = relationship("Footprint")
 
 
 class Box(Base):

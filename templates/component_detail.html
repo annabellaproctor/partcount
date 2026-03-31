@@ -233,14 +233,16 @@
       <div class="p-3">
         {% if footprints %}
         <table class="table">
-          <thead><tr><th>Manufacturer</th><th>Source</th><th>Qty</th><th>Low@</th></tr></thead>
+          <thead><tr><th>Manufacturer</th><th>Source</th><th>Raw</th><th>Sigma</th><th>Effective</th><th>Low@</th></tr></thead>
           <tbody>
             {% for fp in footprints %}
             <tr>
               <td>{{ fp.manufacturer or '—' }}</td>
               <td class="muted">{{ fp.source or '—' }}</td>
-              <td style="color:{% if fp.quantity <= fp.low_stock_threshold %}var(--red){% else %}var(--green){% endif %}">
-                {{ fp.quantity }}
+              <td class="muted">{{ fp.quantity }}</td>
+              <td class="muted">{{ fp.sigma_adjustment or 0 }}</td>
+              <td style="color:{% if (fp.effective_quantity or 0) <= fp.low_stock_threshold %}var(--red){% else %}var(--green){% endif %}">
+                {{ fp.effective_quantity or 0 }}
               </td>
               <td class="muted">{{ fp.low_stock_threshold }}</td>
             </tr>
@@ -250,6 +252,61 @@
         {% else %}
         <div class="muted" style="font-size:11px;">No stock records</div>
         {% endif %}
+
+        <div style="margin-top:10px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;">
+          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Stock Actions</div>
+          <div class="muted" style="font-size:10px;margin-bottom:8px;">Take/Put/Restock can be recorded without baseline stock. Use Calibrate to set visible count; sigma adjustment is tracked separately from raw stock events.</div>
+          <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+            <div>
+              <label class="form-label" style="font-size:10px;">Footprint</label>
+              <select id="stock-footprint" class="form-select form-select-sm" style="min-width:180px;">
+                {% if footprints %}
+                  {% for fp in footprints %}
+                  <option value="{{ fp.id }}">{{ fp.manufacturer or 'Unspecified' }} · {{ fp.source or 'Manual' }}</option>
+                  {% endfor %}
+                {% else %}
+                  <option value="">Auto-create manual record</option>
+                {% endif %}
+              </select>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:10px;">Quantity / Target</label>
+              <input id="stock-qty" type="number" min="0" step="1" value="1" class="form-control form-control-sm" style="width:120px;">
+            </div>
+            <div style="flex:1;min-width:200px;">
+              <label class="form-label" style="font-size:10px;">Note (optional)</label>
+              <input id="stock-note" class="form-control form-control-sm" placeholder="garage bin, kitchen drawer, receipt ref...">
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn btn-danger btn-sm" onclick="runStockAction('take')">Take</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('put')">Put</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('restock')">Restock</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('order')">Order</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('calibrate')">Calibrate Count</button>
+            <span id="stock-action-status" class="muted" style="font-size:11px;"></span>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;">Inventory Ledger</div>
+          {% if inventory_events %}
+            <div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:3px;background:var(--bg2);">
+              {% for ev in inventory_events %}
+              <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border2);font-size:11px;">
+                <div>
+                  <strong style="text-transform:uppercase;">{{ ev.event_type }}</strong>
+                  <span class="muted">in={{ ev.quantity_input or 0 }}, Δraw={{ ev.quantity_change or 0 }}, Δsigma={{ ev.sigma_change or 0 }}, eff={{ ev.resulting_effective_quantity or 0 }}</span>
+                  {% if ev.notes %}<div class="muted" style="font-size:10px;">{{ ev.notes }}</div>{% endif %}
+                </div>
+                <div class="muted" style="font-size:10px;white-space:nowrap;">{{ ev.created_at.strftime('%Y-%m-%d %H:%M') if ev.created_at else '' }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="muted" style="font-size:11px;">No inventory events yet</div>
+          {% endif %}
+        </div>
 
         {% if comp.is_generic and generic_children %}
         <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
@@ -822,6 +879,47 @@ async function applyMarkingsAsImage() {
   }
   const data = await r.json();
   status.textContent = data.image_query ? 'Component image replaced + query saved' : 'Component image replaced';
+  setTimeout(() => location.reload(), 180);
+}
+
+async function runStockAction(action) {
+  const status = document.getElementById('stock-action-status');
+  const qtyEl = document.getElementById('stock-qty');
+  const noteEl = document.getElementById('stock-note');
+  const fpEl = document.getElementById('stock-footprint');
+  const qty = parseInt((qtyEl && qtyEl.value) || '0', 10) || 0;
+  const notes = (noteEl && noteEl.value) ? noteEl.value.trim() : '';
+  const footprintId = (fpEl && fpEl.value) ? fpEl.value : null;
+
+  if (action !== 'calibrate' && qty <= 0) {
+    status.textContent = 'Quantity must be > 0';
+    return;
+  }
+  if (action === 'calibrate' && qty < 0) {
+    status.textContent = 'Calibration target must be >= 0';
+    return;
+  }
+
+  status.textContent = 'Saving...';
+  const r = await fetch('/api/components/' + COMP_ID + '/inventory-action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action,
+      quantity: qty,
+      footprint_id: footprintId,
+      notes,
+    }),
+  });
+
+  if (!r.ok) {
+    const errText = await r.text();
+    status.textContent = `Failed (${r.status}) ${errText.slice(0, 120)}`;
+    return;
+  }
+
+  const data = await r.json();
+  status.textContent = `${action} saved · effective ${data.effective_quantity}`;
   setTimeout(() => location.reload(), 180);
 }
 

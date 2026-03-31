@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import asyncio, os, json
 
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier
+from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier, InventoryEvent
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
 from app.schemas.type_hierarchy import get_fields_for_type, flatten_type_paths
@@ -272,12 +272,15 @@ async def registry_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 @app.get("/components/{barcode_id}", response_class=HTMLResponse)
 async def component_detail(barcode_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    from app.models.models import Footprint, BinAssignment, Box, BOMItem, Project, ComponentSupplier, Supplier, PurchaseOrderItem, PurchaseOrder
+    from app.models.models import Footprint, BinAssignment, Box, BOMItem, Project, ComponentSupplier, Supplier, PurchaseOrderItem, PurchaseOrder, InventoryEvent
     comp = (await db.execute(select(Component).where(Component.barcode_id == barcode_id))).scalar_one_or_none()
     if not comp:
         raise HTTPException(404)
     ctype = (await db.execute(select(ComponentType).where(ComponentType.id == comp.type_id))).scalar_one_or_none()
     footprints = (await db.execute(select(Footprint).where(Footprint.component_id == comp.id))).scalars().all()
+    for fp in footprints:
+        fp.sigma_adjustment = int(fp.sigma_adjustment or 0)
+        fp.effective_quantity = max(0, int(fp.quantity or 0) + fp.sigma_adjustment)
     bins = (await db.execute(
         select(BinAssignment, Box).join(Box, Box.id == BinAssignment.box_id)
         .where(BinAssignment.component_id == comp.id, BinAssignment.active == True)
@@ -299,6 +302,12 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         .order_by(PurchaseOrder.order_date.desc())
     )).fetchall()
     ph = [type("PH", (), {"quantity_ordered": r.PurchaseOrderItem.quantity_ordered, "quantity_received": r.PurchaseOrderItem.quantity_received, "order": r.PurchaseOrder})() for r in purchase_history]
+    inventory_events = (await db.execute(
+        select(InventoryEvent)
+        .where(InventoryEvent.component_id == comp.id)
+        .order_by(InventoryEvent.created_at.desc())
+        .limit(60)
+    )).scalars().all()
     all_suppliers = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
 
@@ -313,7 +322,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         generic_children = children_result.scalars().all()
         all_ids = [comp.id] + [c.id for c in generic_children]
         agg = await db.execute(
-            select(func.coalesce(func.sum(Footprint.quantity), 0))
+            select(func.coalesce(func.sum(Footprint.quantity + func.coalesce(Footprint.sigma_adjustment, 0)), 0))
             .where(Footprint.component_id.in_(all_ids))
         )
         generic_stock = int(agg.scalar() or 0)
@@ -358,6 +367,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         "generic_parent": generic_parent,
         "generic_children": generic_children,
         "archetype_details": archetype_details,
+        "inventory_events": inventory_events,
     })
 
 @app.get("/scan", response_class=HTMLResponse)

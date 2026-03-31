@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.database import get_db
-from app.models.models import Supplier, ComponentSupplier, PurchaseOrder, PurchaseOrderItem, Component, Footprint
+from app.models.models import Supplier, ComponentSupplier, PurchaseOrder, PurchaseOrderItem, Component, Footprint, InventoryEvent
 from app.services.ws_manager import manager
 from datetime import datetime
 import uuid
@@ -121,6 +121,35 @@ async def add_order_item(
     )
     db.add(item)
     await db.flush()
+
+    if component_id:
+        fp = (await db.execute(select(Footprint).where(Footprint.component_id == component_id).limit(1))).scalar_one_or_none()
+        if not fp:
+            fp = Footprint(
+                id=str(uuid.uuid4()),
+                component_id=component_id,
+                quantity=0,
+                sigma_adjustment=0,
+                manufacturer="Unspecified",
+                source="Manual Ledger",
+            )
+            db.add(fp)
+            await db.flush()
+
+        eff = max(0, int(fp.quantity or 0) + int(fp.sigma_adjustment or 0))
+        db.add(InventoryEvent(
+            id=str(uuid.uuid4()),
+            component_id=component_id,
+            footprint_id=fp.id,
+            event_type="order",
+            quantity_input=int(quantity_ordered or 0),
+            quantity_change=0,
+            sigma_change=0,
+            resulting_raw_quantity=int(fp.quantity or 0),
+            resulting_effective_quantity=eff,
+            reference_id=order_id,
+            notes=notes,
+        ))
     return {"id": item.id}
 
 
@@ -152,10 +181,26 @@ async def receive_order(order_id: str, db: AsyncSession = Depends(get_db)):
                     id=str(uuid.uuid4()),
                     component_id=item.component_id,
                     quantity=item.quantity_ordered,
+                    sigma_adjustment=0,
                     manufacturer="Unknown",
                     source="Purchase Order",
                 )
                 db.add(fp)
+
+            eff = max(0, int(fp.quantity or 0) + int(fp.sigma_adjustment or 0))
+            db.add(InventoryEvent(
+                id=str(uuid.uuid4()),
+                component_id=item.component_id,
+                footprint_id=fp.id,
+                event_type="restock",
+                quantity_input=int(item.quantity_ordered or 0),
+                quantity_change=int(item.quantity_ordered or 0),
+                sigma_change=0,
+                resulting_raw_quantity=int(fp.quantity or 0),
+                resulting_effective_quantity=eff,
+                reference_id=order_id,
+                notes="Auto-restock from purchase order receive",
+            ))
 
     po.status = "received"
     po.received_date = datetime.utcnow()

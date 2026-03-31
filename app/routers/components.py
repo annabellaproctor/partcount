@@ -5,7 +5,7 @@ from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Footprint, BinAssignment
+from app.models.models import Component, ComponentType, Footprint, BinAssignment, InventoryEvent
 from app.services.barcode_svc import generate_code128_svg, generate_qr, autocrop_image, next_barcode_id
 from app.services.short_title import generate_short_title
 from app.services.influx import write_scan_event, write_stock_change
@@ -668,6 +668,18 @@ class StockUpdateRequest(BaseModel):
     footprint_id: Optional[str] = None
 
 
+class InventoryActionRequest(BaseModel):
+    action: str
+    quantity: int = 0
+    footprint_id: Optional[str] = None
+    notes: Optional[str] = None
+    reference_id: Optional[str] = None
+
+
+def _effective_quantity(fp: Footprint) -> int:
+    return max(0, int(fp.quantity or 0) + int(fp.sigma_adjustment or 0))
+
+
 @router.post("/{component_id}/stock")
 async def update_stock_by_id(
     component_id: str,
@@ -737,7 +749,7 @@ async def get_generic_stock(component_id: str, db: AsyncSession = Depends(get_db
     else:
         # Not linked to a generic — return this component's own stock
         fp_result = await db.execute(
-            select(func.coalesce(func.sum(Footprint.quantity), 0))
+            select(func.coalesce(func.sum(Footprint.quantity + func.coalesce(Footprint.sigma_adjustment, 0)), 0))
             .where(Footprint.component_id == component_id)
         )
         total = fp_result.scalar()
@@ -759,7 +771,7 @@ async def get_generic_stock(component_id: str, db: AsyncSession = Depends(get_db
     fp_agg = await db.execute(
         select(
             Footprint.component_id,
-            func.sum(Footprint.quantity).label("total"),
+            func.sum(Footprint.quantity + func.coalesce(Footprint.sigma_adjustment, 0)).label("total"),
         )
         .where(Footprint.component_id.in_(all_ids))
         .group_by(Footprint.component_id)
@@ -793,6 +805,159 @@ async def get_generic_stock(component_id: str, db: AsyncSession = Depends(get_db
         "is_generic": True,
         "total_stock": total_stock,
         "breakdown": breakdown,
+    }
+
+
+@router.get("/{component_id}/inventory-events")
+async def list_inventory_events(
+    component_id: str,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    comp = (await db.execute(select(Component).where(Component.id == component_id))).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    take = max(1, min(limit, 500))
+    rows = (await db.execute(
+        select(InventoryEvent)
+        .where(InventoryEvent.component_id == component_id)
+        .order_by(InventoryEvent.created_at.desc())
+        .limit(take)
+    )).scalars().all()
+
+    return [
+        {
+            "id": e.id,
+            "event_type": e.event_type,
+            "component_id": e.component_id,
+            "footprint_id": e.footprint_id,
+            "quantity_input": int(e.quantity_input or 0),
+            "quantity_change": int(e.quantity_change or 0),
+            "sigma_change": int(e.sigma_change or 0),
+            "resulting_raw_quantity": int(e.resulting_raw_quantity or 0),
+            "resulting_effective_quantity": int(e.resulting_effective_quantity or 0),
+            "reference_id": e.reference_id,
+            "notes": e.notes or "",
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in rows
+    ]
+
+
+@router.post("/{component_id}/inventory-action")
+async def inventory_action(
+    component_id: str,
+    req: InventoryActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    comp = (await db.execute(select(Component).where(Component.id == component_id))).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+
+    action = (req.action or "").strip().lower()
+    if action not in {"take", "put", "restock", "order", "calibrate"}:
+        raise HTTPException(400, "Invalid action")
+
+    qty = int(req.quantity or 0)
+    if action in {"take", "put", "restock", "order"} and qty <= 0:
+        raise HTTPException(400, "quantity must be > 0 for this action")
+    if action == "calibrate" and qty < 0:
+        raise HTTPException(400, "calibration target must be >= 0")
+
+    if req.footprint_id:
+        fp = (await db.execute(
+            select(Footprint).where(
+                Footprint.id == req.footprint_id,
+                Footprint.component_id == component_id,
+            )
+        )).scalar_one_or_none()
+    else:
+        fp = (await db.execute(select(Footprint).where(Footprint.component_id == component_id).limit(1))).scalar_one_or_none()
+
+    # Allow ledger-first workflows even when there is no baseline stock record.
+    if not fp:
+        fp = Footprint(
+            id=str(uuid.uuid4()),
+            component_id=component_id,
+            manufacturer="Unspecified",
+            source="Manual Ledger",
+            quantity=0,
+            sigma_adjustment=0,
+        )
+        db.add(fp)
+        await db.flush()
+
+    raw_before = int(fp.quantity or 0)
+    sigma_before = int(fp.sigma_adjustment or 0)
+    effective_before = _effective_quantity(fp)
+
+    quantity_change = 0
+    sigma_change = 0
+
+    if action == "take":
+        fp.quantity = max(0, raw_before - qty)
+        quantity_change = int(fp.quantity or 0) - raw_before
+    elif action in {"put", "restock"}:
+        fp.quantity = raw_before + qty
+        quantity_change = qty
+    elif action == "calibrate":
+        sigma_change = qty - effective_before
+        fp.sigma_adjustment = sigma_before + sigma_change
+    else:
+        # order is ledger-only; receiving can be recorded as restock later.
+        quantity_change = 0
+
+    raw_after = int(fp.quantity or 0)
+    sigma_after = int(fp.sigma_adjustment or 0)
+    effective_after = _effective_quantity(fp)
+
+    ev = InventoryEvent(
+        id=str(uuid.uuid4()),
+        component_id=component_id,
+        footprint_id=fp.id,
+        event_type=action,
+        quantity_input=qty,
+        quantity_change=quantity_change,
+        sigma_change=sigma_change,
+        resulting_raw_quantity=raw_after,
+        resulting_effective_quantity=effective_after,
+        reference_id=(req.reference_id or None),
+        notes=(req.notes or None),
+    )
+    db.add(ev)
+
+    if action in {"take", "put", "restock", "calibrate"}:
+        write_stock_change(comp.barcode_id, comp.name, quantity_change, effective_after, fp.id)
+        await manager.broadcast(
+            "stock_change",
+            {
+                "barcode_id": comp.barcode_id,
+                "component_id": component_id,
+                "footprint_id": fp.id,
+                "action": action,
+                "raw_quantity": raw_after,
+                "sigma_adjustment": sigma_after,
+                "quantity": effective_after,
+                "delta": quantity_change,
+                "sigma_delta": sigma_change,
+            },
+        )
+
+    return {
+        "ok": True,
+        "event_id": ev.id,
+        "component_id": component_id,
+        "footprint_id": fp.id,
+        "action": action,
+        "raw_before": raw_before,
+        "sigma_before": sigma_before,
+        "effective_before": effective_before,
+        "raw_quantity": raw_after,
+        "sigma_adjustment": sigma_after,
+        "effective_quantity": effective_after,
+        "quantity_change": quantity_change,
+        "sigma_change": sigma_change,
     }
 
 

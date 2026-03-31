@@ -361,6 +361,27 @@ MIGRATIONS = [
                     "UPDATE barcode_print_jobs SET print_mode = 'barcode' WHERE print_mode IS NULL",
                     "UPDATE barcode_print_items SET print_mode = 'barcode' WHERE print_mode IS NULL",
                 ]),
+
+    (16, "inventory ledger + sigma calibration offsets", [
+        "ALTER TABLE footprints ADD COLUMN IF NOT EXISTS sigma_adjustment INTEGER NOT NULL DEFAULT 0",
+        "UPDATE footprints SET sigma_adjustment = 0 WHERE sigma_adjustment IS NULL",
+        """CREATE TABLE IF NOT EXISTS inventory_events (
+            id VARCHAR PRIMARY KEY,
+            component_id VARCHAR NOT NULL REFERENCES components(id),
+            footprint_id VARCHAR REFERENCES footprints(id),
+            event_type VARCHAR NOT NULL,
+            quantity_input INTEGER NOT NULL DEFAULT 0,
+            quantity_change INTEGER NOT NULL DEFAULT 0,
+            sigma_change INTEGER NOT NULL DEFAULT 0,
+            resulting_raw_quantity INTEGER NOT NULL DEFAULT 0,
+            resulting_effective_quantity INTEGER NOT NULL DEFAULT 0,
+            reference_id VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_events_component_created ON inventory_events (component_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_events_footprint_created ON inventory_events (footprint_id, created_at DESC)",
+    ]),
 ]
 
 
