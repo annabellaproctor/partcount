@@ -209,11 +209,22 @@ def _build_calibration_cell(run_label: str, marker_style: str, full_cross: dict 
     line_style = str(full_cross.get("line_style", "solid")).lower()
     if line_style not in {"solid", "dashed", "dotted"}:
       line_style = "solid"
+
+    dasharray = ""
+    linecap = "square"
+    if line_style == "dashed":
+      dasharray = ' stroke-dasharray="4 2"'
+    elif line_style == "dotted":
+      dasharray = ' stroke-dasharray="0.8 2.2"'
+      linecap = "round"
+
     return (
       '<div class="calibration">'
-      f'<div class="full-cross full-cross-{line_style}">'
-      f'<div class="axis-h" style="top:{y_pct:.2f}%;"></div>'
-      f'<div class="axis-v" style="left:{x_pct:.2f}%;"></div>'
+      '<div class="full-cross">'
+      f'<svg class="full-cross-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
+      f'<line x1="0" y1="{y_pct:.2f}" x2="100" y2="{y_pct:.2f}" stroke="#000" stroke-width="0.7" stroke-linecap="{linecap}"{dasharray}></line>'
+      f'<line x1="{x_pct:.2f}" y1="0" x2="{x_pct:.2f}" y2="100" stroke="#000" stroke-width="0.7" stroke-linecap="{linecap}"{dasharray}></line>'
+      '</svg>'
       '</div>'
       f'<div class="cal-rev">{html.escape(run_label)}</div>'
       '</div>'
@@ -761,30 +772,7 @@ async def print_sheet_designer(
     font-size: 5pt; opacity: 0.9; font-family: monospace;
   }}
   .full-cross {{ position: absolute; inset: 0; }}
-  .full-cross .axis-h, .full-cross .axis-v {{ position: absolute; background: #000; }}
-  .full-cross .axis-h {{ left: 0; width: 100%; height: 0.35mm; transform: translateY(-50%); }}
-  .full-cross .axis-v {{ top: 0; height: 100%; width: 0.35mm; transform: translateX(-50%); }}
-  .full-cross-dashed .axis-h, .full-cross-dashed .axis-v {{
-    background: repeating-linear-gradient(
-      to right,
-      #000 0,
-      #000 1.2mm,
-      transparent 1.2mm,
-      transparent 2.0mm
-    );
-  }}
-  .full-cross-dashed .axis-v {{
-    background: repeating-linear-gradient(
-      to bottom,
-      #000 0,
-      #000 1.2mm,
-      transparent 1.2mm,
-      transparent 2.0mm
-    );
-  }}
-  .full-cross-dotted .axis-h, .full-cross-dotted .axis-v {{
-    background: repeating-radial-gradient(circle at center, #000 0 0.35mm, transparent 0.35mm 0.95mm);
-  }}
+  .full-cross-svg {{ position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; shape-rendering: geometricPrecision; }}
   .corner-debug {{
     position: absolute;
     inset: 0;
