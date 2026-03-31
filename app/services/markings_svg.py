@@ -95,8 +95,11 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
         # Dot-shape grammar: .8 .3 .0 .4 .R .5*
         if low.startswith("."):
-            if low == ".r":
-                layout["shape"] = {"type": "rectangle"}
+            if low in {".r", ".rx"}:
+                layout["shape"] = {"type": "rectangle", "axis": "x"}
+                continue
+            if low == ".ry":
+                layout["shape"] = {"type": "rectangle", "axis": "y"}
                 continue
             m = re.match(r"^\.(\d+)(\*+)?$", low)
             if m:
@@ -191,7 +194,17 @@ def _shape_element(shape: dict | None, x: float, y: float, w: float, h: float, d
         return f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{s:.2f}" height="{s:.2f}" {style}/>'
 
     if st == "rectangle":
-        return f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" {style}/>'
+        axis = str(shape.get("axis") or "x").lower()
+        if axis == "y":
+            rw = w * 0.58
+            rh = h * 0.92
+        else:
+            # Default rectangle is longways (sideways/horizontal).
+            rw = w * 0.92
+            rh = h * 0.58
+        rx = cx - (rw / 2.0)
+        ry = cy - (rh / 2.0)
+        return f'<rect x="{rx:.2f}" y="{ry:.2f}" width="{rw:.2f}" height="{rh:.2f}" {style}/>'
 
     if st == "polygon":
         n = int(shape.get("points") or 6)
