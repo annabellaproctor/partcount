@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +15,61 @@ from datetime import datetime
 import os, shutil, uuid
 import json
 import re
+import csv
+import io
 from sqlalchemy import or_
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
 router = APIRouter(prefix="/api/components", tags=["components"])
+
+
+CSV_FIELDS = [
+    "barcode_id", "name", "short_title", "short_title_manual",
+    "value", "unit", "package", "tolerance", "voltage_rating",
+    "mpn", "digikey_pn", "lcsc_pn", "datasheet_url", "description", "notes",
+    "type_path", "type_data", "sticker_tag_no", "search_alias",
+]
+
+
+def _normalize_delimiter(delim: str | None) -> str:
+    d = (delim or "auto").strip().lower()
+    if d in {";", "semicolon", "semi"}:
+        return ";"
+    if d in {"tab", "\\t", "t"}:
+        return "\t"
+    if d in {",", "comma", "csv"}:
+        return ","
+    return "auto"
+
+
+def _read_csv_rows(raw: str, delimiter: str) -> list[dict]:
+    text_data = raw.lstrip("\ufeff")
+    if delimiter == "auto":
+        sniffer = csv.Sniffer()
+        sample = text_data[:4096]
+        try:
+            dialect = sniffer.sniff(sample, delimiters=[",", ";", "\t"])
+            reader = csv.DictReader(io.StringIO(text_data), dialect=dialect)
+        except Exception:
+            reader = csv.DictReader(io.StringIO(text_data), delimiter=",")
+    else:
+        reader = csv.DictReader(io.StringIO(text_data), delimiter=delimiter)
+    return [dict(r) for r in reader]
+
+
+def _csv_bool(v: Any) -> bool:
+    return str(v or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _compact_title_for(comp: Component, payload: dict | None = None) -> str:
+    p = payload or {}
+    return generate_short_title(
+        name=(p.get("name") if payload else comp.name),
+        value=(p.get("value") if payload else comp.value),
+        unit=(p.get("unit") if payload else comp.unit),
+        package=(p.get("package") if payload else comp.package),
+        type_path=(p.get("type_path") if payload else comp.type_path),
+    )
 
 
 def _append_search_alias(comp: Component, alias: str | None):
@@ -199,6 +251,187 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
         }
         for c in comps
     ]
+
+
+@router.get("/export-all", response_class=PlainTextResponse)
+async def export_all_components(
+    delimiter: str = "semicolon",
+    db: AsyncSession = Depends(get_db),
+):
+    d = _normalize_delimiter(delimiter)
+    sep = ";" if d == "auto" else d
+    comps = (await db.execute(select(Component).order_by(Component.barcode_id))).scalars().all()
+
+    out = io.StringIO()
+    fields = CSV_FIELDS + ["title_compact", "name_human"]
+    writer = csv.DictWriter(out, fieldnames=fields, delimiter=sep, lineterminator="\n")
+    writer.writeheader()
+
+    for c in comps:
+        row = {
+            "barcode_id": c.barcode_id or "",
+            "name": c.name or "",
+            "short_title": c.short_title or "",
+            "short_title_manual": "1" if c.short_title_manual else "0",
+            "value": c.value or "",
+            "unit": c.unit or "",
+            "package": c.package or "",
+            "tolerance": c.tolerance or "",
+            "voltage_rating": "" if c.voltage_rating is None else f"{c.voltage_rating:g}",
+            "mpn": c.mpn or "",
+            "digikey_pn": c.digikey_pn or "",
+            "lcsc_pn": c.lcsc_pn or "",
+            "datasheet_url": c.datasheet_url or "",
+            "description": c.description or "",
+            "notes": c.notes or "",
+            "type_path": c.type_path or "",
+            "type_data": json.dumps(c.type_data) if isinstance(c.type_data, dict) else "",
+            "sticker_tag_no": "" if c.sticker_tag_no is None else str(c.sticker_tag_no),
+            "search_alias": c.search_alias or "",
+            "title_compact": _compact_title_for(c),
+            "name_human": c.name or "",
+        }
+        writer.writerow(row)
+
+    return out.getvalue()
+
+
+@router.post("/import-new")
+async def import_components_new(
+    file: UploadFile = File(...),
+    delimiter: str = Form("auto"),
+    db: AsyncSession = Depends(get_db),
+):
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    rows = _read_csv_rows(raw, _normalize_delimiter(delimiter))
+    if not rows:
+        raise HTTPException(400, "No rows found")
+
+    created = 0
+    skipped = 0
+    errors = []
+    for idx, r in enumerate(rows, start=2):
+        try:
+            bid = (r.get("barcode_id") or "").strip()
+            if not bid:
+                skipped += 1
+                continue
+            exists = (await db.execute(select(Component).where(Component.barcode_id == bid))).scalar_one_or_none()
+            if exists:
+                skipped += 1
+                continue
+
+            payload = {k: (r.get(k) or "").strip() for k in CSV_FIELDS}
+            comp = Component(
+                barcode_id=bid,
+                name=(payload.get("name") or "Component"),
+                short_title=(payload.get("short_title") or None),
+                short_title_manual=_csv_bool(payload.get("short_title_manual")),
+                value=(payload.get("value") or None),
+                unit=(payload.get("unit") or None),
+                package=(payload.get("package") or None),
+                tolerance=(payload.get("tolerance") or None),
+                voltage_rating=(float(payload["voltage_rating"]) if payload.get("voltage_rating") else None),
+                mpn=(payload.get("mpn") or None),
+                digikey_pn=(payload.get("digikey_pn") or None),
+                lcsc_pn=(payload.get("lcsc_pn") or None),
+                datasheet_url=(payload.get("datasheet_url") or None),
+                description=(payload.get("description") or None),
+                notes=(payload.get("notes") or None),
+                type_path=(payload.get("type_path") or None),
+                sticker_tag_no=(int(payload["sticker_tag_no"]) if payload.get("sticker_tag_no") else None),
+                search_alias=(payload.get("search_alias") or None),
+            )
+            if payload.get("type_data"):
+                try:
+                    comp.type_data = json.loads(payload["type_data"])
+                except Exception:
+                    pass
+            if not comp.short_title:
+                comp.short_title = _compact_title_for(comp, payload)
+            db.add(comp)
+            created += 1
+        except Exception as e:
+            errors.append({"line": idx, "error": str(e)[:160]})
+
+    await db.flush()
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@router.post("/import-modifications")
+async def import_components_modifications(
+    file: UploadFile = File(...),
+    delimiter: str = Form("auto"),
+    db: AsyncSession = Depends(get_db),
+):
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    rows = _read_csv_rows(raw, _normalize_delimiter(delimiter))
+    if not rows:
+        raise HTTPException(400, "No rows found")
+
+    updated = 0
+    skipped = 0
+    errors = []
+    for idx, r in enumerate(rows, start=2):
+        try:
+            bid = (r.get("barcode_id") or "").strip()
+            if not bid:
+                skipped += 1
+                continue
+            comp = (await db.execute(select(Component).where(Component.barcode_id == bid))).scalar_one_or_none()
+            if not comp:
+                skipped += 1
+                continue
+
+            changed = False
+            for f in CSV_FIELDS:
+                if f not in r:
+                    continue
+                val = (r.get(f) or "").strip()
+                if f in {"barcode_id"}:
+                    continue
+                if f == "short_title_manual":
+                    comp.short_title_manual = _csv_bool(val)
+                    changed = True
+                    continue
+                if f == "voltage_rating":
+                    comp.voltage_rating = float(val) if val else None
+                    changed = True
+                    continue
+                if f == "sticker_tag_no":
+                    comp.sticker_tag_no = int(val) if val else None
+                    changed = True
+                    continue
+                if f == "type_data":
+                    if val:
+                        try:
+                            comp.type_data = json.loads(val)
+                        except Exception:
+                            pass
+                    else:
+                        comp.type_data = None
+                    changed = True
+                    continue
+                if hasattr(comp, f):
+                    setattr(comp, f, val or None)
+                    changed = True
+
+            compact = (r.get("title_compact") or "").strip()
+            human = (r.get("name_human") or "").strip()
+            if compact:
+                comp.short_title = compact
+                comp.short_title_manual = True
+                changed = True
+            if human:
+                comp.name = human
+                changed = True
+            if changed:
+                updated += 1
+        except Exception as e:
+            errors.append({"line": idx, "error": str(e)[:160]})
+
+    await db.flush()
+    return {"updated": updated, "skipped": skipped, "errors": errors}
 
 @router.get("/types")
 async def list_types(db: AsyncSession = Depends(get_db)):

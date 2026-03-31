@@ -43,6 +43,7 @@ DEFAULT_LABEL_SETTINGS = {
   "show_cut_grid": True,
   "show_full_cut_grid": False,
   "show_debug_grid": False,
+  "sticker_split_mode": "none",
   "cut_marker_style": "cross",
   "show_image": False,
   "image_min_height_in": 0.8,
@@ -151,6 +152,9 @@ def _clean_settings(settings: dict | None) -> dict:
   s["show_cut_grid"] = bool(s.get("show_cut_grid", True))
   s["show_full_cut_grid"] = bool(s.get("show_full_cut_grid", False))
   s["show_debug_grid"] = bool(s.get("show_debug_grid", False))
+  s["sticker_split_mode"] = str(s.get("sticker_split_mode", "none")).lower()
+  if s["sticker_split_mode"] not in {"none", "vertical", "horizontal"}:
+    s["sticker_split_mode"] = "none"
   s["show_image"] = bool(s.get("show_image", False))
   s["cut_marker_style"] = str(s.get("cut_marker_style", "cross")).lower()
   if s["cut_marker_style"] not in {"cross", "dot"}:
@@ -328,15 +332,29 @@ def _build_front_cell(comp: Component, settings: dict) -> str:
   title = _title_with_hyphen_breaks(comp.short_title or comp.name or "")
   bid = html.escape(_normalize_barcode_for_print(comp.barcode_id))
 
-  # Each printable cell is split into two micro labels for the 14.9x9.9mm workflow.
+  split_mode = str(settings.get("sticker_split_mode", "none"))
   micro = (
     '<div class="front-mini">'
     f'<div class="front-name">{title}</div>'
     f'<div class="front-id">{bid}</div>'
     '</div>'
   )
+  if split_mode == "none":
+    return (
+      '<div class="front front-single">'
+      f'{micro}'
+      '<div class="sticker-zone" aria-hidden="true"></div>'
+      '</div>'
+    )
+  if split_mode == "horizontal":
+    return (
+      '<div class="front front-dual front-horizontal">'
+      f'{micro}{micro}'
+      '<div class="sticker-zone" aria-hidden="true"></div>'
+      '</div>'
+    )
   return (
-    '<div class="front front-dual">'
+    '<div class="front front-dual front-vertical">'
     f'{micro}{micro}'
     '<div class="sticker-zone" aria-hidden="true"></div>'
     '</div>'
@@ -351,18 +369,17 @@ def _build_barcode_cell(comp: Component, settings: dict) -> str:
   svg = raw_svg
   if "<svg" in raw_svg:
     svg = raw_svg.replace("<svg", '<svg preserveAspectRatio="none"', 1)
+  split_mode = str(settings.get("sticker_split_mode", "none"))
   mini = f'<div class="barcode-mini">{svg}</div>'
-  return f'<div class="barcode-wrap barcode-dual">{mini}{mini}<div class="sticker-zone" aria-hidden="true"></div></div>'
+  if split_mode == "none":
+    return f'<div class="barcode-wrap barcode-single">{mini}<div class="sticker-zone" aria-hidden="true"></div></div>'
+  if split_mode == "horizontal":
+    return f'<div class="barcode-wrap barcode-dual barcode-horizontal">{mini}{mini}<div class="sticker-zone" aria-hidden="true"></div></div>'
+  return f'<div class="barcode-wrap barcode-dual barcode-vertical">{mini}{mini}<div class="sticker-zone" aria-hidden="true"></div></div>'
 
 
 def _build_grid_test_cell() -> str:
-  return (
-    '<div class="grid-test">'
-    '<div class="grid-mini"></div>'
-    '<div class="grid-mini"></div>'
-    '<div class="sticker-zone"></div>'
-    '</div>'
-  )
+  return '<div class="grid-test"><div class="sticker-zone"></div></div>'
 
 
 def _build_calibration_cell(run_label: str, marker_style: str, full_cross: dict | None = None) -> str:

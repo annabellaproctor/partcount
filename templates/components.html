@@ -74,6 +74,19 @@
       <input id="collection-command" class="form-control form-control-sm" style="min-width:460px;flex:1;" placeholder="Collection command e.g. add all resistors 5% tol, 1/4w carbon film resistor from 10ohm to 100ohm">
       <button class="btn btn-primary btn-sm" onclick="runCollectionCommand()">Create Collection</button>
     </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="csv-file" type="file" class="form-control form-control-sm" style="min-width:260px;max-width:380px;" accept=".csv,.txt,.tsv">
+      <select id="csv-delimiter" class="form-select form-select-sm" style="width:150px;">
+        <option value="auto">Delimiter: Auto</option>
+        <option value="semicolon">Delimiter: ;</option>
+        <option value="tab">Delimiter: Tab</option>
+        <option value="comma">Delimiter: ,</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="importCsvNewOnly()">Import New</button>
+      <button class="btn btn-primary btn-sm" onclick="importCsvModifications()">Import Modifications</button>
+      <button class="btn btn-primary btn-sm" onclick="exportAllCsv()">Export All</button>
+    </div>
     <div id="batch-status" class="muted" style="font-size:11px;"></div>
   </div>
 </div>
@@ -104,6 +117,9 @@
         </td>
         <td>
           <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
+          {% if comp.short_title and comp.short_title != comp.name %}
+          <div class="comp-compact-title">{{ comp.short_title }}</div>
+          {% endif %}
           {% if comp.is_generic %}
           <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:1px 5px;border-radius:2px;margin-left:4px;">GENERIC</span>
           {% elif comp.parent_id %}
@@ -387,9 +403,68 @@ async function runCollectionCommand() {
   setTimeout(() => location.reload(), 250)
 }
 
+async function importCsvNewOnly() {
+  const status = document.getElementById('batch-status')
+  const fileInput = document.getElementById('csv-file')
+  const delim = document.getElementById('csv-delimiter').value
+  if (!fileInput.files?.length) { status.textContent = 'Choose a CSV/TSV file first'; return }
+  const form = new FormData()
+  form.append('file', fileInput.files[0])
+  form.append('delimiter', delim)
+  status.textContent = 'Importing new rows...'
+  const r = await fetch('/api/components/import-new', { method: 'POST', body: form })
+  if (!r.ok) {
+    status.textContent = 'Import new failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `Created ${data.created || 0}, skipped ${data.skipped || 0}${data.errors?.length ? `, errors ${data.errors.length}` : ''}`
+  setTimeout(() => location.reload(), 350)
+}
+
+async function importCsvModifications() {
+  const status = document.getElementById('batch-status')
+  const fileInput = document.getElementById('csv-file')
+  const delim = document.getElementById('csv-delimiter').value
+  if (!fileInput.files?.length) { status.textContent = 'Choose a CSV/TSV file first'; return }
+  const form = new FormData()
+  form.append('file', fileInput.files[0])
+  form.append('delimiter', delim)
+  status.textContent = 'Applying modifications...'
+  const r = await fetch('/api/components/import-modifications', { method: 'POST', body: form })
+  if (!r.ok) {
+    status.textContent = 'Import modifications failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `Updated ${data.updated || 0}, skipped ${data.skipped || 0}${data.errors?.length ? `, errors ${data.errors.length}` : ''}`
+  setTimeout(() => location.reload(), 350)
+}
+
+function exportAllCsv() {
+  const delim = document.getElementById('csv-delimiter').value || 'semicolon'
+  window.open(`/api/components/export-all?delimiter=${encodeURIComponent(delim)}`, '_blank')
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   updateBatchSelection()
   applyFilters()
 })
 </script>
+<style>
+.comp-compact-title {
+  font-size: 10px;
+  color: var(--text3);
+  margin-top: 2px;
+  letter-spacing: 0.1px;
+}
+@media (max-width: 860px) {
+  .comp-compact-title {
+    display: block;
+    font-size: 9px;
+    color: var(--blue);
+    font-weight: 600;
+  }
+}
+</style>
 {% endblock %}
