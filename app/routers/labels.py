@@ -1039,13 +1039,14 @@ async def print_sheet_designer(
     box-sizing: border-box;
     text-align: left;
   }}
-  .front-dual {{ padding-right: 0.28in; }}
+  .front-dual {{ padding-right: 0; }}
   .front-dual::before {{
     content: '';
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: calc((100% - 0.28in) / 2);
+    left: 50%;
+    transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
     z-index: 1;
     opacity: 0.7;
@@ -1114,13 +1115,14 @@ async def print_sheet_designer(
     padding: 0.8mm;
     box-sizing: border-box;
   }}
-  .barcode-dual {{ padding-right: 0.28in; }}
+  .barcode-dual {{ padding-right: 0; }}
   .barcode-dual::before {{
     content: '';
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: calc((100% - 0.28in) / 2);
+    left: 50%;
+    transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
     z-index: 1;
     opacity: 0.7;
@@ -1136,6 +1138,8 @@ async def print_sheet_designer(
     overflow: hidden;
     z-index: 2;
   }}
+  .front-mini:last-child {{ padding-left: 1.2mm; }}
+  .barcode-mini:last-child {{ padding-left: 1.0mm; }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
