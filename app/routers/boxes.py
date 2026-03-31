@@ -45,6 +45,7 @@ async def box_grid(box_id: str, db: AsyncSession = Depends(get_db), format: str 
             "name": r.Component.name,
             "value": r.Component.value,
             "image_path": r.Component.image_path,
+            "sticker_tag_no": r.Component.sticker_tag_no,
         }
         for r in rows
     ]

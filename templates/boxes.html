@@ -140,6 +140,14 @@ function openBoxForm() {
   p.style.display = p.style.display === 'none' ? '' : 'none';
 }
 
+// Sticker tag colors
+const STICKER_TAGS = {
+  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
+  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
+  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
+  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+};
+
 // Load occupancy for each box and color the mini cells
 async function loadOccupancy() {
   const tiles = document.querySelectorAll('.mini-grid[data-box-id]');
@@ -163,7 +171,13 @@ async function loadOccupancy() {
         if (m) {
           const idx = parseInt(m[1]) * cols + parseInt(m[2]);
           const cellEl = cells[idx];
-          if (cellEl) { cellEl.classList.add('used'); cellEl.style.background = 'var(--green2)'; usedCount++; }
+          if (cellEl) {
+            cellEl.classList.add('used');
+            // Use sticker tag color if available, otherwise use green
+            const color = (d.sticker_tag_no && STICKER_TAGS[d.sticker_tag_no]) ? STICKER_TAGS[d.sticker_tag_no] : 'var(--green2)';
+            cellEl.style.background = color;
+            usedCount++;
+          }
         }
       });
       // gray out remaining
