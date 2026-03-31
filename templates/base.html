@@ -152,6 +152,16 @@
       font-weight: normal;
       padding: 7px 12px;
     }
+    .table th.sortable-th { cursor: pointer; user-select: none; position: relative; }
+    .table th.sortable-th::after {
+      content: '↕';
+      font-size: 10px;
+      color: var(--text3);
+      margin-left: 6px;
+      opacity: 0.7;
+    }
+    .table th.sortable-th[data-sort-dir="asc"]::after { content: '▲'; color: var(--green); opacity: 1; }
+    .table th.sortable-th[data-sort-dir="desc"]::after { content: '▼'; color: var(--green); opacity: 1; }
     .table td { border-color: var(--border); vertical-align: middle; padding: 7px 12px; background: var(--bg2) !important; color: var(--text); }
     .table tbody tr:hover td { background: var(--bg3) !important; }
 
@@ -864,6 +874,250 @@ document.addEventListener('keydown', e => {
   if (e.key==='a'||e.key==='A') openAddPopup(e);
   if (e.key==='Escape') closeAddPopup();
 });
+</script>
+
+<script>
+// ── Global Smart Table Sorting ────────────────────────────────────────────
+(function () {
+  const RELATION_WEIGHT = {
+    '<': -0.4,
+    '<=': -0.2,
+    '=': 0,
+    '~': 0,
+    '>=': 0.2,
+    '>': 0.4,
+  };
+
+  const PREFIX_FACTORS = {
+    p: 1e-12,
+    n: 1e-9,
+    u: 1e-6,
+    m: 1e-3,
+    k: 1e3,
+    K: 1e3,
+    M: 1e6,
+    G: 1e9,
+    T: 1e12,
+  };
+
+  function normalizeRawText(s) {
+    return (s || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[\u2000-\u200b]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function canonicalUnit(raw) {
+    if (!raw) return { family: 'scalar', factor: 1 };
+    const u = raw
+      .replace(/[Ωω]/g, 'ohm')
+      .replace(/°/g, '')
+      .trim();
+    const low = u.toLowerCase();
+
+    const map = {
+      // Mass
+      g: ['mass', 1],
+      kg: ['mass', 1e3],
+      mg: ['mass', 1e-3],
+      lb: ['mass', 453.59237],
+      oz: ['mass', 28.349523125],
+
+      // Data size
+      b: ['bytes', 1],
+      kb: ['bytes', 1024],
+      mb: ['bytes', 1024 ** 2],
+      gb: ['bytes', 1024 ** 3],
+      tb: ['bytes', 1024 ** 4],
+
+      // Time
+      s: ['time', 1],
+      sec: ['time', 1],
+      ms: ['time', 1e-3],
+      min: ['time', 60],
+      hr: ['time', 3600],
+      day: ['time', 86400],
+      mo: ['time', 2629800],
+      yr: ['time', 31557600],
+
+      // Electrical
+      v: ['voltage', 1],
+      a: ['current', 1],
+      w: ['power', 1],
+      ohm: ['resistance', 1],
+      f: ['capacitance', 1],
+      h: ['inductance', 1],
+      hz: ['frequency', 1],
+      wh: ['energy_wh', 1],
+      ah: ['charge_ah', 1],
+    };
+
+    if (map[low]) return { family: map[low][0], factor: map[low][1] };
+
+    // SI-prefixed electrical/frequency/energy/charge units (kHz, mAh, uF, etc.)
+    if (u.length >= 2) {
+      const p = u[0];
+      const rest = u.slice(1).toLowerCase();
+      if (PREFIX_FACTORS[p] !== undefined && map[rest]) {
+        return {
+          family: map[rest][0],
+          factor: map[rest][1] * PREFIX_FACTORS[p],
+        };
+      }
+    }
+
+    return { family: low, factor: 1 };
+  }
+
+  function parseScalar(raw) {
+    let s = normalizeRawText(raw);
+    if (!s) return null;
+
+    let relation = '=';
+    const rel = s.match(/^(<=|>=|<|>|=|~)\s*/);
+    if (rel) {
+      relation = rel[1];
+      s = s.slice(rel[0].length).trim();
+    }
+
+    // Fraction like 1/4W
+    const frac = s.match(/^([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)(.*)$/);
+    if (frac) {
+      const n = parseFloat(frac[1]);
+      const d = parseFloat(frac[2]);
+      if (Number.isFinite(n) && Number.isFinite(d) && d !== 0) {
+        s = `${n / d}${frac[3] || ''}`;
+      }
+    }
+
+    const numMatch = s.match(/^([+-]?(?:\d[\d,]*\.?\d*|\.\d+))(.*)$/);
+    if (!numMatch) return null;
+
+    let value = parseFloat(numMatch[1].replace(/,/g, ''));
+    if (!Number.isFinite(value)) return null;
+
+    let rest = (numMatch[2] || '').trim();
+    if (rest) {
+      // Quantifier prefix attached directly (10k, 3M, 100uF).
+      const maybePrefix = rest[0];
+      if (PREFIX_FACTORS[maybePrefix] !== undefined) {
+        value *= PREFIX_FACTORS[maybePrefix];
+        rest = rest.slice(1);
+      }
+    }
+
+    const unit = canonicalUnit(rest);
+    const adjusted = (value * unit.factor) + (RELATION_WEIGHT[relation] || 0);
+    return { kind: 'num', value: adjusted, family: unit.family };
+  }
+
+  function parseSmartValue(raw) {
+    const text = normalizeRawText(raw);
+    if (!text) return { kind: 'text', text: '' };
+
+    // Date handling
+    const ts = Date.parse(text);
+    if (!Number.isNaN(ts) && /\d{4}|\d{1,2}[\/\-]\d{1,2}/.test(text)) {
+      return { kind: 'num', value: ts, family: 'date' };
+    }
+
+    // Range handling: 10-20V => midpoint
+    const range = text.match(/^(.+?)\s*[-–]\s*(.+)$/);
+    if (range) {
+      const left = parseScalar(range[1]);
+      const right = parseScalar(range[2]);
+      if (left && right && left.family === right.family) {
+        return { kind: 'num', value: (left.value + right.value) / 2, family: left.family };
+      }
+    }
+
+    // Rate handling: 10MB/s, 2Ah/yr, /hr
+    const rate = text.match(/^(.*?)\s*\/\s*([a-zA-ZµμΩω]+)$/);
+    if (rate) {
+      const leftRaw = normalizeRawText(rate[1]);
+      const denomRaw = normalizeRawText(rate[2]);
+      const left = leftRaw ? parseScalar(leftRaw) : { kind: 'num', value: 1, family: 'scalar' };
+      const denom = parseScalar(`1${denomRaw}`);
+      if (left && denom && denom.value !== 0) {
+        return {
+          kind: 'num',
+          value: left.value / denom.value,
+          family: `${left.family}_per_${denom.family}`,
+        };
+      }
+    }
+
+    const scalar = parseScalar(text);
+    if (scalar) return scalar;
+
+    return { kind: 'text', text: text.toLowerCase() };
+  }
+
+  function compareSmart(a, b) {
+    if (a.kind === 'num' && b.kind === 'num') {
+      if (a.family === b.family) {
+        return a.value - b.value;
+      }
+      return a.family.localeCompare(b.family) || (a.value - b.value);
+    }
+    if (a.kind === 'num') return -1;
+    if (b.kind === 'num') return 1;
+    return a.text.localeCompare(b.text, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  function sortTableByColumn(table, colIdx, th) {
+    const tbody = table.tBodies && table.tBodies[0];
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.rows);
+    if (!rows.length) return;
+
+    const state = table._sortState || { idx: -1, dir: 'asc' };
+    let dir = 'asc';
+    if (state.idx === colIdx) {
+      dir = state.dir === 'asc' ? 'desc' : 'asc';
+    }
+    table._sortState = { idx: colIdx, dir };
+
+    const indexed = rows.map((r, i) => {
+      const cell = r.cells[colIdx];
+      const raw = normalizeRawText(cell ? cell.textContent : '');
+      return { r, i, k: parseSmartValue(raw) };
+    });
+
+    indexed.sort((x, y) => {
+      const c = compareSmart(x.k, y.k);
+      if (c !== 0) return dir === 'asc' ? c : -c;
+      return x.i - y.i;
+    });
+
+    indexed.forEach(x => tbody.appendChild(x.r));
+
+    table.querySelectorAll('thead th.sortable-th').forEach(h => h.removeAttribute('data-sort-dir'));
+    th.setAttribute('data-sort-dir', dir);
+  }
+
+  function initSortableTables() {
+    document.querySelectorAll('table').forEach(table => {
+      const thead = table.tHead;
+      const tbody = table.tBodies && table.tBodies[0];
+      if (!thead || !tbody) return;
+      const ths = Array.from(thead.querySelectorAll('th'));
+      if (!ths.length) return;
+
+      ths.forEach((th, idx) => {
+        const plain = normalizeRawText(th.textContent || '');
+        const hasControl = !!th.querySelector('input,button,select');
+        if (!plain || hasControl) return;
+        th.classList.add('sortable-th');
+        th.addEventListener('click', () => sortTableByColumn(table, idx, th));
+      });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', initSortableTables);
+})();
 </script>
 {% block scripts %}{% endblock %}
 
