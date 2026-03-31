@@ -28,11 +28,11 @@
         <div class="row g-2">
           <div class="col-3"><label class="form-label">Page W <span data-unit-label>(in)</span></label><input id="page-width" class="form-control" type="number" step="0.01"></div>
           <div class="col-3"><label class="form-label">Page H <span data-unit-label>(in)</span></label><input id="page-height" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cell W <span data-unit-label>(in)</span></label><input id="cell-width" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cell H <span data-unit-label>(in)</span></label><input id="cell-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Sticker W <span data-unit-label>(in)</span></label><input id="cell-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Sticker H <span data-unit-label>(in)</span></label><input id="cell-height" class="form-control" type="number" step="0.01"></div>
 
-          <div class="col-3"><label class="form-label">Cut W <span data-unit-label>(in)</span></label><input id="cut-width" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cut H <span data-unit-label>(in)</span></label><input id="cut-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Final Cut W <span data-unit-label>(in)</span></label><input id="cut-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Final Cut H <span data-unit-label>(in)</span></label><input id="cut-height" class="form-control" type="number" step="0.01"></div>
           <div class="col-3"><label class="form-label">Gap X <span data-unit-label>(in)</span></label><input id="gap-x" class="form-control" type="number" step="0.01"></div>
           <div class="col-3"><label class="form-label">Gap Y <span data-unit-label>(in)</span></label><input id="gap-y" class="form-control" type="number" step="0.01"></div>
 
@@ -336,15 +336,17 @@ function renderGridReadout() {
   const s = getSettingsFromForm();
   const usableW = s.page_width_in - s.margin_left_in - s.margin_right_in;
   const usableH = s.page_height_in - s.margin_top_in - s.margin_bottom_in;
-  const cols = Math.max(1, Math.floor((usableW + s.gap_x_in) / (s.cell_width_in + s.gap_x_in)));
-  const rows = Math.max(1, Math.floor((usableH + s.gap_y_in) / (s.cell_height_in + s.gap_y_in)));
+  const cols = Math.max(1, Math.floor((usableW + s.gap_x_in) / (s.cut_width_in + s.gap_x_in)));
+  const rows = Math.max(1, Math.floor((usableH + s.gap_y_in) / (s.cut_height_in + s.gap_y_in)));
   const capacity = cols * rows;
   const microWmm = (s.cell_width_in * 25.4) / 2;
   const microHmm = s.cell_height_in * 25.4;
   const cellWDisplay = _toDisplayUnits(s.cell_width_in);
   const cellHDisplay = _toDisplayUnits(s.cell_height_in);
+  const cutWDisplay = _toDisplayUnits(s.cut_width_in);
+  const cutHDisplay = _toDisplayUnits(s.cut_height_in);
   const unitName = _displayUnit === 'in' ? 'in' : 'mm';
-  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Cell: ${_formatNumber(cellWDisplay, UNIT_DECIMALS)}${unitName} x ${_formatNumber(cellHDisplay, UNIT_DECIMALS)}${unitName}. Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
+  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Final cut: ${_formatNumber(cutWDisplay, UNIT_DECIMALS)}${unitName} x ${_formatNumber(cutHDisplay, UNIT_DECIMALS)}${unitName}. Sticker: ${_formatNumber(cellWDisplay, UNIT_DECIMALS)}${unitName} x ${_formatNumber(cellHDisplay, UNIT_DECIMALS)}${unitName}. Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
 }
 
 async function loadProfiles() {
