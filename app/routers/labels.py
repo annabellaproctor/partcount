@@ -1028,7 +1028,8 @@ async def print_sheet_designer(
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: calc((100% - 0.28in) / 2);
+    left: 50%;
+    transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
     z-index: 2;
     pointer-events: none;
@@ -1097,7 +1098,8 @@ async def print_sheet_designer(
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: calc((100% - 0.28in) / 2);
+    left: 50%;
+    transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
     z-index: 2;
     pointer-events: none;
@@ -1119,7 +1121,8 @@ async def print_sheet_designer(
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: calc((100% - 0.28in) / 2);
+    left: 50%;
+    transform: translateX(-50%);
     border-left: 0.4pt dotted #444;
     z-index: 2;
     pointer-events: none;
