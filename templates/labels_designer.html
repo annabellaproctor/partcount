@@ -147,11 +147,14 @@
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print Front Sheet</button>
           <button class="btn btn-primary btn-sm" onclick="openPrint('barcode')">Print Barcode Sheet</button>
+          <button class="btn btn-primary btn-sm" onclick="openPrint('grid_test')">Print Final Grid Test</button>
           <button class="btn btn-danger btn-sm" onclick="openPrint('calibration')">Print Calibration Runs</button>
         </div>
         <div class="muted" style="font-size:11px;line-height:1.5;">
-          Front content is fixed to: <strong>Name</strong> (bold narrow) and <strong>ID: XXXXX</strong> below it.
-          Barcodes are centered and stretched vertically within configured limits.
+          Front/barcode output uses <strong>2 micro-labels per cell</strong> for tiny stock workflows.
+          Front keeps a reserved <strong>0.25in bottom-right circle zone</strong> for color stickers.
+          Barcode sheets print a <strong>unique word ID</strong> in top/bottom margins, plus compact row/col headers for placement tracking.
+          Barcodes are normalized (hyphen-free) and scaled to fill each micro label block.
           Calibration outputs a <strong>cover page</strong> with predicted grid + edge distances, then <strong>cross-only verification sheets</strong> (no borders/cut lines).
         </div>
         <div id="print-status" class="muted" style="font-size:11px;"></div>
@@ -241,7 +244,9 @@ function renderGridReadout() {
   const cols = Math.max(1, Math.floor((usableW + s.gap_x_in) / (s.cell_width_in + s.gap_x_in)));
   const rows = Math.max(1, Math.floor((usableH + s.gap_y_in) / (s.cell_height_in + s.gap_y_in)));
   const capacity = cols * rows;
-  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} labels / sheet`;
+  const microWmm = (s.cell_width_in * 25.4) / 2;
+  const microHmm = s.cell_height_in * 25.4;
+  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
 }
 
 async function loadProfiles() {

@@ -273,6 +273,87 @@ MIGRATIONS = [
             updated_at TIMESTAMP DEFAULT NOW()
         )""",
     ]),
+
+        (12, "strip hyphens from existing barcode IDs", [
+                """UPDATE components c
+                     SET barcode_id = REPLACE(c.barcode_id, '-', '')
+                     WHERE c.barcode_id LIKE '%-%'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM components c2
+                             WHERE c2.id <> c.id
+                                 AND c2.barcode_id = REPLACE(c.barcode_id, '-', '')
+                         )""",
+                """UPDATE kits k
+                     SET barcode_id = REPLACE(k.barcode_id, '-', '')
+                     WHERE k.barcode_id LIKE '%-%'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM kits k2
+                             WHERE k2.id <> k.id
+                                 AND k2.barcode_id = REPLACE(k.barcode_id, '-', '')
+                         )""",
+        ]),
+
+                    (13, "barcode print tracking jobs and placement rows", [
+                        """CREATE TABLE IF NOT EXISTS barcode_print_jobs (
+                            id VARCHAR PRIMARY KEY,
+                            sheet_code VARCHAR NOT NULL UNIQUE,
+                            profile_id VARCHAR REFERENCES label_print_profiles(id),
+                            printed_at TIMESTAMP DEFAULT NOW()
+                        )""",
+                        """CREATE TABLE IF NOT EXISTS barcode_print_items (
+                            id VARCHAR PRIMARY KEY,
+                            job_id VARCHAR NOT NULL REFERENCES barcode_print_jobs(id) ON DELETE CASCADE,
+                            component_id VARCHAR REFERENCES components(id),
+                            barcode_id VARCHAR NOT NULL,
+                            sheet_row INTEGER NOT NULL,
+                            sheet_col INTEGER NOT NULL,
+                            cell_slot INTEGER NOT NULL,
+                            box_label VARCHAR,
+                            box_row INTEGER,
+                            box_col INTEGER,
+                            created_at TIMESTAMP DEFAULT NOW()
+                        )""",
+                        "CREATE INDEX IF NOT EXISTS idx_barcode_print_items_barcode_id ON barcode_print_items (barcode_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_barcode_print_items_job_id ON barcode_print_items (job_id)",
+                    ]),
+
+        (14, "enforce hyphen-free barcodes and randomize legacy M0001", [
+                """UPDATE components c
+                     SET barcode_id = REPLACE(c.barcode_id, '-', '')
+                     WHERE c.barcode_id LIKE '%-%'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM components c2
+                             WHERE c2.id <> c.id
+                                 AND c2.barcode_id = REPLACE(c.barcode_id, '-', '')
+                         )""",
+                """UPDATE kits k
+                     SET barcode_id = REPLACE(k.barcode_id, '-', '')
+                     WHERE k.barcode_id LIKE '%-%'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM kits k2
+                             WHERE k2.id <> k.id
+                                 AND k2.barcode_id = REPLACE(k.barcode_id, '-', '')
+                         )""",
+                """UPDATE barcode_print_items b
+                     SET barcode_id = REPLACE(b.barcode_id, '-', '')
+                     WHERE b.barcode_id LIKE '%-%'""",
+                """WITH candidates AS (
+                                 SELECT ('M' || UPPER(SUBSTRING(MD5(RANDOM()::text || CLOCK_TIMESTAMP()::text) FROM 1 FOR 4))) AS bid
+                                 FROM generate_series(1, 256)
+                         ),
+                         pick AS (
+                                 SELECT c.bid
+                                 FROM candidates c
+                                 WHERE NOT EXISTS (
+                                         SELECT 1 FROM components x WHERE x.barcode_id = c.bid
+                                 )
+                                 LIMIT 1
+                         )
+                         UPDATE components t
+                         SET barcode_id = (SELECT bid FROM pick)
+                         WHERE t.barcode_id = 'M0001'
+                             AND EXISTS (SELECT 1 FROM pick)""",
+        ]),
 ]
 
 

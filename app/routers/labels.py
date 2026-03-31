@@ -3,20 +3,27 @@ import html
 import json
 import math
 import random
+import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, text
 from app.models.database import get_db
-from app.models.models import Component, LabelPrintProfile
+from app.models.models import Component, LabelPrintProfile, BinAssignment, Box
 from app.services.barcode_svc import generate_code128_svg
 from app.services.markings_svg import build_markings_svg
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter(prefix="/labels", tags=["labels"])
 templates = Jinja2Templates(directory="/app/templates")
+
+SHEET_WORDS = [
+  "horse", "car", "bridge", "ember", "copper", "maple", "river", "delta",
+  "radar", "circuit", "anchor", "pine", "falcon", "orbit", "grain", "forge",
+]
 
 
 DEFAULT_LABEL_SETTINGS = {
@@ -178,28 +185,177 @@ def _compute_grid(settings: dict) -> tuple[int, int]:
   return cols, rows
 
 
-def _build_front_cell(comp: Component, settings: dict) -> str:
-  title = html.escape((comp.short_title or comp.name or "").strip())
-  bid = html.escape(comp.barcode_id or "")
-  show_image = bool(settings.get("show_image")) and settings["cell_height_in"] >= settings["image_min_height_in"] and bool(comp.image_path)
-  img_html = ""
-  if show_image:
-    img_html = f'<div class="front-img-wrap"><img class="front-img" src="{html.escape(comp.image_path)}" alt=""></div>'
+def _new_sheet_code() -> str:
+  rnd = random.SystemRandom()
+  return f"{rnd.choice(SHEET_WORDS)}-{rnd.randint(2,9)}-{rnd.choice(SHEET_WORDS)}-{rnd.randint(2,9)}-{rnd.choice(SHEET_WORDS)}"
+
+
+def _cell_id_to_row_col(cell_id: str) -> tuple[int, int]:
+  raw = (cell_id or "").strip().upper()
+  m_rc = re.match(r"^R(\d+)C(\d+)$", raw)
+  if m_rc:
+    return int(m_rc.group(1)), int(m_rc.group(2))
+
+  m_grid = re.match(r"^([A-Z]+)(\d+)$", raw)
+  if m_grid:
+    letters = m_grid.group(1)
+    row = 0
+    for ch in letters:
+      row = (row * 26) + (ord(ch) - ord('A') + 1)
+    row -= 1
+    col = int(m_grid.group(2)) - 1
+    return max(0, row), max(0, col)
+
+  nums = re.findall(r"\d+", raw)
+  if len(nums) >= 2:
+    return int(nums[0]), int(nums[1])
+  if len(nums) == 1:
+    return int(nums[0]), 9999
+  return 9999, 9999
+
+
+async def _component_sort_slots(db: AsyncSession) -> dict[str, tuple[int, str, int, int]]:
+  q = (
+    select(BinAssignment.component_id, Box.slot_index, Box.label, BinAssignment.cell_id)
+    .join(Box, Box.id == BinAssignment.box_id)
+    .where(BinAssignment.active.is_(True))
+  )
+  rows = (await db.execute(q)).all()
+  out: dict[str, tuple[int, str, int, int]] = {}
+  for comp_id, slot_idx, box_label, cell_id in rows:
+    r, c = _cell_id_to_row_col(cell_id or "")
+    cand = (int(slot_idx or 0), str(box_label or "~"), r, c)
+    prev = out.get(comp_id)
+    if prev is None or cand < prev:
+      out[comp_id] = cand
+  return out
+
+
+def _build_sheet_margin_headers(settings: dict, cols: int, rows: int, sheet_code: str, printed_at: str) -> str:
+  ml = float(settings["margin_left_in"])
+  mt = float(settings["margin_top_in"])
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
+  gx = float(settings["gap_x_in"])
+  gy = float(settings["gap_y_in"])
+  pw = float(settings["page_width_in"])
+  ph = float(settings["page_height_in"])
+
+  col_marks = []
+  for c in range(cols):
+    x = ml + (c * (cw + gx)) + (cw / 2.0)
+    col_marks.append(f'<div class="sheet-col top" style="left:{x:.6f}in;">C{c}</div>')
+    col_marks.append(f'<div class="sheet-col bottom" style="left:{x:.6f}in;">C{c}</div>')
+
+  row_marks = []
+  for r in range(rows):
+    y = mt + (r * (ch + gy)) + (ch / 2.0)
+    row_marks.append(f'<div class="sheet-row left" style="top:{y:.6f}in;">R{r}</div>')
+    row_marks.append(f'<div class="sheet-row right" style="top:{y:.6f}in;">R{r}</div>')
+
   return (
-    '<div class="front">'
-    f'{img_html}'
+    f'<div class="sheet-meta top">BARCODE SHEET {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
+    f'<div class="sheet-meta bottom">BARCODE SHEET {html.escape(sheet_code)} · {html.escape(printed_at)}</div>'
+    f'<div class="sheet-meta-rail">{"".join(col_marks)}{"".join(row_marks)}</div>'
+    f'<div class="sheet-corners-note tl" style="left:0.06in;top:{(mt * 0.5):.6f}in;">{html.escape(sheet_code)}</div>'
+    f'<div class="sheet-corners-note br" style="right:0.06in;bottom:{(max(0.04, (ph - ((mt + rows * ch) + max(0, rows-1) * gy)) * 0.5)):.6f}in;">{html.escape(sheet_code)}</div>'
+  )
+
+
+async def _record_barcode_print_job(
+  db: AsyncSession,
+  profile_id: str,
+  sheet_code: str,
+  placements: list[dict],
+):
+  job_id = str(uuid.uuid4())
+  await db.execute(
+    text(
+      """
+      INSERT INTO barcode_print_jobs (id, sheet_code, profile_id, printed_at)
+      VALUES (:id, :sheet_code, :profile_id, NOW())
+      """
+    ),
+    {"id": job_id, "sheet_code": sheet_code, "profile_id": profile_id},
+  )
+
+  if placements:
+    await db.execute(
+      text(
+        """
+        INSERT INTO barcode_print_items (
+          id, job_id, component_id, barcode_id, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col
+        ) VALUES (
+          :id, :job_id, :component_id, :barcode_id, :sheet_row, :sheet_col, :cell_slot, :box_label, :box_row, :box_col
+        )
+        """
+      ),
+      [
+        {
+          "id": str(uuid.uuid4()),
+          "job_id": job_id,
+          "component_id": p.get("component_id"),
+          "barcode_id": p.get("barcode_id"),
+          "sheet_row": p.get("sheet_row"),
+          "sheet_col": p.get("sheet_col"),
+          "cell_slot": p.get("cell_slot"),
+          "box_label": p.get("box_label"),
+          "box_row": p.get("box_row"),
+          "box_col": p.get("box_col"),
+        }
+        for p in placements
+      ],
+    )
+
+
+def _normalize_barcode_for_print(raw: str | None) -> str:
+  return re.sub(r"[^A-Za-z0-9]", "", (raw or "").upper())
+
+
+def _title_with_hyphen_breaks(raw: str | None) -> str:
+  safe = html.escape((raw or "").strip())
+  return safe.replace("-", "-<wbr>")
+
+
+def _build_front_cell(comp: Component, settings: dict) -> str:
+  title = _title_with_hyphen_breaks(comp.short_title or comp.name or "")
+  bid = html.escape(_normalize_barcode_for_print(comp.barcode_id))
+
+  # Each printable cell is split into two micro labels for the 14.9x9.9mm workflow.
+  micro = (
+    '<div class="front-mini">'
     f'<div class="front-name">{title}</div>'
     f'<div class="front-id">ID: {bid}</div>'
+    '</div>'
+  )
+  return (
+    '<div class="front front-dual">'
+    f'{micro}{micro}'
+    '<div class="sticker-zone" aria-hidden="true"></div>'
     '</div>'
   )
 
 
 def _build_barcode_cell(comp: Component, settings: dict) -> str:
-  raw_svg = generate_code128_svg(comp.barcode_id)
+  bid = _normalize_barcode_for_print(comp.barcode_id)
+  raw_svg = generate_code128_svg(bid)
+  # Remove text captions so bars can fill the full target block consistently.
+  raw_svg = re.sub(r"<text[^>]*>.*?</text>", "", raw_svg, flags=re.IGNORECASE | re.DOTALL)
   svg = raw_svg
   if "<svg" in raw_svg:
     svg = raw_svg.replace("<svg", '<svg preserveAspectRatio="none"', 1)
-  return f'<div class="barcode-wrap">{svg}</div>'
+  mini = f'<div class="barcode-mini">{svg}</div>'
+  return f'<div class="barcode-wrap barcode-dual">{mini}{mini}<div class="sticker-zone" aria-hidden="true"></div></div>'
+
+
+def _build_grid_test_cell() -> str:
+  return (
+    '<div class="grid-test">'
+    '<div class="grid-mini"></div>'
+    '<div class="grid-mini"></div>'
+    '<div class="sticker-zone"></div>'
+    '</div>'
+  )
 
 
 def _build_calibration_cell(run_label: str, marker_style: str, full_cross: dict | None = None) -> str:
@@ -503,6 +659,47 @@ async def list_label_profiles(db: AsyncSession = Depends(get_db)):
   ]
 
 
+@router.get("/barcode-sheet/{sheet_code}")
+async def get_barcode_sheet_tracking(sheet_code: str, db: AsyncSession = Depends(get_db)):
+  code = (sheet_code or "").strip().lower()
+  if not code:
+    raise HTTPException(400, "sheet_code is required")
+
+  job_row = (await db.execute(
+    text(
+      """
+      SELECT id, sheet_code, profile_id, printed_at
+      FROM barcode_print_jobs
+      WHERE LOWER(sheet_code) = :code
+      LIMIT 1
+      """
+    ),
+    {"code": code},
+  )).mappings().first()
+  if not job_row:
+    raise HTTPException(404, "Barcode sheet not found")
+
+  items = (await db.execute(
+    text(
+      """
+      SELECT component_id, barcode_id, sheet_row, sheet_col, cell_slot, box_label, box_row, box_col, created_at
+      FROM barcode_print_items
+      WHERE job_id = :job_id
+      ORDER BY sheet_row, sheet_col, cell_slot
+      """
+    ),
+    {"job_id": job_row["id"]},
+  )).mappings().all()
+
+  return {
+    "sheet_code": job_row["sheet_code"],
+    "profile_id": job_row["profile_id"],
+    "printed_at": str(job_row["printed_at"]),
+    "count": len(items),
+    "items": [dict(x) for x in items],
+  }
+
+
 @router.post("/profiles")
 async def create_label_profile(req: LabelProfileRequest, db: AsyncSession = Depends(get_db)):
   name = (req.name or "").strip()
@@ -546,7 +743,7 @@ async def update_label_profile(profile_id: str, req: LabelProfileUpdateRequest, 
 @router.get("/print-sheet", response_class=HTMLResponse)
 async def print_sheet_designer(
   profile_id: str,
-  mode: str = Query("front", pattern="^(front|barcode|calibration)$"),
+  mode: str = Query("front", pattern="^(front|barcode|calibration|grid_test)$"),
   q: str | None = None,
   barcode_ids: str | None = None,
   limit: int = 500,
@@ -563,9 +760,9 @@ async def print_sheet_designer(
 
   stmt = select(Component).order_by(Component.barcode_id)
   if barcode_ids:
-    ids = [x.strip().upper() for x in barcode_ids.split(",") if x.strip()]
+    ids = [_normalize_barcode_for_print(x) for x in barcode_ids.split(",") if x.strip()]
     if ids:
-      stmt = stmt.where(Component.barcode_id.in_(ids))
+      stmt = stmt.where(func.replace(func.upper(Component.barcode_id), '-', '').in_(ids))
   elif q and q.strip():
     like = f"%{q.strip()}%"
     stmt = stmt.where(
@@ -576,6 +773,11 @@ async def print_sheet_designer(
     )
 
   comps = (await db.execute(stmt.limit(take))).scalars().all()
+  if mode in {"front", "barcode"}:
+    slot_map = await _component_sort_slots(db)
+    comps.sort(key=lambda c: slot_map.get(c.id, (9999, "~~~", 9999, 9999)))
+  else:
+    slot_map = {}
 
   if mode == "calibration":
     row.calibration_revision = int(row.calibration_revision or 0) + 1
@@ -586,6 +788,9 @@ async def print_sheet_designer(
     run_count = 1
 
   page_blocks = []
+  sheet_code = _new_sheet_code() if mode == "barcode" else ""
+  printed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC") if mode == "barcode" else ""
+  placements: list[dict] = []
   seeds_by_run: list[int] = []
   marks_by_run: list[list[int]] = []
   for run_no in range(1, run_count + 1):
@@ -631,7 +836,9 @@ async def print_sheet_designer(
           inner = ""
         classes = "cell calibration-cell"
       else:
-        if i >= len(comps):
+        if mode == "grid_test":
+          inner = _build_grid_test_cell()
+        elif i >= len(comps):
           inner = ""
         elif mode == "barcode":
           inner = _build_barcode_cell(comps[i], settings)
@@ -640,25 +847,61 @@ async def print_sheet_designer(
         classes = "cell"
 
       cross = ""
-      if settings["show_cut_grid"] and mode != "calibration":
+      if settings["show_cut_grid"] and mode not in {"calibration", "grid_test"}:
         cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
 
       cells.append(f'<div class="{classes}">{cross}{inner}</div>')
 
     sheet = "".join(cells)
     header = ""
+    margin_headers = ""
     if mode == "calibration":
       seed_show = seeds_by_run[run_no - 1]
       header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
-    page_blocks.append(f'<div class="print-page">{header}<div class="page">{corner_overlay}{sheet}</div></div>')
+    elif mode == "barcode":
+      margin_headers = _build_sheet_margin_headers(settings, cols, rows, sheet_code, printed_at)
+    page_blocks.append(f'<div class="print-page">{header}{margin_headers}<div class="page">{corner_overlay}{sheet}</div></div>')
 
   if mode == "calibration":
     cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
     page_blocks.insert(0, cover)
+  elif mode == "barcode":
+    for i, comp in enumerate(comps[:capacity]):
+      r = i // cols
+      c = i % cols
+      _, box_label, box_r, box_c = slot_map.get(comp.id, (None, None, None, None))
+      bid = _normalize_barcode_for_print(comp.barcode_id)
+      placements.append({
+        "component_id": comp.id,
+        "barcode_id": bid,
+        "sheet_row": r,
+        "sheet_col": c,
+        "cell_slot": 1,
+        "box_label": box_label,
+        "box_row": box_r,
+        "box_col": box_c,
+      })
+      placements.append({
+        "component_id": comp.id,
+        "barcode_id": bid,
+        "sheet_row": r,
+        "sheet_col": c,
+        "cell_slot": 2,
+        "box_label": box_label,
+        "box_row": box_r,
+        "box_col": box_c,
+      })
+    await _record_barcode_print_job(db, profile_id, sheet_code, placements)
 
   pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
   barcode_css_h = min(settings["barcode_max_height_in"], settings["cell_height_in"] * settings["barcode_height_ratio"])
+  meta_top_in = max(0.02, float(settings["margin_top_in"]) * 0.26)
+  meta_bottom_in = max(0.02, float(settings["margin_bottom_in"]) * 0.26)
+  col_top_in = max(0.01, float(settings["margin_top_in"]) * 0.72)
+  col_bottom_in = max(0.01, float(settings["margin_bottom_in"]) * 0.72)
+  row_left_in = max(0.01, float(settings["margin_left_in"]) * 0.32)
+  row_right_in = max(0.01, float(settings["margin_right_in"]) * 0.32)
 
   html_doc = f"""<!DOCTYPE html>
 <html>
@@ -668,8 +911,57 @@ async def print_sheet_designer(
   <style>
   @page {{ size: {settings['page_width_in']}in {settings['page_height_in']}in; margin: 0; }}
   html, body {{ margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }}
-  .print-page {{ page-break-after: always; }}
+  .print-page {{
+    position: relative;
+    width: {settings['page_width_in']}in;
+    height: {settings['page_height_in']}in;
+    page-break-after: always;
+  }}
   .print-page:last-child {{ page-break-after: auto; }}
+  .sheet-meta {{
+    position: absolute;
+    left: {settings['margin_left_in']}in;
+    right: {settings['margin_right_in']}in;
+    font-size: 6pt;
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', Arial, sans-serif;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.2pt;
+    color: #111;
+    z-index: 30;
+    pointer-events: none;
+  }}
+  .sheet-meta.top {{ top: {meta_top_in:.6f}in; }}
+  .sheet-meta.bottom {{
+    bottom: {meta_bottom_in:.6f}in;
+    transform: rotate(180deg);
+    transform-origin: center;
+  }}
+  .sheet-meta-rail {{ position: absolute; inset: 0; z-index: 30; pointer-events: none; }}
+  .sheet-col, .sheet-row {{
+    position: absolute;
+    font-size: 5pt;
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', Arial, sans-serif;
+    color: #222;
+    line-height: 1;
+    user-select: none;
+  }}
+  .sheet-col.top {{ top: {col_top_in:.6f}in; transform: translateX(-50%); }}
+  .sheet-col.bottom {{
+    bottom: {col_bottom_in:.6f}in;
+    transform: translateX(-50%) rotate(180deg);
+  }}
+  .sheet-row.left {{ left: {row_left_in:.6f}in; transform: translateY(-50%); }}
+  .sheet-row.right {{ right: {row_right_in:.6f}in; transform: translateY(-50%) rotate(180deg); }}
+  .sheet-corners-note {{
+    position: absolute;
+    font-size: 5pt;
+    color: #333;
+    font-family: monospace;
+    z-index: 30;
+    pointer-events: none;
+  }}
+  .sheet-corners-note.br {{ transform: rotate(180deg); }}
   .cover-page {{
     padding: 0.22in;
     box-sizing: border-box;
@@ -722,38 +1014,86 @@ async def print_sheet_designer(
   .cut-b {{ border-top: 0.3pt solid #777; transform: rotate(-25deg) scale(1.35); transform-origin: center; }}
   .front {{
     position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 1.5mm;
-    padding: 1.2mm;
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0.5mm;
+    padding: 0.8mm;
     box-sizing: border-box;
-    text-align: center;
+    text-align: left;
+  }}
+  .front-dual {{ padding-right: 0.28in; }}
+  .front-mini {{
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.3mm;
+    padding: 0.4mm 0.5mm 0.5mm;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
   }}
   .front-img-wrap {{ height: 42%; width: 100%; display: flex; align-items: center; justify-content: center; }}
   .front-img {{ max-height: 100%; max-width: 95%; object-fit: contain; }}
   .front-name {{
-    font-family: 'Arial Narrow', Arial, sans-serif;
-    font-weight: 700;
+    font-family: 'Bahnschrift SemiCondensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 800;
     font-size: {settings['name_font_pt']}pt;
-    line-height: 1.1;
+    line-height: 1.03;
     width: 100%;
+    min-height: 2.06em;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: manual;
   }}
   .front-id {{
-    font-family: 'Arial Narrow', Arial, sans-serif;
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 700;
     font-size: {settings['id_font_pt']}pt;
     line-height: 1;
+    margin-top: auto;
+    text-align: left;
+    width: 100%;
+    padding-top: 0.35mm;
+  }}
+  .sticker-zone {{
+    position: absolute;
+    right: 0.06in;
+    bottom: 0.05in;
+    width: 0.25in;
+    height: 0.25in;
+    border-radius: 50%;
+    pointer-events: none;
   }}
   .barcode-wrap {{
     position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0.6mm;
     padding: 0.8mm;
     box-sizing: border-box;
   }}
-  .barcode-wrap svg {{ width: 96%; height: {barcode_css_h}in; display: block; }}
+  .barcode-dual {{ padding-right: 0.28in; }}
+  .barcode-mini {{
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }}
+  .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
+  .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0.5mm; }}
+  .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
   .calibration {{ position: absolute; inset: 0; }}
   .micro {{ position: absolute; width: 2.2mm; height: 2.2mm; opacity: 1; }}
   .micro.dot {{ border-radius: 50%; background: #000; }}
@@ -878,7 +1218,7 @@ async def print_label(barcode_id: str, db: AsyncSession = Depends(get_db)):
     if not comp:
         raise HTTPException(404)
 
-    barcode_svg = generate_code128_svg(barcode_id)
+    barcode_svg = generate_code128_svg(_normalize_barcode_for_print(barcode_id))
 
     title = comp.short_title or comp.value or comp.name
 
@@ -902,7 +1242,7 @@ async def print_label(barcode_id: str, db: AsyncSession = Depends(get_db)):
 <body onload="window.print()">
   <div class="label">
     <div class="value">{title}</div>
-    <div class="id">{barcode_id} · {comp.package or ''}</div>
+    <div class="id">{_normalize_barcode_for_print(barcode_id)} · {comp.package or ''}</div>
   </div>
 </body>
 </html>"""
@@ -917,7 +1257,7 @@ async def print_inside_label(barcode_id: str, db: AsyncSession = Depends(get_db)
     if not comp:
         raise HTTPException(404)
 
-    barcode_svg = generate_code128_svg(barcode_id)
+    barcode_svg = generate_code128_svg(_normalize_barcode_for_print(barcode_id))
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -937,7 +1277,7 @@ async def print_inside_label(barcode_id: str, db: AsyncSession = Depends(get_db)
 <body onload="window.print()">
   <div class="label">
     {barcode_svg}
-    <div class="id">{barcode_id}</div>
+    <div class="id">{_normalize_barcode_for_print(barcode_id)}</div>
   </div>
 </body>
 </html>"""
