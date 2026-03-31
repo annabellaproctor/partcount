@@ -860,9 +860,9 @@ async def print_sheet_designer(
       debug_grid = ""
       if settings["show_cut_grid"] and mode not in {"calibration", "grid_test"}:
         cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
-      if settings.get("show_full_cut_grid") and mode != "calibration":
+      if settings.get("show_full_cut_grid") and mode == "grid_test":
         full_grid = '<div class="cell-full-grid"></div>'
-      if settings.get("show_debug_grid") and mode != "calibration":
+      if settings.get("show_debug_grid") and mode == "grid_test":
         rr = i // cols
         cc = i % cols
         debug_grid = f'<div class="cell-debug-grid">R{rr} C{cc}</div>'
@@ -1045,15 +1045,15 @@ async def print_sheet_designer(
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: 50%;
-    transform: translateX(-50%);
+    left: calc((100% - 0.28in) / 2);
     border-left: 0.4pt dotted #444;
     z-index: 1;
     opacity: 0.7;
     pointer-events: none;
   }}
   .front-mini {{
-    flex: 1 1 0;
+    flex: 0 0 50%;
+    width: 50%;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -1065,8 +1065,6 @@ async def print_sheet_designer(
     overflow: hidden;
     z-index: 2;
   }}
-  .front-mini:first-child {{ padding-right: 0.75mm; }}
-  .front-mini:last-child {{ padding-left: 1.4mm; }}
   .front-img-wrap {{ height: 42%; width: 100%; display: flex; align-items: center; justify-content: center; }}
   .front-img {{ max-height: 100%; max-width: 95%; object-fit: contain; }}
   .front-name {{
@@ -1122,15 +1120,15 @@ async def print_sheet_designer(
     position: absolute;
     top: 0.75mm;
     bottom: 0.75mm;
-    left: 50%;
-    transform: translateX(-50%);
+    left: calc((100% - 0.28in) / 2);
     border-left: 0.4pt dotted #444;
     z-index: 1;
     opacity: 0.7;
     pointer-events: none;
   }}
   .barcode-mini {{
-    flex: 1 1 0;
+    flex: 0 0 50%;
+    width: 50%;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -1138,8 +1136,6 @@ async def print_sheet_designer(
     overflow: hidden;
     z-index: 2;
   }}
-  .barcode-mini:first-child {{ padding-right: 0.7mm; }}
-  .barcode-mini:last-child {{ padding-left: 1.2mm; }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
