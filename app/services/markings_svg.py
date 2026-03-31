@@ -98,7 +98,7 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
             if low == ".r":
                 layout["shape"] = {"type": "rectangle"}
                 continue
-            m = re.match(r"^\.(\d+)(\*)?$", low)
+            m = re.match(r"^\.(\d+)(\*+)?$", low)
             if m:
                 points = int(m.group(1))
                 is_star = bool(m.group(2))
