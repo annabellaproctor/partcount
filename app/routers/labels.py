@@ -1285,11 +1285,11 @@ async def print_sheet_designer(
   }}
   .final-cut-box {{
     position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    left: 0;
+    top: 0;
     box-sizing: border-box;
-    border: 0.35pt dashed #5a5a5a;
+    border-right: 0.4pt dashed #5a5a5a;
+    border-bottom: 0.4pt dashed #5a5a5a;
     box-shadow: 0 0 0 100vmax rgba(80, 80, 80, 0.18);
     background: rgba(255, 255, 255, 0.01);
   }}
