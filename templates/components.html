@@ -45,8 +45,29 @@
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <select id="bulk-ai-rename-model" class="form-select form-select-sm" style="width:200px;">
+        <option value="gemini-3-flash">AI model: gemini-3-flash</option>
+        <option value="gemini-3.1-flash-lite-preview">AI model: 3.1-flash-lite</option>
+        <option value="gemini-2.5-flash-lite">AI model: 2.5-flash-lite</option>
+      </select>
       <input id="bulk-ai-rename-rules" class="form-control form-control-sm" style="min-width:420px;flex:1;" placeholder="Naming rules e.g. Resistor {value}{unit} {tolerance} {package}; Module {variant} {wireless}">
       <button class="btn btn-primary btn-sm" onclick="bulkAiRenameSelected()">AI Rename by Rules</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="bulk-template" class="form-control form-control-sm" style="min-width:420px;flex:1;" placeholder="Template rename e.g. R-{index:03} {value}{unit} {package}">
+      <input id="bulk-template-start" type="number" class="form-control form-control-sm" style="width:110px;" value="1" placeholder="Start">
+      <button class="btn btn-primary btn-sm" onclick="bulkTemplateRenameSelected()">Template Rename</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input id="bulk-copy-source" class="form-control form-control-sm" style="width:190px;" placeholder="Source barcode (optional)">
+      <input id="bulk-copy-fields" class="form-control form-control-sm" style="min-width:340px;flex:1;" value="image_path,datasheet_url,package" placeholder="Fields to copy, comma-separated">
+      <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer;">
+        <input type="checkbox" id="bulk-copy-empty-only" checked>
+        Empty only
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="bulkCopyFieldsToSelected()">Copy Fields to Selected</button>
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -245,12 +266,14 @@ async function bulkAiRenameSelected() {
   const ids = getSelectedIds()
   const status = document.getElementById('batch-status')
   const rules = document.getElementById('bulk-ai-rename-rules').value.trim()
+  const model = document.getElementById('bulk-ai-rename-model').value
   if (!ids.length) { status.textContent = 'Select rows first'; return }
   if (!rules) { status.textContent = 'Enter naming rules'; return }
   status.textContent = 'Running AI rename...'
   const r = await postJson('/api/components/bulk-ai-rename', {
     component_ids: ids,
     rules,
+    model,
   })
   if (!r.ok) {
     status.textContent = 'AI rename failed'
@@ -258,6 +281,65 @@ async function bulkAiRenameSelected() {
   }
   const data = await r.json()
   status.textContent = `AI renamed ${data.updated || 0} rows${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
+  setTimeout(() => location.reload(), 250)
+}
+
+async function bulkTemplateRenameSelected() {
+  const ids = getSelectedIds()
+  const status = document.getElementById('batch-status')
+  const template = document.getElementById('bulk-template').value.trim()
+  const start = parseInt(document.getElementById('bulk-template-start').value || '1', 10)
+  if (!ids.length) { status.textContent = 'Select rows first'; return }
+  if (!template) { status.textContent = 'Enter template'; return }
+  status.textContent = 'Applying template rename...'
+  const r = await postJson('/api/components/bulk-template-rename', {
+    component_ids: ids,
+    template,
+    start: Number.isFinite(start) ? start : 1,
+    step: 1,
+  })
+  if (!r.ok) {
+    status.textContent = 'Template rename failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `Template renamed ${data.updated || 0} rows`
+  setTimeout(() => location.reload(), 250)
+}
+
+async function bulkCopyFieldsToSelected() {
+  const rows = getSelectedRows()
+  const ids = rows.map(r => r.dataset.componentId)
+  const status = document.getElementById('batch-status')
+  if (ids.length < 2) { status.textContent = 'Select at least 2 rows (source + targets)'; return }
+
+  const sourceBarcode = (document.getElementById('bulk-copy-source').value || '').trim().toLowerCase()
+  let sourceRow = rows[0]
+  if (sourceBarcode) {
+    const found = rows.find(r => (r.dataset.barcodeId || '').toLowerCase() === sourceBarcode)
+    if (!found) { status.textContent = 'Source barcode must be in selected rows'; return }
+    sourceRow = found
+  }
+
+  const fieldsRaw = (document.getElementById('bulk-copy-fields').value || '').trim()
+  if (!fieldsRaw) { status.textContent = 'Enter at least one field'; return }
+  const fields = fieldsRaw.split(',').map(x => x.trim()).filter(Boolean)
+  const onlyIfEmpty = !!document.getElementById('bulk-copy-empty-only').checked
+  const targetIds = ids.filter(id => id !== sourceRow.dataset.componentId)
+
+  status.textContent = 'Copying fields...'
+  const r = await postJson('/api/components/bulk-copy-fields', {
+    source_id: sourceRow.dataset.componentId,
+    target_ids: targetIds,
+    fields,
+    only_if_empty: onlyIfEmpty,
+  })
+  if (!r.ok) {
+    status.textContent = 'Copy fields failed'
+    return
+  }
+  const data = await r.json()
+  status.textContent = `Updated ${data.targets_updated || 0} rows, copied ${data.fields_copied || 0} fields`
   setTimeout(() => location.reload(), 250)
 }
 

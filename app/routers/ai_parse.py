@@ -45,6 +45,7 @@ FREE_TIER_MODELS = [
     {"name": "gemini-2.5-flash-lite", "rpd": 20, "rpm": 10, "tpm": 250000},
     {"name": "gemini-3-flash", "rpd": 20, "rpm": 5, "tpm": 250000},
 ]
+GEMINI_RENAME_MODEL = os.getenv("GEMINI_RENAME_MODEL", "gemini-3-flash")
 
 
 def _gemini_call_sync(prompt: str, schema: dict, model: str):
@@ -201,7 +202,13 @@ MERGE_SCHEMA = {
 }
 
 
-async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list: bool = True):
+async def _gemini(
+    prompt: str,
+    schema: dict,
+    retry_count: int = 0,
+    collapse_list: bool = True,
+    preferred_model: str | None = None,
+):
     """Call Gemini API with smart model selection and fallback"""
     if not client:
         raise HTTPException(
@@ -209,13 +216,18 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list
             "Gemini AI is not configured. Add GEMINI_API_KEY to .env (free tier: no billing required)"
         )
     
-    model = select_best_model()
+    model_chain = [m["name"] for m in FREE_TIER_MODELS]
+    if preferred_model and preferred_model not in model_chain:
+        model_chain = [preferred_model] + model_chain
+    elif preferred_model:
+        model_chain = [preferred_model] + [m for m in model_chain if m != preferred_model]
+    else:
+        selected = select_best_model()
+        model_chain = [selected] + [m for m in model_chain if m != selected]
 
-    for attempt in range(retry_count, len(FREE_TIER_MODELS)):
-        if attempt > retry_count:
-            model = FREE_TIER_MODELS[attempt]["name"]
-            global _current_model
-            _current_model = model
+    for attempt, model in enumerate(model_chain[retry_count:], start=retry_count):
+        global _current_model
+        _current_model = model
 
         try:
             async with _gemini_semaphore:
@@ -251,8 +263,8 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list
             })
 
             # Handle 429 rate limit - try next model
-            if ('429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg) and attempt < len(FREE_TIER_MODELS) - 1:
-                next_model = FREE_TIER_MODELS[attempt + 1]["name"]
+            if ('429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg) and attempt < len(model_chain) - 1:
+                next_model = model_chain[attempt + 1]
                 log.warning(f"Model {model} rate limited, switching to {next_model}")
                 continue
 
@@ -274,7 +286,7 @@ async def _gemini(prompt: str, schema: dict, retry_count: int = 0, collapse_list
             if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
                 raise HTTPException(
                     429,
-                    f"All free tier models exhausted. Try again later. Models tried: {', '.join([m['name'] for m in FREE_TIER_MODELS])}"
+                    f"All configured models exhausted. Try again later. Models tried: {', '.join(model_chain)}"
                 )
 
             raise HTTPException(502, f"Gemini API error: {error_msg[:200]}")
@@ -296,6 +308,59 @@ class EnrichRequest(BaseModel):
     action: str = "repair"   # add | repair | remove
     text: str
     existing_data: dict | None = None
+
+
+class RenameWithRulesRequest(BaseModel):
+    component_data: dict
+    rules: str
+    model: str | None = None
+
+
+async def generate_component_title_with_rules(component_data: dict, rules: str, model: str | None = None) -> dict:
+    if not rules or len(rules.strip()) < 4:
+        raise HTTPException(400, "Rules text too short")
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "confidence": {"type": "number"},
+            "reasoning": {"type": "string"},
+        },
+        "required": ["name", "confidence"],
+    }
+
+    prompt = f"""Rename this electronics component into a compact canonical registry title.
+Rules to apply (highest priority):
+{rules}
+
+Component data JSON:
+{json.dumps(component_data or {}, ensure_ascii=False)}
+
+Constraints:
+- Return only a short final title in name.
+- Avoid filler words like "part", "item", "component" unless required by rules.
+- Preserve key technical identifiers (value/unit/package/variant) when available.
+- Keep output under 64 chars when possible.
+"""
+
+    chosen_model = (model or "").strip() or GEMINI_RENAME_MODEL
+    result = await _gemini(prompt, schema, preferred_model=chosen_model)
+    title = (result.get("name") or "").strip()
+    if not title:
+        raise HTTPException(502, "AI rename returned empty title")
+    return {
+        "name": title,
+        "confidence": float(result.get("confidence") or 0.0),
+        "reasoning": (result.get("reasoning") or "").strip(),
+        "model": chosen_model,
+        "source": "gemini_rename",
+    }
+
+
+@router.post("/rename-component-title")
+async def rename_component_title(req: RenameWithRulesRequest):
+    return await generate_component_title_with_rules(req.component_data or {}, req.rules, req.model)
 
 
 class OrderParseRequest(BaseModel):

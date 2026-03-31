@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.database import get_db
@@ -47,6 +47,49 @@ def _apply_component_title(comp: Component, *, preferred: str | None = None, man
     comp.name = title
     comp.short_title = title
     comp.short_title_manual = bool(manual)
+
+
+def _is_empty_value(v: Any) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    if isinstance(v, (list, dict)):
+        return len(v) == 0
+    return False
+
+
+def _render_name_template(template: str, comp: Component, index_value: int) -> str:
+    values = {
+        "index": index_value,
+        "seq": index_value,
+        "barcode_id": comp.barcode_id or "",
+        "name": comp.name or "",
+        "value": comp.value or "",
+        "unit": comp.unit or "",
+        "package": comp.package or "",
+        "mpn": comp.mpn or "",
+        "type_path": comp.type_path or "",
+        "image_path": comp.image_path or "",
+    }
+    if isinstance(comp.type_data, dict):
+        for k, v in comp.type_data.items():
+            if k not in values:
+                values[k] = "" if v is None else str(v)
+
+    def repl(m):
+        key = m.group(1)
+        fmt = m.group(2)
+        val = values.get(key, "")
+        if fmt:
+            try:
+                return ("{" + (":" + fmt) + "}").format(val)
+            except Exception:
+                return str(val)
+        return str(val)
+
+    rendered = re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]+))?\}", repl, template)
+    return re.sub(r"\s+", " ", rendered).strip()
 
 
 def _auto_component_name(comp: Component) -> str:
@@ -605,6 +648,21 @@ class BulkAIModifyRequest(BaseModel):
 class BulkAIRenameRequest(BaseModel):
     component_ids: list[str]
     rules: str
+    model: Optional[str] = None
+
+
+class BulkTemplateRenameRequest(BaseModel):
+    component_ids: list[str]
+    template: str
+    start: int = 1
+    step: int = 1
+
+
+class BulkCopyFieldsRequest(BaseModel):
+    source_id: str
+    target_ids: list[str]
+    fields: list[str]
+    only_if_empty: bool = True
 
 
 class CollectionCommandRequest(BaseModel):
@@ -937,35 +995,28 @@ async def bulk_ai_rename_components(req: BulkAIRenameRequest, db: AsyncSession =
     if not req.rules or len(req.rules.strip()) < 4:
         raise HTTPException(400, "Rules text too short")
 
-    from app.routers.ai_parse import enrich_record, EnrichRequest
+    from app.routers.ai_parse import generate_component_title_with_rules
 
     comps = (await db.execute(select(Component).where(Component.id.in_(ids)))).scalars().all()
     updated = 0
     failed = []
 
     for comp in comps:
-        prompt = (
-            "Apply naming rules and output the final canonical component title in patch_fields.name. "
-            "Do not add commentary.\n"
-            f"Rules:\n{req.rules}\n"
-            f"Current: name={comp.name}; value={comp.value}; unit={comp.unit}; package={comp.package}; "
-            f"type_path={comp.type_path}; type_data={json.dumps(comp.type_data or {}, ensure_ascii=False)}"
-        )
         try:
-            ai = await enrich_record(EnrichRequest(
-                mode="component",
-                action="repair",
-                text=prompt,
-                existing_data={
+            ai = await generate_component_title_with_rules(
+                {
                     "name": comp.name,
                     "value": comp.value,
                     "unit": comp.unit,
                     "package": comp.package,
+                    "mpn": comp.mpn,
                     "type_path": comp.type_path,
                     "type_data": comp.type_data if isinstance(comp.type_data, dict) else {},
                 },
-            ))
-            proposed = (ai.get("patch_fields") or {}).get("name")
+                req.rules,
+                req.model,
+            )
+            proposed = ai.get("name")
             if proposed and proposed.strip() and proposed.strip() != comp.name:
                 _append_search_alias(comp, comp.name)
                 comp.name = proposed.strip()
@@ -976,6 +1027,76 @@ async def bulk_ai_rename_components(req: BulkAIRenameRequest, db: AsyncSession =
             failed.append({"id": comp.id, "error": str(e)[:160]})
 
     return {"updated": updated, "failed": failed}
+
+
+@router.post("/bulk-template-rename")
+async def bulk_template_rename_components(req: BulkTemplateRenameRequest, db: AsyncSession = Depends(get_db)):
+    ids = list(dict.fromkeys([x for x in req.component_ids if x]))
+    if not ids:
+        raise HTTPException(400, "No component ids provided")
+    template = (req.template or "").strip()
+    if len(template) < 2:
+        raise HTTPException(400, "Template is too short")
+
+    comps = (await db.execute(select(Component).where(Component.id.in_(ids)).order_by(Component.barcode_id))).scalars().all()
+    updated = 0
+    index = int(req.start)
+    step = int(req.step) if int(req.step) != 0 else 1
+
+    for comp in comps:
+        before = comp.name or ""
+        after = _render_name_template(template, comp, index)
+        index += step
+        if after and after != before:
+            _append_search_alias(comp, before)
+            comp.name = after
+            if not comp.short_title_manual:
+                _apply_component_title(comp, preferred=after, manual=False)
+            updated += 1
+
+    return {"updated": updated}
+
+
+@router.post("/bulk-copy-fields")
+async def bulk_copy_fields(req: BulkCopyFieldsRequest, db: AsyncSession = Depends(get_db)):
+    allowed_fields = {
+        "image_path", "datasheet_url", "package", "type_path", "type_data", "mpn",
+        "description", "notes", "value", "unit", "tolerance", "voltage_rating",
+        "digikey_pn", "lcsc_pn",
+    }
+    fields = [f for f in req.fields if f in allowed_fields]
+    if not fields:
+        raise HTTPException(400, "No allowed fields selected")
+
+    source = (await db.execute(select(Component).where(Component.id == req.source_id))).scalar_one_or_none()
+    if not source:
+        raise HTTPException(404, "Source component not found")
+
+    target_ids = list(dict.fromkeys([x for x in req.target_ids if x and x != req.source_id]))
+    if not target_ids:
+        raise HTTPException(400, "No target components provided")
+
+    targets = (await db.execute(select(Component).where(Component.id.in_(target_ids)))).scalars().all()
+    copied = 0
+    touched = 0
+    for target in targets:
+        target_changed = False
+        for field in fields:
+            src_val = getattr(source, field, None)
+            if _is_empty_value(src_val):
+                continue
+            dst_val = getattr(target, field, None)
+            if req.only_if_empty and not _is_empty_value(dst_val):
+                continue
+            setattr(target, field, src_val)
+            copied += 1
+            target_changed = True
+        if target_changed:
+            touched += 1
+            if not target.short_title_manual:
+                _apply_component_title(target, manual=False)
+
+    return {"targets_updated": touched, "fields_copied": copied}
 
 
 @router.post("/collection-command")
