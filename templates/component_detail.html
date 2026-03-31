@@ -193,8 +193,8 @@
     <div class="card mb-3">
       <div class="card-header"><span class="dot"></span>Markings Creator</div>
       <div class="p-3">
-        <div class="muted" style="font-size:11px;margin-bottom:6px;">Generate color bands + text overlay, then replace the component image with a base64 SVG.</div>
-        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. grey gold blue green | orange 104 | green LED" value="{{ (comp.value or comp.name or '')|e }}">
+        <div class="muted" style="font-size:11px;margin-bottom:6px;">Bands + text renderer. Syntax: <code>_beige</code> bg, <code>-red</code>/<code>+blue</code> side stripes, <code>_</code> spacer, dot shapes like <code>.8</code>, <code>.3</code>, <code>.R</code>, <code>.5*</code>.</div>
+        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. _silver -red green 8321C +purple blue .8" value="{{ (comp.value or comp.name or '')|e }}">
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
           <button class="btn btn-primary btn-sm" onclick="generateMarkingsSvg()">Generate SVG</button>
           <button class="btn btn-primary btn-sm" onclick="applyMarkingsAsImage()">Replace Component Image</button>

@@ -1,6 +1,7 @@
 import html
 import re
 import base64
+import math
 from typing import Any
 
 
@@ -24,6 +25,16 @@ COLOR_MAP = {
 }
 
 DEFAULT_BG = COLOR_MAP["beige"]
+SYMBOL_ALIASES = {
+    "screw": "screw",
+    "screwhead": "screw",
+    "phillips": "screw",
+    "philips": "screw",
+    "torx": "screw",
+    "drill": "drill",
+    "drillbit": "drill",
+    "bit": "drill",
+}
 
 
 def parse_marking_tokens(text: str | None = None, tokens: list[str] | None = None) -> list[dict[str, Any]]:
@@ -66,6 +77,8 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "right_stripes": [],
         "middle_bands": [],
         "text": "",
+        "shape": None,
+        "symbols": [],
     }
 
     text_parts: list[str] = []
@@ -80,6 +93,25 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
             layout["middle_bands"].append(None)
             continue
 
+        # Dot-shape grammar: .8 .3 .0 .4 .R .5*
+        if low.startswith("."):
+            if low == ".r":
+                layout["shape"] = {"type": "rectangle"}
+                continue
+            m = re.match(r"^\.(\d+)(\*)?$", low)
+            if m:
+                points = int(m.group(1))
+                is_star = bool(m.group(2))
+                if is_star:
+                    layout["shape"] = {"type": "star", "points": max(3, points)}
+                elif points == 0:
+                    layout["shape"] = {"type": "circle"}
+                elif points == 4:
+                    layout["shape"] = {"type": "square"}
+                else:
+                    layout["shape"] = {"type": "polygon", "points": max(3, points)}
+                continue
+
         marker = ""
         raw = token
         if token[0] in "+-_":
@@ -87,6 +119,12 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
             raw = token[1:].strip()
         raw_low = raw.lower()
         color_hex = COLOR_MAP.get(raw_low)
+
+        symbol = SYMBOL_ALIASES.get(raw_low)
+        if symbol:
+            if len(layout["symbols"]) < 4:
+                layout["symbols"].append(symbol)
+            continue
 
         if marker == "_" and color_hex:
             # _beige or _silver sets base body color.
@@ -112,6 +150,91 @@ def parse_marking_layout(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return layout
 
 
+def _regular_polygon_points(cx: float, cy: float, r: float, n: int, start_deg: float = -90.0) -> str:
+    pts = []
+    for i in range(n):
+        a = math.radians(start_deg + (360.0 * i / n))
+        pts.append(f"{cx + r * math.cos(a):.2f},{cy + r * math.sin(a):.2f}")
+    return " ".join(pts)
+
+
+def _star_points(cx: float, cy: float, r_outer: float, r_inner: float, n: int, start_deg: float = -90.0) -> str:
+    pts = []
+    total = n * 2
+    for i in range(total):
+        a = math.radians(start_deg + (360.0 * i / total))
+        r = r_outer if i % 2 == 0 else r_inner
+        pts.append(f"{cx + r * math.cos(a):.2f},{cy + r * math.sin(a):.2f}")
+    return " ".join(pts)
+
+
+def _shape_element(shape: dict | None, x: float, y: float, w: float, h: float, default_rx: float, fill: str = "none", stroke: str = "none", stroke_width: float = 0) -> str:
+    style = f'fill="{fill}" stroke="{stroke}"'
+    if stroke_width > 0:
+        style += f' stroke-width="{stroke_width}"'
+
+    if not shape:
+        return f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" rx="{default_rx:.2f}" ry="{default_rx:.2f}" {style}/>'
+
+    st = shape.get("type")
+    cx = x + (w / 2.0)
+    cy = y + (h / 2.0)
+
+    if st == "circle":
+        r = min(w, h) / 2.0
+        return f'<ellipse cx="{cx:.2f}" cy="{cy:.2f}" rx="{r:.2f}" ry="{r:.2f}" {style}/>'
+
+    if st == "square":
+        s = min(w, h)
+        sx = cx - (s / 2.0)
+        sy = cy - (s / 2.0)
+        return f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{s:.2f}" height="{s:.2f}" {style}/>'
+
+    if st == "rectangle":
+        return f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" {style}/>'
+
+    if st == "polygon":
+        n = int(shape.get("points") or 6)
+        r = (min(w, h) / 2.0)
+        pts = _regular_polygon_points(cx, cy, r, max(3, n))
+        return f'<polygon points="{pts}" {style}/>'
+
+    if st == "star":
+        n = int(shape.get("points") or 5)
+        r_outer = (min(w, h) / 2.0)
+        r_inner = r_outer * 0.48
+        pts = _star_points(cx, cy, r_outer, r_inner, max(3, n))
+        return f'<polygon points="{pts}" {style}/>'
+
+    return f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" rx="{default_rx:.2f}" ry="{default_rx:.2f}" {style}/>'
+
+
+def _render_symbol(symbol: str, x: float, y: float, size: float) -> str:
+    if symbol == "screw":
+        cx = x + (size / 2.0)
+        cy = y + (size / 2.0)
+        r = size * 0.42
+        return (
+            f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="#ffffff" stroke="#000000" stroke-width="1.6"/>'
+            f'<line x1="{cx - r * 0.55:.2f}" y1="{cy:.2f}" x2="{cx + r * 0.55:.2f}" y2="{cy:.2f}" stroke="#000000" stroke-width="1.6"/>'
+            f'<line x1="{cx:.2f}" y1="{cy - r * 0.55:.2f}" x2="{cx:.2f}" y2="{cy + r * 0.55:.2f}" stroke="#000000" stroke-width="1.6"/>'
+        )
+
+    if symbol == "drill":
+        x0 = x + size * 0.10
+        y0 = y + size * 0.12
+        x1 = x + size * 0.78
+        y1 = y + size * 0.50
+        x2 = x + size * 0.26
+        y2 = y + size * 0.90
+        return (
+            f'<path d="M{x0:.2f},{y0:.2f} L{x1:.2f},{y1:.2f} L{x2:.2f},{y2:.2f} Z" fill="#ffffff" stroke="#000000" stroke-width="1.4"/>'
+            f'<line x1="{x0 + size * 0.12:.2f}" y1="{y0 + size * 0.12:.2f}" x2="{x2 - size * 0.03:.2f}" y2="{y2 - size * 0.02:.2f}" stroke="#000000" stroke-width="1.2"/>'
+        )
+
+    return ""
+
+
 def render_markings_svg(
     entries: list[dict[str, Any]],
     width: int = 512,
@@ -125,25 +248,40 @@ def render_markings_svg(
     layout = parse_marking_layout(entries)
     overlay_text = html.escape(layout["text"])
 
-    container_w = int(width * 0.84)
-    container_h = int(container_w * (9.0 / 16.0))
+    middle_slots = len(layout["middle_bands"])
+    if middle_slots <= 0:
+        middle_slots = len(layout["left_stripes"]) + len(layout["right_stripes"])
+
+    # Default schema by band amount if no dot-shape token.
+    compact_mode = 1 <= middle_slots <= 3
+    if compact_mode:
+        container_h = int(height * 0.78)
+        container_w = int(container_h * (3.0 / 4.0))
+        container_w = min(container_w, int(width * 0.82))
+        radius = int(container_h * 0.12)
+        gap = max(1, int(container_w * 0.0035))
+    else:
+        container_w = int(width * 0.84)
+        container_h = int(container_w * (9.0 / 16.0))
+        radius = int(container_h * 0.28)
+        gap = max(4, int(container_w * 0.013))
+
     container_x = int((width - container_w) / 2)
     container_y = int((height - container_h) / 2)
-    radius = int(container_h * 0.38)  # Slightly less rounded than full capsule.
     clip_id = "markings_clip"
-    gap = max(2, int(container_w * 0.0065))
 
+    clip_shape = _shape_element(layout.get("shape"), container_x, container_y, container_w, container_h, radius)
     shapes: list[str] = [
-        f'<defs><clipPath id="{clip_id}"><rect x="{container_x}" y="{container_y}" width="{container_w}" height="{container_h}" rx="{radius}" ry="{radius}"/></clipPath></defs>',
-        f'<rect x="{container_x}" y="{container_y}" width="{container_w}" height="{container_h}" rx="{radius}" ry="{radius}" fill="{layout["background"]}"/>',
+        f'<defs><clipPath id="{clip_id}">{clip_shape}</clipPath></defs>',
+        _shape_element(layout.get("shape"), container_x, container_y, container_w, container_h, radius, fill=layout["background"]),
     ]
 
     left = layout["left_stripes"][:2]
     right = layout["right_stripes"][:2]
     middle = layout["middle_bands"]
 
-    stripe_w = int(container_w * 0.09)
-    inner_pad = max(8, int(container_h * 0.11))
+    stripe_w = int(container_w * (0.11 if compact_mode else 0.085))
+    inner_pad = max(4, int(container_h * (0.08 if compact_mode else 0.12)))
     stripe_y = container_y + inner_pad
     stripe_h = container_h - (inner_pad * 2)
 
@@ -181,14 +319,21 @@ def render_markings_svg(
             x += band_w + gap
 
     shapes.append(
-        f'<rect x="{container_x}" y="{container_y}" width="{container_w}" height="{container_h}" '
-        f'rx="{radius}" ry="{radius}" fill="none" stroke="#d1d5db" stroke-width="2"/>'
+        _shape_element(layout.get("shape"), container_x, container_y, container_w, container_h, radius, fill="none", stroke="#d1d5db", stroke_width=2)
     )
+
+    # Optional icon symbols (screw/drill) near top-right.
+    if layout.get("symbols"):
+        icon = max(14, int(container_h * 0.17))
+        sx = container_x + container_w - icon - 8
+        sy = container_y + 7
+        for i, sym in enumerate(layout["symbols"][:3]):
+            shapes.append(_render_symbol(sym, sx - (i * (icon + 4)), sy, icon))
 
     if overlay_text:
         text_x = container_x + (container_w / 2)
         text_y = container_y + (container_h / 2) + 5
-        max_font = int(container_h * 0.56)
+        max_font = int(container_h * 0.60)
         min_font = 16
         text_len = max(1, len(overlay_text))
         target_w = container_w * 0.78
