@@ -274,10 +274,13 @@ def _build_calibration_cover_page(
   count = int(settings.get("calibration_mark_count", 12))
 
   rows_html = []
+  max_rows = 24
   for run_no in range(1, run_count + 1):
     seed = seeds_by_run[run_no - 1]
     marks = marks_by_run[run_no - 1]
     for idx in marks:
+      if len(rows_html) >= max_rows:
+        break
       r = idx // cols
       c = idx % cols
       x_left = ml + c * (cw + gx) + (cw / 2.0)
@@ -289,29 +292,36 @@ def _build_calibration_cover_page(
         f"<td>{run_no}</td>"
         f"<td>{seed}</td>"
         f"<td>R{r}C{c}</td>"
-        f"<td>{x_left:.4f}</td>"
-        f"<td>{y_top:.4f}</td>"
-        f"<td>{x_right:.4f}</td>"
-        f"<td>{y_bottom:.4f}</td>"
+        f"<td>{x_left:.4f}</td><td>{x_left * 25.4:.2f}</td>"
+        f"<td>{y_top:.4f}</td><td>{y_top * 25.4:.2f}</td>"
+        f"<td>{x_right:.4f}</td><td>{x_right * 25.4:.2f}</td>"
+        f"<td>{y_bottom:.4f}</td><td>{y_bottom * 25.4:.2f}</td>"
         "</tr>"
       )
+    if len(rows_html) >= max_rows:
+      break
 
-  table_rows = "".join(rows_html) if rows_html else "<tr><td colspan='7'>No marks configured</td></tr>"
+  table_rows = "".join(rows_html) if rows_html else "<tr><td colspan='11'>No marks configured</td></tr>"
 
   return f"""
   <div class=\"print-page cover-page\">
     <div class=\"cover\">
       <h1>Calibration Cover · rev {rev}</h1>
       <div class=\"meta\">Grid prediction: {cols} cols x {rows} rows | Marks/run: {count} | Run label: {label}</div>
-      <div class=\"meta\">Sheet: {pw:.3f}in x {ph:.3f}in | Cell: {cw:.3f}in x {ch:.3f}in | Gap: {gx:.3f}in x {gy:.3f}in</div>
+      <div class=\"meta\">Sheet: {pw:.3f}in x {ph:.3f}in ({pw * 25.4:.2f} x {ph * 25.4:.2f} mm)</div>
+      <div class=\"meta\">Cell: {cw:.3f}in x {ch:.3f}in ({cw * 25.4:.2f} x {ch * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
       <div class=\"meta\">Margins (T,R,B,L): {settings['margin_top_in']}, {settings['margin_right_in']}, {settings['margin_bottom_in']}, {settings['margin_left_in']} in</div>
       <div class=\"meta\">Sequence: {seq} | Printer target: cross marks only, no borders</div>
       <hr />
-      <div class=\"note\">Distances below are expected center positions from sheet edges (inches). Use ruler/caliper to compare print reality.</div>
+      <div class=\"note\">Distances below are expected center positions from sheet edges (in and mm). Use ruler/caliper to compare print reality. (First {max_rows} marks shown to keep this cover to one page.)</div>
       <table>
         <thead>
           <tr>
-            <th>Run</th><th>Seed</th><th>Cell</th><th>Left</th><th>Top</th><th>Right</th><th>Bottom</th>
+            <th>Run</th><th>Seed</th><th>Cell</th>
+            <th>Left in</th><th>Left mm</th>
+            <th>Top in</th><th>Top mm</th>
+            <th>Right in</th><th>Right mm</th>
+            <th>Bottom in</th><th>Bottom mm</th>
           </tr>
         </thead>
         <tbody>{table_rows}</tbody>
@@ -544,17 +554,23 @@ async def print_sheet_designer(
   html, body {{ margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }}
   .print-page {{ page-break-after: always; }}
   .print-page:last-child {{ page-break-after: auto; }}
-  .cover-page {{ padding: 0.22in; box-sizing: border-box; }}
+  .cover-page {{
+    padding: 0.22in;
+    box-sizing: border-box;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    overflow: hidden;
+  }}
   .cover h1 {{ margin: 0 0 8px; font-size: 14pt; }}
   .cover .meta {{ font-size: 9pt; margin: 2px 0; }}
   .cover .note {{ font-size: 8.5pt; margin: 6px 0 8px; }}
-  .cover table {{ width: 100%; border-collapse: collapse; font-size: 8.5pt; }}
-  .cover th, .cover td {{ border: 0.3pt solid #888; padding: 2px 4px; text-align: left; }}
+  .cover table {{ width: 100%; border-collapse: collapse; font-size: 8pt; }}
+  .cover th, .cover td {{ border: 0.5pt solid #555; padding: 2px 3px; text-align: left; }}
   .cover th {{ background: #f0f0f0; }}
   .cal-page-head {{
     font-size: 7pt;
     font-family: monospace;
-    opacity: 0.55;
+    opacity: 0.95;
     margin: 0.06in {settings['margin_left_in']}in 0.02in;
   }}
   .page {{
@@ -620,21 +636,21 @@ async def print_sheet_designer(
   .barcode-wrap svg {{ width: 96%; height: {barcode_css_h}in; display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .calibration {{ position: absolute; inset: 0; }}
-  .micro {{ position: absolute; width: 1.2mm; height: 1.2mm; opacity: 0.35; }}
+  .micro {{ position: absolute; width: 2.2mm; height: 2.2mm; opacity: 1; }}
   .micro.dot {{ border-radius: 50%; background: #000; }}
   .micro.cross::before, .micro.cross::after {{
     content: ''; position: absolute; left: 50%; top: 50%; background: #000; transform: translate(-50%, -50%);
   }}
-  .micro.cross::before {{ width: 1.2mm; height: 0.2mm; }}
-  .micro.cross::after {{ width: 0.2mm; height: 1.2mm; }}
+  .micro.cross::before {{ width: 2.2mm; height: 0.5mm; }}
+  .micro.cross::after {{ width: 0.5mm; height: 2.2mm; }}
   .micro.tmark::before, .micro.tmark::after {{
     content: ''; position: absolute; left: 50%; top: 50%; background: #000; transform: translate(-50%, -50%);
   }}
-  .micro.tmark::before {{ width: 1.4mm; height: 0.22mm; top: 30%; }}
-  .micro.tmark::after {{ width: 0.22mm; height: 1.4mm; top: 58%; }}
+  .micro.tmark::before {{ width: 2.5mm; height: 0.5mm; top: 30%; }}
+  .micro.tmark::after {{ width: 0.5mm; height: 2.5mm; top: 60%; }}
   .cal-rev {{
     position: absolute; right: 0.7mm; bottom: 0.4mm;
-    font-size: 4.5pt; opacity: 0.42; font-family: monospace;
+    font-size: 5pt; opacity: 0.9; font-family: monospace;
   }}
   </style>
 </head>
