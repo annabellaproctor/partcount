@@ -541,27 +541,68 @@ function cellRightClick(e, el) {
   document.getElementById('sticker-modal-cell').textContent = el.dataset.cell;
   initStickerSelectorModal();
   document.getElementById('sticker-modal').style.display = 'flex';
+  document.addEventListener('keydown', handleStickerKeydown);
 }
 
 function closeStickerModal() {
   document.getElementById('sticker-modal').style.display = 'none';
   _stickerModalCell = null;
+  document.removeEventListener('keydown', handleStickerKeydown);
 }
+
+let _stickerFocusIndex = 0;
 
 function initStickerSelectorModal() {
   const container = document.getElementById('sticker-selector');
   container.innerHTML = '';
   const currentTag = _stickerModalCell ? parseInt(_stickerModalCell.dataset.stickerTagNo, 10) : null;
+  _stickerFocusIndex = 0;
   
-  STICKER_TAG_DISPLAY_ORDER.forEach(tagNo => {
+  STICKER_TAG_DISPLAY_ORDER.forEach((tagNo, idx) => {
     const color = STICKER_TAGS[tagNo];
     const btn = document.createElement('button');
+    btn.dataset.tagNo = tagNo;
+    btn.dataset.idx = idx;
     btn.style.cssText = `background:${color};width:100%;aspect-ratio:1;border-radius:4px;border:${tagNo === currentTag ? '3px solid var(--green)' : '1px solid var(--border)'};cursor:pointer;transition:all 0.1s;`;
-    btn.onmouseover = () => btn.style.boxShadow = '0 0 8px rgba(255,255,255,0.4)';
+    btn.onmouseover = () => { btn.style.boxShadow = '0 0 8px rgba(255,255,255,0.4)'; _stickerFocusIndex = idx; };
     btn.onmouseout = () => btn.style.boxShadow = 'none';
     btn.onclick = () => setStickerTag(tagNo);
     container.appendChild(btn);
   });
+  
+  setTimeout(() => {
+    const firstBtn = container.querySelector('button');
+    if (firstBtn) firstBtn.focus();
+  }, 50);
+}
+
+function handleStickerKeydown(e) {
+  const container = document.getElementById('sticker-selector');
+  if (!container) return;
+  const buttons = Array.from(container.querySelectorAll('button'));
+  if (!buttons.length) return;
+  
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    const btn = buttons[_stickerFocusIndex];
+    setStickerTag(parseInt(btn.dataset.tagNo, 10));
+  } else if (e.key === 'Delete') {
+    e.preventDefault();
+    clearStickerTag();
+  } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    _stickerFocusIndex = (_stickerFocusIndex + 1) % buttons.length;
+    buttons[_stickerFocusIndex].focus();
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    _stickerFocusIndex = (_stickerFocusIndex - 1 + buttons.length) % buttons.length;
+    buttons[_stickerFocusIndex].focus();
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const next = e.shiftKey ? -1 : 1;
+    _stickerFocusIndex = (_stickerFocusIndex + next + buttons.length) % buttons.length;
+    buttons[_stickerFocusIndex].focus();
+  }
 }
 
 async function setStickerTag(tagNo) {
@@ -618,6 +659,11 @@ document.querySelectorAll('.sticker-chip').forEach(chip => {
 // Close sticker modal on backdrop click
 document.getElementById('sticker-modal')?.addEventListener('click', function(e) {
   if (e.target === this) closeStickerModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('sticker-modal').style.display === 'flex') {
+    closeStickerModal();
+  }
 });
 </script>
 {% endblock %}
