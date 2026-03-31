@@ -185,7 +185,7 @@ def _clean_settings(settings: dict | None) -> dict:
 def _compute_grid(settings: dict) -> tuple[int, int]:
   usable_w = settings["page_width_in"] - settings["margin_left_in"] - settings["margin_right_in"]
   usable_h = settings["page_height_in"] - settings["margin_top_in"] - settings["margin_bottom_in"]
-  cw, ch = settings["cut_width_in"], settings["cut_height_in"]
+  cw, ch = settings["cell_width_in"], settings["cell_height_in"]
   gx, gy = settings["gap_x_in"], settings["gap_y_in"]
 
   cols = max(1, int(math.floor((usable_w + gx) / (cw + gx))))
@@ -242,8 +242,8 @@ async def _component_sort_slots(db: AsyncSession) -> dict[str, tuple[int, str, i
 def _build_sheet_margin_headers(settings: dict, cols: int, rows: int, sheet_code: str, printed_at: str, mode: str) -> str:
   ml = float(settings["margin_left_in"])
   mt = float(settings["margin_top_in"])
-  cw = float(settings["cut_width_in"])
-  ch = float(settings["cut_height_in"])
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
   gx = float(settings["gap_x_in"])
   gy = float(settings["gap_y_in"])
   pw = float(settings["page_width_in"])
@@ -386,8 +386,8 @@ def _build_global_grid_overlay(settings: dict, cols: int, rows: int, *, show_gri
   if not (show_grid or show_debug or show_x):
     return ""
 
-  cw = float(settings["cut_width_in"])
-  ch = float(settings["cut_height_in"])
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
   gx = float(settings["gap_x_in"])
   gy = float(settings["gap_y_in"])
   grid_w = (cols * cw) + (max(0, cols - 1) * gx)
@@ -425,6 +425,23 @@ def _build_global_grid_overlay(settings: dict, cols: int, rows: int, *, show_gri
     f'<div class="grid-overlay-lines">{"".join(lines)}</div>'
     f'<div class="grid-overlay-x">{"".join(crosses)}</div>'
     f'<div class="grid-overlay-labels">{"".join(labels)}</div>'
+    '</div>'
+  )
+
+
+def _build_final_cut_overlay(settings: dict) -> str:
+  sticker_w = float(settings["cell_width_in"])
+  sticker_h = float(settings["cell_height_in"])
+  cut_w = max(0.01, min(sticker_w, float(settings["cut_width_in"])))
+  cut_h = max(0.01, min(sticker_h, float(settings["cut_height_in"])))
+
+  # If final cut is effectively full-sticker, skip overlay noise.
+  if abs(cut_w - sticker_w) < 0.0001 and abs(cut_h - sticker_h) < 0.0001:
+    return ""
+
+  return (
+    '<div class="final-cut-overlay" aria-hidden="true">'
+    f'<div class="final-cut-box" style="width:{cut_w:.6f}in;height:{cut_h:.6f}in;"></div>'
     '</div>'
   )
 
@@ -536,8 +553,8 @@ def _build_calibration_cover_page(
   ph = float(settings["page_height_in"])
   ml = float(settings["margin_left_in"])
   mt = float(settings["margin_top_in"])
-  cut_w = float(settings["cut_width_in"])
-  cut_h = float(settings["cut_height_in"])
+  cut_w = float(settings["cell_width_in"])
+  cut_h = float(settings["cell_height_in"])
   sticker_w = float(settings["cell_width_in"])
   sticker_h = float(settings["cell_height_in"])
   gx = float(settings["gap_x_in"])
@@ -584,7 +601,8 @@ def _build_calibration_cover_page(
       <div class=\"meta\">Grid prediction: {cols} cols x {rows} rows | Marks/run: {count} | Run label: {label}</div>
       <div class=\"meta\">Sheet: {pw:.3f}in x {ph:.3f}in ({pw * 25.4:.2f} x {ph * 25.4:.2f} mm)</div>
       <div class="meta">Sticker: {sticker_w:.3f}in x {sticker_h:.3f}in ({sticker_w * 25.4:.2f} x {sticker_h * 25.4:.2f} mm)</div>
-      <div class="meta">Cut pitch: {cut_w:.3f}in x {cut_h:.3f}in ({cut_w * 25.4:.2f} x {cut_h * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
+      <div class="meta">Sticker pitch: {cut_w:.3f}in x {cut_h:.3f}in ({cut_w * 25.4:.2f} x {cut_h * 25.4:.2f} mm)</div>
+      <div class="meta">Final cut target: {settings['cut_width_in']:.3f}in x {settings['cut_height_in']:.3f}in ({settings['cut_width_in'] * 25.4:.2f} x {settings['cut_height_in'] * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
       <div class=\"meta\">Margins (T,R,B,L): {settings['margin_top_in']}, {settings['margin_right_in']}, {settings['margin_bottom_in']}, {settings['margin_left_in']} in</div>
       <div class=\"meta\">Sequence: {seq} | Printer target: cross marks only, no borders</div>
       <hr />
@@ -876,6 +894,7 @@ async def print_sheet_designer(
   sheet_code = _new_sheet_code() if tracked_mode else ""
   printed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC") if tracked_mode else ""
   placements: list[dict] = []
+  final_cut_overlay_html = _build_final_cut_overlay(settings)
   seeds_by_run: list[int] = []
   marks_by_run: list[list[int]] = []
   for run_no in range(1, run_count + 1):
@@ -931,7 +950,7 @@ async def print_sheet_designer(
           inner = _build_front_cell(comps[i], settings)
         classes = "cell"
 
-      cells.append(f'<div class="{classes}">{inner}</div>')
+      cells.append(f'<div class="{classes}">{inner}{"" if mode == "calibration" else final_cut_overlay_html}</div>')
 
     sheet = "".join(cells)
     header = ""
@@ -987,8 +1006,6 @@ async def print_sheet_designer(
   pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
   barcode_css_h = min(settings["barcode_max_height_in"], settings["cell_height_in"] * settings["barcode_height_ratio"])
-  sticker_inset_x = max(0.0, (float(settings["cut_width_in"]) - float(settings["cell_width_in"])) / 2.0)
-  sticker_inset_y = max(0.0, (float(settings["cut_height_in"]) - float(settings["cell_height_in"])) / 2.0)
   meta_top_in = max(0.02, float(settings["margin_top_in"]) * 0.26)
   meta_bottom_in = max(0.02, float(settings["margin_bottom_in"]) * 0.26)
   col_top_in = max(0.01, float(settings["margin_top_in"]) * 0.72)
@@ -1081,8 +1098,8 @@ async def print_sheet_designer(
     box-sizing: border-box;
     padding: {settings['margin_top_in']}in {settings['margin_right_in']}in {settings['margin_bottom_in']}in {settings['margin_left_in']}in;
     display: grid;
-    grid-template-columns: repeat({cols}, {settings['cut_width_in']}in);
-    grid-template-rows: repeat({rows}, {settings['cut_height_in']}in);
+    grid-template-columns: repeat({cols}, {settings['cell_width_in']}in);
+    grid-template-rows: repeat({rows}, {settings['cell_height_in']}in);
     column-gap: {settings['gap_x_in']}in;
     row-gap: {settings['gap_y_in']}in;
     overflow: hidden;
@@ -1133,11 +1150,7 @@ async def print_sheet_designer(
   .grid-overlay-labels .gcol {{ top: 0.18mm; transform: translateX(-50%); }}
   .grid-overlay-labels .grow {{ left: 0.18mm; transform: translateY(-50%); }}
   .front {{
-    position: absolute;
-    left: {sticker_inset_x:.6f}in;
-    top: {sticker_inset_y:.6f}in;
-    width: {settings['cell_width_in']}in;
-    height: {settings['cell_height_in']}in;
+    position: absolute; inset: 0;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -1214,11 +1227,7 @@ async def print_sheet_designer(
     pointer-events: none;
   }}
   .barcode-wrap {{
-    position: absolute;
-    left: {sticker_inset_x:.6f}in;
-    top: {sticker_inset_y:.6f}in;
-    width: {settings['cell_width_in']}in;
-    height: {settings['cell_height_in']}in;
+    position: absolute; inset: 0;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -1253,17 +1262,7 @@ async def print_sheet_designer(
   .barcode-mini:last-child {{ padding-left: 1.0mm; }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
-  .grid-test {{
-    position: absolute;
-    left: {sticker_inset_x:.6f}in;
-    top: {sticker_inset_y:.6f}in;
-    width: {settings['cell_width_in']}in;
-    height: {settings['cell_height_in']}in;
-    padding: 0.8mm;
-    box-sizing: border-box;
-    display: flex;
-    gap: 0;
-  }}
+  .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
   .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
   .grid-test::before {{
     content: '';
@@ -1277,12 +1276,22 @@ async def print_sheet_designer(
     opacity: 0.7;
     pointer-events: none;
   }}
-  .calibration {{
+  .calibration {{ position: absolute; inset: 0; }}
+  .final-cut-overlay {{
     position: absolute;
-    left: {sticker_inset_x:.6f}in;
-    top: {sticker_inset_y:.6f}in;
-    width: {settings['cell_width_in']}in;
-    height: {settings['cell_height_in']}in;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+  }}
+  .final-cut-box {{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    border: 0.35pt dashed #5a5a5a;
+    box-shadow: 0 0 0 100vmax rgba(80, 80, 80, 0.18);
+    background: rgba(255, 255, 255, 0.01);
   }}
   .micro {{ position: absolute; width: 2.2mm; height: 2.2mm; opacity: 1; }}
   .micro.dot {{ border-radius: 50%; background: #000; }}
