@@ -15,19 +15,23 @@ class MarkingsRequest(BaseModel):
   text: str | None = None
   tokens: list[str] | None = None
   width: int = 720
-  height: int = 96
+  height: int = 120
+
+
+class MarkingsApplyRequest(MarkingsRequest):
+  component_id: str
 
 
 @router.post("/markings-svg")
 async def generate_markings_svg(req: MarkingsRequest):
-  if not req.text and not req.tokens:
-    raise HTTPException(400, "Provide text or tokens")
-  return build_markings_svg(
-    text=req.text,
-    tokens=req.tokens,
-    width=req.width,
-    height=req.height,
-  )
+    if not req.text and not req.tokens:
+        raise HTTPException(400, "Provide text or tokens")
+    return build_markings_svg(
+        text=req.text,
+        tokens=req.tokens,
+        width=req.width,
+        height=req.height,
+    )
 
 
 @router.get("/markings-svg")
@@ -35,6 +39,30 @@ async def generate_markings_svg_get(text: str, width: int = 720, height: int = 9
   if not text or len(text.strip()) < 1:
     raise HTTPException(400, "Text is required")
   return build_markings_svg(text=text, width=width, height=height)
+
+
+@router.post("/markings-apply")
+async def apply_markings_as_component_image(req: MarkingsApplyRequest, db: AsyncSession = Depends(get_db)):
+  if not req.text and not req.tokens:
+    raise HTTPException(400, "Provide text or tokens")
+
+  comp = (await db.execute(select(Component).where(Component.id == req.component_id))).scalar_one_or_none()
+  if not comp:
+    raise HTTPException(404, "Component not found")
+
+  result = build_markings_svg(
+    text=req.text,
+    tokens=req.tokens,
+    width=req.width,
+    height=req.height,
+  )
+  comp.image_path = result["image_data_url"]
+  return {
+    "updated": True,
+    "component_id": comp.id,
+    "image_path": comp.image_path,
+    "entries": result["entries"],
+  }
 
 
 @router.get("/print/{barcode_id}", response_class=HTMLResponse)
