@@ -251,6 +251,76 @@ def _calibration_indices(settings: dict, cols: int, rows: int, run_no: int, rev:
   return rnd.sample(list(range(capacity)), wanted), "t"
 
 
+def _build_calibration_cover_page(
+  settings: dict,
+  cols: int,
+  rows: int,
+  rev: int,
+  run_count: int,
+  seeds_by_run: list[int],
+  marks_by_run: list[list[int]],
+) -> str:
+  pw = float(settings["page_width_in"])
+  ph = float(settings["page_height_in"])
+  ml = float(settings["margin_left_in"])
+  mt = float(settings["margin_top_in"])
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
+  gx = float(settings["gap_x_in"])
+  gy = float(settings["gap_y_in"])
+
+  seq = html.escape(str(settings.get("calibration_sequence", "same_seed_then_random")))
+  label = html.escape(str(settings.get("calibration_run_label", "RUN")))
+  count = int(settings.get("calibration_mark_count", 12))
+
+  rows_html = []
+  for run_no in range(1, run_count + 1):
+    seed = seeds_by_run[run_no - 1]
+    marks = marks_by_run[run_no - 1]
+    for idx in marks:
+      r = idx // cols
+      c = idx % cols
+      x_left = ml + c * (cw + gx) + (cw / 2.0)
+      y_top = mt + r * (ch + gy) + (ch / 2.0)
+      x_right = pw - x_left
+      y_bottom = ph - y_top
+      rows_html.append(
+        "<tr>"
+        f"<td>{run_no}</td>"
+        f"<td>{seed}</td>"
+        f"<td>R{r}C{c}</td>"
+        f"<td>{x_left:.4f}</td>"
+        f"<td>{y_top:.4f}</td>"
+        f"<td>{x_right:.4f}</td>"
+        f"<td>{y_bottom:.4f}</td>"
+        "</tr>"
+      )
+
+  table_rows = "".join(rows_html) if rows_html else "<tr><td colspan='7'>No marks configured</td></tr>"
+
+  return f"""
+  <div class=\"print-page cover-page\">
+    <div class=\"cover\">
+      <h1>Calibration Cover · rev {rev}</h1>
+      <div class=\"meta\">Grid prediction: {cols} cols x {rows} rows | Marks/run: {count} | Run label: {label}</div>
+      <div class=\"meta\">Sheet: {pw:.3f}in x {ph:.3f}in | Cell: {cw:.3f}in x {ch:.3f}in | Gap: {gx:.3f}in x {gy:.3f}in</div>
+      <div class=\"meta\">Margins (T,R,B,L): {settings['margin_top_in']}, {settings['margin_right_in']}, {settings['margin_bottom_in']}, {settings['margin_left_in']} in</div>
+      <div class=\"meta\">Sequence: {seq} | Printer target: cross marks only, no borders</div>
+      <hr />
+      <div class=\"note\">Distances below are expected center positions from sheet edges (inches). Use ruler/caliper to compare print reality.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Run</th><th>Seed</th><th>Cell</th><th>Left</th><th>Top</th><th>Right</th><th>Bottom</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+    </div>
+  </div>
+  """
+
+
 async def _ensure_presets(db: AsyncSession):
   existing = (await db.execute(select(LabelPrintProfile))).scalars().all()
   names = {p.name for p in existing}
@@ -409,13 +479,22 @@ async def print_sheet_designer(
     run_count = 1
 
   page_blocks = []
+  seeds_by_run: list[int] = []
+  marks_by_run: list[list[int]] = []
   for run_no in range(1, run_count + 1):
     cells = []
     marked_set = set()
     marker_style = "cross"
     if mode == "calibration":
-      marked, marker_style = _calibration_indices(settings, cols, rows, run_no, rev)
+      marked, _ = _calibration_indices(settings, cols, rows, run_no, rev)
       marked_set = set(marked)
+      marks_by_run.append(sorted(marked_set))
+      seeds_by_run.append(_calibration_seed_for_run(
+        int(settings.get("calibration_seed", 1337)),
+        rev,
+        run_no,
+        settings.get("calibration_sequence", "same_seed_then_random"),
+      ))
 
     for i in range(capacity):
       if mode == "calibration":
@@ -443,14 +522,13 @@ async def print_sheet_designer(
     sheet = "".join(cells)
     header = ""
     if mode == "calibration":
-      seed_show = _calibration_seed_for_run(
-        int(settings.get("calibration_seed", 1337)),
-        rev,
-        run_no,
-        settings.get("calibration_sequence", "same_seed_then_random"),
-      )
+      seed_show = seeds_by_run[run_no - 1]
       header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
     page_blocks.append(f'<div class="print-page">{header}<div class="page">{sheet}</div></div>')
+
+  if mode == "calibration":
+    cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
+    page_blocks.insert(0, cover)
 
   pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
@@ -466,6 +544,13 @@ async def print_sheet_designer(
   html, body {{ margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }}
   .print-page {{ page-break-after: always; }}
   .print-page:last-child {{ page-break-after: auto; }}
+  .cover-page {{ padding: 0.22in; box-sizing: border-box; }}
+  .cover h1 {{ margin: 0 0 8px; font-size: 14pt; }}
+  .cover .meta {{ font-size: 9pt; margin: 2px 0; }}
+  .cover .note {{ font-size: 8.5pt; margin: 6px 0 8px; }}
+  .cover table {{ width: 100%; border-collapse: collapse; font-size: 8.5pt; }}
+  .cover th, .cover td {{ border: 0.3pt solid #888; padding: 2px 4px; text-align: left; }}
+  .cover th {{ background: #f0f0f0; }}
   .cal-page-head {{
     font-size: 7pt;
     font-family: monospace;
@@ -490,6 +575,7 @@ async def print_sheet_designer(
     overflow: hidden;
     box-sizing: border-box;
   }}
+  .calibration-cell {{ border-radius: 0; }}
   .cut-x {{
     position: absolute;
     left: 0; top: 0;
