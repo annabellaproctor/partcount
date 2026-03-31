@@ -194,7 +194,15 @@
       <div class="card-header"><span class="dot"></span>Markings Creator</div>
       <div class="p-3">
         <div class="muted" style="font-size:11px;margin-bottom:6px;">Bands + text renderer. Syntax: <code>_beige</code> bg, <code>-red</code>/<code>+blue</code> side stripes, <code>_</code> spacer, dot shapes like <code>.8</code>, <code>.3</code>, <code>.R</code>, <code>.5*</code>.</div>
-        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. _silver -red green 8321C +purple blue .8" value="{{ (comp.value or comp.name or '')|e }}">
+        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. _silver -red green 8321C +purple blue .8" value="{{ (comp.image_query or comp.value or comp.name or '')|e }}">
+        <div style="margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);font-size:10px;color:var(--text2);line-height:1.45;">
+          <div><strong>Grammar Tips</strong></div>
+          <div>Default background is resistor beige. Use <code>_silver</code>, <code>_white</code>, etc. to override.</div>
+          <div><code>-red -gold</code> = left stripes, <code>+blue +black</code> = right stripes (max 2 per side).</div>
+          <div>Unsigned colors become middle bands. Use <code>_</code> for transparent spacer bands.</div>
+          <div>Dot shapes: <code>.0</code> circle, <code>.3</code> triangle, <code>.4</code> square, <code>.5</code> pentagon, <code>.8</code> octagon, <code>.R</code> rectangle, <code>.5*</code> star.</div>
+          <div>Any non-color token becomes centered overlay text (example: <code>8321C</code>, <code>10uF</code>).</div>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
           <button class="btn btn-primary btn-sm" onclick="generateMarkingsSvg()">Generate SVG</button>
           <button class="btn btn-primary btn-sm" onclick="applyMarkingsAsImage()">Replace Component Image</button>
@@ -751,7 +759,8 @@ async function applyMarkingsAsImage() {
     status.textContent = 'Apply failed';
     return;
   }
-  status.textContent = 'Component image replaced';
+  const data = await r.json();
+  status.textContent = data.image_query ? 'Component image replaced + query saved' : 'Component image replaced';
   setTimeout(() => location.reload(), 180);
 }
 

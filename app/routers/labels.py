@@ -56,11 +56,16 @@ async def apply_markings_as_component_image(req: MarkingsApplyRequest, db: Async
     width=req.width,
     height=req.height,
   )
+  query_text = (req.text or "").strip()
+  if not query_text and req.tokens:
+    query_text = " ".join([str(t).strip() for t in req.tokens if str(t).strip()])
   comp.image_path = result["image_data_url"]
+  comp.image_query = query_text or None
   return {
     "updated": True,
     "component_id": comp.id,
     "image_path": comp.image_path,
+    "image_query": comp.image_query,
     "entries": result["entries"],
   }
 

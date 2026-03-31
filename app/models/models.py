@@ -102,6 +102,7 @@ class Component(Base):
     tolerance = Column(String)
     notes = Column(Text)
     image_path = Column(String)
+    image_query = Column(Text)
     datasheet_url = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

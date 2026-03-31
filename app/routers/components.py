@@ -191,6 +191,7 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
             "unit": c.unit or "",
             "package": c.package or "",
             "image_path": c.image_path or "",
+            "image_query": c.image_query or "",
             "type_path": c.type_path or "",
             "is_generic": c.is_generic,
             "parent_id": c.parent_id,
@@ -1063,7 +1064,7 @@ async def bulk_template_rename_components(req: BulkTemplateRenameRequest, db: As
 @router.post("/bulk-copy-fields")
 async def bulk_copy_fields(req: BulkCopyFieldsRequest, db: AsyncSession = Depends(get_db)):
     allowed_fields = {
-        "image_path", "datasheet_url", "package", "type_path", "type_data", "mpn",
+        "image_path", "image_query", "datasheet_url", "package", "type_path", "type_data", "mpn",
         "description", "notes", "value", "unit", "tolerance", "voltage_rating",
         "digikey_pn", "lcsc_pn",
     }

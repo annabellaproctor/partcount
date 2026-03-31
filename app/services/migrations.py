@@ -253,6 +253,10 @@ MIGRATIONS = [
     (8, "component searchable aliases for title overwrite", [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS search_alias TEXT",
     ]),
+
+    (9, "component image generation query", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS image_query TEXT",
+    ]),
 ]
 
 
