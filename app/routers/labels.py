@@ -557,12 +557,8 @@ def _build_calibration_cover_page(
         break
       r = idx // cols
       c = idx % cols
-      x_left = ml + c * (cw + gx) + (cw / 2.0)
-      y_top = mt + r * (ch + gy) + (ch / 2.0)
-        x_left = ml + c * (cut_w + gx) + (cut_w / 2.0)
-        y_top = mt + r * (cut_h + gy) + (cut_h / 2.0)
-        <div class="meta">Sticker: {sticker_w:.3f}in x {sticker_h:.3f}in ({sticker_w * 25.4:.2f} x {sticker_h * 25.4:.2f} mm)</div>
-        <div class="meta">Cut pitch: {cut_w:.3f}in x {cut_h:.3f}in ({cut_w * 25.4:.2f} x {cut_h * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
+      x_left = ml + c * (cut_w + gx) + (cut_w / 2.0)
+      y_top = mt + r * (cut_h + gy) + (cut_h / 2.0)
       x_right = pw - x_left
       y_bottom = ph - y_top
       rows_html.append(
@@ -587,7 +583,8 @@ def _build_calibration_cover_page(
       <h1>Calibration Cover · rev {rev}</h1>
       <div class=\"meta\">Grid prediction: {cols} cols x {rows} rows | Marks/run: {count} | Run label: {label}</div>
       <div class=\"meta\">Sheet: {pw:.3f}in x {ph:.3f}in ({pw * 25.4:.2f} x {ph * 25.4:.2f} mm)</div>
-      <div class=\"meta\">Cell: {cw:.3f}in x {ch:.3f}in ({cw * 25.4:.2f} x {ch * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
+      <div class="meta">Sticker: {sticker_w:.3f}in x {sticker_h:.3f}in ({sticker_w * 25.4:.2f} x {sticker_h * 25.4:.2f} mm)</div>
+      <div class="meta">Cut pitch: {cut_w:.3f}in x {cut_h:.3f}in ({cut_w * 25.4:.2f} x {cut_h * 25.4:.2f} mm) | Gap: {gx:.3f}in x {gy:.3f}in ({gx * 25.4:.2f} x {gy * 25.4:.2f} mm)</div>
       <div class=\"meta\">Margins (T,R,B,L): {settings['margin_top_in']}, {settings['margin_right_in']}, {settings['margin_bottom_in']}, {settings['margin_left_in']} in</div>
       <div class=\"meta\">Sequence: {seq} | Printer target: cross marks only, no borders</div>
       <hr />
@@ -990,9 +987,8 @@ async def print_sheet_designer(
   pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
   barcode_css_h = min(settings["barcode_max_height_in"], settings["cell_height_in"] * settings["barcode_height_ratio"])
-    barcode_css_h = min(settings["barcode_max_height_in"], settings["cell_height_in"] * settings["barcode_height_ratio"])
-    sticker_inset_x = max(0.0, (float(settings["cut_width_in"]) - float(settings["cell_width_in"])) / 2.0)
-    sticker_inset_y = max(0.0, (float(settings["cut_height_in"]) - float(settings["cell_height_in"])) / 2.0)
+  sticker_inset_x = max(0.0, (float(settings["cut_width_in"]) - float(settings["cell_width_in"])) / 2.0)
+  sticker_inset_y = max(0.0, (float(settings["cut_height_in"]) - float(settings["cell_height_in"])) / 2.0)
   meta_top_in = max(0.02, float(settings["margin_top_in"]) * 0.26)
   meta_bottom_in = max(0.02, float(settings["margin_bottom_in"]) * 0.26)
   col_top_in = max(0.01, float(settings["margin_top_in"]) * 0.72)
