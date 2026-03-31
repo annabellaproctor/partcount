@@ -1017,12 +1017,22 @@ async def print_sheet_designer(
     display: flex;
     align-items: stretch;
     justify-content: stretch;
-    gap: 0.5mm;
+    gap: 0;
     padding: 0.8mm;
     box-sizing: border-box;
     text-align: left;
   }}
   .front-dual {{ padding-right: 0.28in; }}
+  .front-dual::before {{
+    content: '';
+    position: absolute;
+    top: 0.75mm;
+    bottom: 0.75mm;
+    left: calc((100% - 0.28in) / 2);
+    border-left: 0.4pt dotted #444;
+    z-index: 2;
+    pointer-events: none;
+  }}
   .front-mini {{
     flex: 1 1 0;
     min-width: 0;
@@ -1077,11 +1087,21 @@ async def print_sheet_designer(
     display: flex;
     align-items: stretch;
     justify-content: stretch;
-    gap: 0.6mm;
+    gap: 0;
     padding: 0.8mm;
     box-sizing: border-box;
   }}
   .barcode-dual {{ padding-right: 0.28in; }}
+  .barcode-dual::before {{
+    content: '';
+    position: absolute;
+    top: 0.75mm;
+    bottom: 0.75mm;
+    left: calc((100% - 0.28in) / 2);
+    border-left: 0.4pt dotted #444;
+    z-index: 2;
+    pointer-events: none;
+  }}
   .barcode-mini {{
     flex: 1 1 0;
     min-width: 0;
@@ -1092,8 +1112,18 @@ async def print_sheet_designer(
   }}
   .barcode-wrap svg {{ width: 100%; height: min(100%, {barcode_css_h}in); display: block; }}
   .barcode-wrap text {{ font-size: 5pt !important; }}
-  .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0.5mm; }}
+  .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
   .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
+  .grid-test::before {{
+    content: '';
+    position: absolute;
+    top: 0.75mm;
+    bottom: 0.75mm;
+    left: calc((100% - 0.28in) / 2);
+    border-left: 0.4pt dotted #444;
+    z-index: 2;
+    pointer-events: none;
+  }}
   .calibration {{ position: absolute; inset: 0; }}
   .micro {{ position: absolute; width: 2.2mm; height: 2.2mm; opacity: 1; }}
   .micro.dot {{ border-radius: 50%; background: #000; }}
