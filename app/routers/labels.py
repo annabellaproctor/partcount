@@ -376,8 +376,6 @@ def _full_cross_point_for_cell(seed: int, idx: int) -> tuple[float, float]:
 def _build_calibration_corner_overlay(style: str, settings: dict, cols: int, rows: int) -> str:
   style_name = "inverse_angle" if style == "inverse_angle" else "dot"
   marker_class = "corner-angle" if style_name == "inverse_angle" else "corner-dot"
-  ml = float(settings["margin_left_in"])
-  mt = float(settings["margin_top_in"])
   cw = float(settings["cell_width_in"])
   ch = float(settings["cell_height_in"])
   gx = float(settings["gap_x_in"])
@@ -385,10 +383,12 @@ def _build_calibration_corner_overlay(style: str, settings: dict, cols: int, row
 
   grid_w = (cols * cw) + (max(0, cols - 1) * gx)
   grid_h = (rows * ch) + (max(0, rows - 1) * gy)
-  left = ml
-  top = mt
-  right = ml + grid_w
-  bottom = mt + grid_h
+  # Corner overlay sits inside .page (the padded content box), so 0,0 is already
+  # the grid origin. Do not add margins again or corners drift inward.
+  left = 0.0
+  top = 0.0
+  right = grid_w
+  bottom = grid_h
 
   def _mark(corner_class: str, x_in: float, y_in: float) -> str:
     return f'<div class="{marker_class} {corner_class}" style="left:{x_in:.6f}in;top:{y_in:.6f}in;"></div>'
