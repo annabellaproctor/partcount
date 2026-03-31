@@ -21,21 +21,25 @@
     <div class="card mb-3">
       <div class="card-header"><span class="dot"></span>Sheet + Cell Geometry</div>
       <div class="p-3">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <div class="muted" style="font-size:11px;">Switch units to match caliper readings, values convert in-place.</div>
+          <button id="unit-toggle" type="button" class="btn btn-primary btn-sm">Switch To mm (metric)</button>
+        </div>
         <div class="row g-2">
-          <div class="col-3"><label class="form-label">Page W (in)</label><input id="page-width" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Page H (in)</label><input id="page-height" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cell W (in)</label><input id="cell-width" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cell H (in)</label><input id="cell-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Page W <span data-unit-label>(in)</span></label><input id="page-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Page H <span data-unit-label>(in)</span></label><input id="page-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cell W <span data-unit-label>(in)</span></label><input id="cell-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cell H <span data-unit-label>(in)</span></label><input id="cell-height" class="form-control" type="number" step="0.01"></div>
 
-          <div class="col-3"><label class="form-label">Cut W (in)</label><input id="cut-width" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Cut H (in)</label><input id="cut-height" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Gap X (in)</label><input id="gap-x" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Gap Y (in)</label><input id="gap-y" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cut W <span data-unit-label>(in)</span></label><input id="cut-width" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Cut H <span data-unit-label>(in)</span></label><input id="cut-height" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Gap X <span data-unit-label>(in)</span></label><input id="gap-x" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Gap Y <span data-unit-label>(in)</span></label><input id="gap-y" class="form-control" type="number" step="0.01"></div>
 
-          <div class="col-3"><label class="form-label">Margin Top</label><input id="margin-top" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Margin Right</label><input id="margin-right" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Margin Bottom</label><input id="margin-bottom" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Margin Left</label><input id="margin-left" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Top <span data-unit-label>(in)</span></label><input id="margin-top" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Right <span data-unit-label>(in)</span></label><input id="margin-right" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Bottom <span data-unit-label>(in)</span></label><input id="margin-bottom" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Margin Left <span data-unit-label>(in)</span></label><input id="margin-left" class="form-control" type="number" step="0.01"></div>
 
           <div class="col-3"><label class="form-label">Corner Radius (mm)</label><input id="corner-radius" class="form-control" type="number" step="0.1"></div>
           <div class="col-4"><label class="form-label">Cut Marker Style</label>
@@ -70,14 +74,14 @@
           <div class="col-3"><label class="form-label">Name Font (pt)</label><input id="name-font" class="form-control" type="number" step="0.1"></div>
           <div class="col-3"><label class="form-label">ID Font (pt)</label><input id="id-font" class="form-control" type="number" step="0.1"></div>
           <div class="col-3"><label class="form-label">Barcode Height Ratio</label><input id="barcode-ratio" class="form-control" type="number" step="0.01"></div>
-          <div class="col-3"><label class="form-label">Barcode Max H (in)</label><input id="barcode-max-h" class="form-control" type="number" step="0.01"></div>
+          <div class="col-3"><label class="form-label">Barcode Max H <span data-unit-label>(in)</span></label><input id="barcode-max-h" class="form-control" type="number" step="0.01"></div>
 
           <div class="col-5 d-flex align-items-end">
             <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input id="show-image" type="checkbox"> Allow front image (optional)
             </label>
           </div>
-          <div class="col-4"><label class="form-label">Image Min Cell H (in)</label><input id="image-min-h" class="form-control" type="number" step="0.01"></div>
+          <div class="col-4"><label class="form-label">Image Min Cell H <span data-unit-label>(in)</span></label><input id="image-min-h" class="form-control" type="number" step="0.01"></div>
           <div class="col-3 d-flex align-items-end muted" style="font-size:11px;">Image only appears on bigger labels.</div>
         </div>
       </div>
@@ -186,6 +190,25 @@
 <script>
 let _profiles = [];
 let _currentProfile = null;
+let _displayUnit = 'in';
+
+const IN_TO_MM = 25.4;
+const inchSettingKeys = new Set([
+  'page_width_in',
+  'page_height_in',
+  'margin_top_in',
+  'margin_right_in',
+  'margin_bottom_in',
+  'margin_left_in',
+  'cell_width_in',
+  'cell_height_in',
+  'cut_width_in',
+  'cut_height_in',
+  'gap_x_in',
+  'gap_y_in',
+  'image_min_height_in',
+  'barcode_max_height_in',
+]);
 
 const mapFields = {
   page_width_in: 'page-width',
@@ -234,7 +257,11 @@ function getSettingsFromForm() {
     if (el.type === 'checkbox') out[k] = !!el.checked;
     else if (el.tagName === 'SELECT') out[k] = el.value;
     else if (id === 'cal-run-label') out[k] = (el.value || '').trim();
-    else out[k] = parseFloat(el.value || '0');
+    else {
+      const raw = parseFloat(el.value || '0');
+      if (inchSettingKeys.has(k) && _displayUnit === 'mm') out[k] = raw / IN_TO_MM;
+      else out[k] = raw;
+    }
   });
   return out;
 }
@@ -244,9 +271,51 @@ function setFormFromSettings(s) {
     const el = document.getElementById(id);
     if (!el) return;
     if (el.type === 'checkbox') el.checked = !!s[k];
+    else if (inchSettingKeys.has(k) && _displayUnit === 'mm') el.value = ((parseFloat(s[k] || '0') * IN_TO_MM).toFixed(3));
     else el.value = s[k];
   });
   renderGridReadout();
+}
+
+function _toDisplayUnits(inchesValue) {
+  if (_displayUnit === 'mm') return inchesValue * IN_TO_MM;
+  return inchesValue;
+}
+
+function _fromDisplayUnits(displayValue) {
+  if (_displayUnit === 'mm') return displayValue / IN_TO_MM;
+  return displayValue;
+}
+
+function _updateUnitToggleText() {
+  const btn = document.getElementById('unit-toggle');
+  if (!btn) return;
+  btn.textContent = _displayUnit === 'in' ? 'Switch To mm (metric)' : 'Switch To in (imperial)';
+}
+
+function _updateUnitLabels() {
+  document.querySelectorAll('[data-unit-label]').forEach((el) => {
+    el.textContent = _displayUnit === 'in' ? '(in)' : '(mm)';
+  });
+}
+
+function _updateInchFieldSteps() {
+  const step = _displayUnit === 'in' ? '0.01' : '0.1';
+  Object.entries(mapFields).forEach(([k, id]) => {
+    if (!inchSettingKeys.has(k)) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.step = step;
+  });
+}
+
+function toggleDisplayUnits() {
+  const currentSettings = getSettingsFromForm();
+  _displayUnit = _displayUnit === 'in' ? 'mm' : 'in';
+  _updateUnitLabels();
+  _updateInchFieldSteps();
+  _updateUnitToggleText();
+  setFormFromSettings(currentSettings);
 }
 
 function renderGridReadout() {
@@ -258,7 +327,10 @@ function renderGridReadout() {
   const capacity = cols * rows;
   const microWmm = (s.cell_width_in * 25.4) / 2;
   const microHmm = s.cell_height_in * 25.4;
-  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
+  const cellWDisplay = _toDisplayUnits(s.cell_width_in);
+  const cellHDisplay = _toDisplayUnits(s.cell_height_in);
+  const unitName = _displayUnit === 'in' ? 'in' : 'mm';
+  document.getElementById('grid-readout').textContent = `${cols} columns x ${rows} rows = ${capacity} cells / sheet (${capacity * 2} micro-labels). Cell: ${cellWDisplay.toFixed(2)}${unitName} x ${cellHDisplay.toFixed(2)}${unitName}. Micro label: ${microWmm.toFixed(1)}mm x ${microHmm.toFixed(1)}mm`;
 }
 
 async function loadProfiles() {
@@ -331,6 +403,12 @@ Object.values(mapFields).forEach(id => {
   el.addEventListener('input', renderGridReadout);
   el.addEventListener('change', renderGridReadout);
 });
+
+document.getElementById('unit-toggle').addEventListener('click', toggleDisplayUnits);
+
+_updateUnitLabels();
+_updateInchFieldSteps();
+_updateUnitToggleText();
 
 loadProfiles();
 </script>
