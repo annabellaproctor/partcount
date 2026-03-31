@@ -41,6 +41,12 @@ DEFAULT_LABEL_SETTINGS = {
   "id_font_pt": 6,
   "barcode_height_ratio": 0.88,
   "barcode_max_height_in": 0.42,
+  "calibration_pattern": "random_t",
+  "calibration_seed": 1337,
+  "calibration_runs": 3,
+  "calibration_sequence": "same_seed_then_random",
+  "calibration_mark_count": 12,
+  "calibration_run_label": "RUN",
 }
 
 
@@ -118,12 +124,28 @@ def _clean_settings(settings: dict | None) -> dict:
   _clamp_number("id_font_pt", 4.0, 18.0)
   _clamp_number("barcode_height_ratio", 0.3, 1.0)
   _clamp_number("barcode_max_height_in", 0.15, 3.0)
+  _clamp_number("calibration_seed", 0, 9_999_999)
+  _clamp_number("calibration_runs", 1, 9)
+  _clamp_number("calibration_mark_count", 1, 200)
 
   s["show_cut_grid"] = bool(s.get("show_cut_grid", True))
   s["show_image"] = bool(s.get("show_image", False))
   s["cut_marker_style"] = str(s.get("cut_marker_style", "cross")).lower()
   if s["cut_marker_style"] not in {"cross", "dot"}:
     s["cut_marker_style"] = "cross"
+
+  s["calibration_pattern"] = str(s.get("calibration_pattern", "random_t")).lower()
+  if s["calibration_pattern"] not in {"random_t", "outer_cross"}:
+    s["calibration_pattern"] = "random_t"
+
+  s["calibration_sequence"] = str(s.get("calibration_sequence", "same_seed_then_random")).lower()
+  if s["calibration_sequence"] not in {"same_seed_then_random", "repeat_seed", "always_random"}:
+    s["calibration_sequence"] = "same_seed_then_random"
+
+  s["calibration_seed"] = int(round(s.get("calibration_seed", 1337)))
+  s["calibration_runs"] = int(round(s.get("calibration_runs", 3)))
+  s["calibration_mark_count"] = int(round(s.get("calibration_mark_count", 12)))
+  s["calibration_run_label"] = (str(s.get("calibration_run_label", "RUN")).strip() or "RUN")[:16]
   return s
 
 
@@ -162,19 +184,71 @@ def _build_barcode_cell(comp: Component, settings: dict) -> str:
   return f'<div class="barcode-wrap">{svg}</div>'
 
 
-def _build_calibration_cell(rev: int, idx: int, style: str) -> str:
-  rnd = random.Random((rev * 100_003) + idx)
-  micro = []
-  for i in range(5):
-    x = 10 + int(rnd.random() * 80)
-    y = 12 + i * 14 + int(rnd.random() * 4)
-    micro.append(f'<div class="micro {style}" style="left:{x}%;top:{y}%;"></div>')
+def _build_calibration_cell(run_label: str, marker_style: str) -> str:
+  marker_class = "tmark" if marker_style == "t" else "cross"
   return (
     '<div class="calibration">'
-    f'{"".join(micro)}'
-    f'<div class="cal-rev">rev {rev}.{idx+1}</div>'
+    f'<div class="micro {marker_class}" style="left:50%;top:50%;"></div>'
+    f'<div class="cal-rev">{html.escape(run_label)}</div>'
     '</div>'
   )
+
+
+def _calibration_seed_for_run(base_seed: int, rev: int, run_no: int, sequence: str) -> int:
+  seq = (sequence or "same_seed_then_random").lower()
+  base = int(base_seed) + (int(rev) * 100_003)
+  if seq == "repeat_seed":
+    return base
+  if seq == "same_seed_then_random":
+    if run_no <= 2:
+      return base
+    return base + (run_no * 7_919)
+  return base + (run_no * 7_919)
+
+
+def _outer_cross_indices(cols: int, rows: int, wanted: int, run_no: int) -> list[int]:
+  rings = min(cols, rows) // 2
+  if rings <= 0:
+    return [0]
+  ring = min((run_no - 1) % rings, rings - 1)
+  left, right = ring, cols - 1 - ring
+  top, bottom = ring, rows - 1 - ring
+  edge = []
+  for c in range(left, right + 1):
+    edge.append(top * cols + c)
+  for r in range(top + 1, bottom):
+    edge.append(r * cols + right)
+  if bottom != top:
+    for c in range(right, left - 1, -1):
+      edge.append(bottom * cols + c)
+  if right != left:
+    for r in range(bottom - 1, top, -1):
+      edge.append(r * cols + left)
+  if not edge:
+    return [0]
+  step = max(1, len(edge) // max(1, wanted))
+  picked = edge[::step]
+  return picked[:max(1, wanted)]
+
+
+def _calibration_indices(settings: dict, cols: int, rows: int, run_no: int, rev: int) -> tuple[list[int], str]:
+  capacity = cols * rows
+  wanted = max(1, min(capacity, int(settings.get("calibration_mark_count", 12))))
+  pattern = settings.get("calibration_pattern", "random_t")
+  seed = _calibration_seed_for_run(
+    int(settings.get("calibration_seed", 1337)),
+    rev,
+    run_no,
+    settings.get("calibration_sequence", "same_seed_then_random"),
+  )
+
+  if pattern == "outer_cross":
+    return _outer_cross_indices(cols, rows, wanted, run_no), "cross"
+
+  rnd = random.Random(seed)
+  if wanted >= capacity:
+    return list(range(capacity)), "t"
+  return rnd.sample(list(range(capacity)), wanted), "t"
 
 
 async def _ensure_presets(db: AsyncSession):
@@ -308,7 +382,7 @@ async def print_sheet_designer(
   settings = _clean_settings(row.settings if isinstance(row.settings, dict) else {})
   cols, rows = _compute_grid(settings)
   capacity = cols * rows
-  take = max(1, min(limit, capacity if mode == "calibration" else 2000))
+  take = max(1, min(limit, 2000))
 
   stmt = select(Component).order_by(Component.barcode_id)
   if barcode_ids:
@@ -329,32 +403,56 @@ async def print_sheet_designer(
   if mode == "calibration":
     row.calibration_revision = int(row.calibration_revision or 0) + 1
     rev = row.calibration_revision
-    count = capacity
+    run_count = int(settings.get("calibration_runs", 3))
   else:
     rev = int(row.calibration_revision or 0)
-    count = len(comps)
+    run_count = 1
 
-  cells = []
-  for i in range(capacity):
+  page_blocks = []
+  for run_no in range(1, run_count + 1):
+    cells = []
+    marked_set = set()
+    marker_style = "cross"
     if mode == "calibration":
-      inner = _build_calibration_cell(rev, i, settings["cut_marker_style"])
-      classes = "cell calibration-cell"
-    else:
-      if i >= len(comps):
-        inner = ""
-      elif mode == "barcode":
-        inner = _build_barcode_cell(comps[i], settings)
+      marked, marker_style = _calibration_indices(settings, cols, rows, run_no, rev)
+      marked_set = set(marked)
+
+    for i in range(capacity):
+      if mode == "calibration":
+        if i in marked_set:
+          run_label = f"{settings.get('calibration_run_label', 'RUN')} {run_no}"
+          inner = _build_calibration_cell(run_label, marker_style)
+        else:
+          inner = ""
+        classes = "cell calibration-cell"
       else:
-        inner = _build_front_cell(comps[i], settings)
-      classes = "cell"
+        if i >= len(comps):
+          inner = ""
+        elif mode == "barcode":
+          inner = _build_barcode_cell(comps[i], settings)
+        else:
+          inner = _build_front_cell(comps[i], settings)
+        classes = "cell"
 
-    cross = ""
-    if settings["show_cut_grid"]:
-      cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
+      cross = ""
+      if settings["show_cut_grid"] and mode != "calibration":
+        cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
 
-    cells.append(f'<div class="{classes}">{cross}{inner}</div>')
+      cells.append(f'<div class="{classes}">{cross}{inner}</div>')
 
-  sheet = "".join(cells)
+    sheet = "".join(cells)
+    header = ""
+    if mode == "calibration":
+      seed_show = _calibration_seed_for_run(
+        int(settings.get("calibration_seed", 1337)),
+        rev,
+        run_no,
+        settings.get("calibration_sequence", "same_seed_then_random"),
+      )
+      header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
+    page_blocks.append(f'<div class="print-page">{header}<div class="page">{sheet}</div></div>')
+
+  pages_html = "".join(page_blocks)
   radius_mm = settings["corner_radius_mm"]
   barcode_css_h = min(settings["barcode_max_height_in"], settings["cell_height_in"] * settings["barcode_height_ratio"])
 
@@ -366,6 +464,14 @@ async def print_sheet_designer(
   <style>
   @page {{ size: {settings['page_width_in']}in {settings['page_height_in']}in; margin: 0; }}
   html, body {{ margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }}
+  .print-page {{ page-break-after: always; }}
+  .print-page:last-child {{ page-break-after: auto; }}
+  .cal-page-head {{
+    font-size: 7pt;
+    font-family: monospace;
+    opacity: 0.55;
+    margin: 0.06in {settings['margin_left_in']}in 0.02in;
+  }}
   .page {{
     width: {settings['page_width_in']}in;
     height: {settings['page_height_in']}in;
@@ -435,6 +541,11 @@ async def print_sheet_designer(
   }}
   .micro.cross::before {{ width: 1.2mm; height: 0.2mm; }}
   .micro.cross::after {{ width: 0.2mm; height: 1.2mm; }}
+  .micro.tmark::before, .micro.tmark::after {{
+    content: ''; position: absolute; left: 50%; top: 50%; background: #000; transform: translate(-50%, -50%);
+  }}
+  .micro.tmark::before {{ width: 1.4mm; height: 0.22mm; top: 30%; }}
+  .micro.tmark::after {{ width: 0.22mm; height: 1.4mm; top: 58%; }}
   .cal-rev {{
     position: absolute; right: 0.7mm; bottom: 0.4mm;
     font-size: 4.5pt; opacity: 0.42; font-family: monospace;
@@ -442,7 +553,7 @@ async def print_sheet_designer(
   </style>
 </head>
 <body onload=\"window.print()\">
-  <div class=\"page\">{sheet}</div>
+  {pages_html}
 </body>
 </html>"""
   return HTMLResponse(html_doc)

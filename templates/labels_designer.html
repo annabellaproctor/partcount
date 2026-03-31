@@ -72,6 +72,33 @@
         </div>
       </div>
     </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><span class="dot"></span>Calibration Runs</div>
+      <div class="p-3">
+        <div class="row g-2">
+          <div class="col-4"><label class="form-label">Pattern</label>
+            <select id="cal-pattern" class="form-select">
+              <option value="random_t">Random scattered T marks</option>
+              <option value="outer_cross">Outer-edge cross rings</option>
+            </select>
+          </div>
+          <div class="col-2"><label class="form-label">Runs</label><input id="cal-runs" class="form-control" type="number" min="1" max="9" step="1"></div>
+          <div class="col-3"><label class="form-label">Seed</label><input id="cal-seed" class="form-control" type="number" step="1"></div>
+          <div class="col-3"><label class="form-label">Marks / page</label><input id="cal-mark-count" class="form-control" type="number" min="1" step="1"></div>
+
+          <div class="col-6"><label class="form-label">Sequence</label>
+            <select id="cal-sequence" class="form-select">
+              <option value="same_seed_then_random">Run1=seed, Run2=same seed, Run3+=randomized</option>
+              <option value="repeat_seed">All runs same seed</option>
+              <option value="always_random">Every run randomized</option>
+            </select>
+          </div>
+          <div class="col-3"><label class="form-label">Run Label</label><input id="cal-run-label" class="form-control" type="text" maxlength="16" placeholder="RUN"></div>
+          <div class="col-3 d-flex align-items-end muted" style="font-size:11px;">Use same seed to reproduce; tweak sequence to verify x3 passes.</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="col-lg-5">
@@ -83,12 +110,12 @@
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print Front Sheet</button>
           <button class="btn btn-primary btn-sm" onclick="openPrint('barcode')">Print Barcode Sheet</button>
-          <button class="btn btn-danger btn-sm" onclick="openPrint('calibration')">Print Calibration (1 page)</button>
+          <button class="btn btn-danger btn-sm" onclick="openPrint('calibration')">Print Calibration Runs</button>
         </div>
         <div class="muted" style="font-size:11px;line-height:1.5;">
           Front content is fixed to: <strong>Name</strong> (bold narrow) and <strong>ID: XXXXX</strong> below it.
           Barcodes are centered and stretched vertically within configured limits.
-          Calibration prints micro marks + revision text to sacrifice only one page.
+          Calibration prints sparse marks with run numbers and seed so one sacrificial run can be reproduced exactly.
         </div>
         <div id="print-status" class="muted" style="font-size:11px;"></div>
       </div>
@@ -132,6 +159,12 @@ const mapFields = {
   id_font_pt: 'id-font',
   barcode_height_ratio: 'barcode-ratio',
   barcode_max_height_in: 'barcode-max-h',
+  calibration_pattern: 'cal-pattern',
+  calibration_seed: 'cal-seed',
+  calibration_runs: 'cal-runs',
+  calibration_sequence: 'cal-sequence',
+  calibration_mark_count: 'cal-mark-count',
+  calibration_run_label: 'cal-run-label',
 };
 
 function getSettingsFromForm() {
@@ -141,6 +174,7 @@ function getSettingsFromForm() {
     if (!el) return;
     if (el.type === 'checkbox') out[k] = !!el.checked;
     else if (el.tagName === 'SELECT') out[k] = el.value;
+    else if (id === 'cal-run-label') out[k] = (el.value || '').trim();
     else out[k] = parseFloat(el.value || '0');
   });
   return out;
