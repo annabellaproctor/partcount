@@ -49,6 +49,7 @@ DEFAULT_LABEL_SETTINGS = {
   "calibration_run_label": "RUN",
   "calibration_corner_marks": False,
   "calibration_corner_style": "dot",
+  "calibration_line_style": "solid",
 }
 
 
@@ -137,7 +138,7 @@ def _clean_settings(settings: dict | None) -> dict:
     s["cut_marker_style"] = "cross"
 
   s["calibration_pattern"] = str(s.get("calibration_pattern", "random_t")).lower()
-  if s["calibration_pattern"] not in {"random_t", "outer_cross"}:
+  if s["calibration_pattern"] not in {"random_t", "outer_cross", "random_full_cross"}:
     s["calibration_pattern"] = "random_t"
 
   s["calibration_sequence"] = str(s.get("calibration_sequence", "same_seed_then_random")).lower()
@@ -152,6 +153,9 @@ def _clean_settings(settings: dict | None) -> dict:
   s["calibration_corner_style"] = str(s.get("calibration_corner_style", "dot")).lower()
   if s["calibration_corner_style"] not in {"dot", "inverse_angle"}:
     s["calibration_corner_style"] = "dot"
+  s["calibration_line_style"] = str(s.get("calibration_line_style", "solid")).lower()
+  if s["calibration_line_style"] not in {"solid", "dashed", "dotted", "mixed"}:
+    s["calibration_line_style"] = "solid"
   return s
 
 
@@ -190,7 +194,23 @@ def _build_barcode_cell(comp: Component, settings: dict) -> str:
   return f'<div class="barcode-wrap">{svg}</div>'
 
 
-def _build_calibration_cell(run_label: str, marker_style: str) -> str:
+def _build_calibration_cell(run_label: str, marker_style: str, full_cross: dict | None = None) -> str:
+  if isinstance(full_cross, dict):
+    x_pct = max(5.0, min(95.0, float(full_cross.get("x_pct", 50.0))))
+    y_pct = max(5.0, min(95.0, float(full_cross.get("y_pct", 50.0))))
+    line_style = str(full_cross.get("line_style", "solid")).lower()
+    if line_style not in {"solid", "dashed", "dotted"}:
+      line_style = "solid"
+    return (
+      '<div class="calibration">'
+      f'<div class="full-cross full-cross-{line_style}">'
+      f'<div class="axis-h" style="top:{y_pct:.2f}%;"></div>'
+      f'<div class="axis-v" style="left:{x_pct:.2f}%;"></div>'
+      '</div>'
+      f'<div class="cal-rev">{html.escape(run_label)}</div>'
+      '</div>'
+    )
+
   marker_class = "tmark" if marker_style == "t" else "cross"
   return (
     '<div class="calibration">'
@@ -337,15 +357,48 @@ def _build_calibration_cover_page(
   """
 
 
-def _build_calibration_corner_overlay(style: str) -> str:
+def _pick_full_cross_line_style(base_style: str, seed: int, idx: int) -> str:
+  style = (base_style or "solid").lower()
+  if style in {"solid", "dashed", "dotted"}:
+    return style
+  rnd = random.Random((seed * 1009) + (idx * 9176) + 17)
+  return rnd.choice(["solid", "dashed", "dotted"])
+
+
+def _full_cross_point_for_cell(seed: int, idx: int) -> tuple[float, float]:
+  rnd = random.Random((seed * 37) + (idx * 7919) + 11)
+  # Keep intersection away from the very edge so line style remains legible.
+  x_pct = 14.0 + (rnd.random() * 72.0)
+  y_pct = 14.0 + (rnd.random() * 72.0)
+  return x_pct, y_pct
+
+
+def _build_calibration_corner_overlay(style: str, settings: dict, cols: int, rows: int) -> str:
   style_name = "inverse_angle" if style == "inverse_angle" else "dot"
   marker_class = "corner-angle" if style_name == "inverse_angle" else "corner-dot"
+  ml = float(settings["margin_left_in"])
+  mt = float(settings["margin_top_in"])
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
+  gx = float(settings["gap_x_in"])
+  gy = float(settings["gap_y_in"])
+
+  grid_w = (cols * cw) + (max(0, cols - 1) * gx)
+  grid_h = (rows * ch) + (max(0, rows - 1) * gy)
+  left = ml
+  top = mt
+  right = ml + grid_w
+  bottom = mt + grid_h
+
+  def _mark(corner_class: str, x_in: float, y_in: float) -> str:
+    return f'<div class="{marker_class} {corner_class}" style="left:{x_in:.6f}in;top:{y_in:.6f}in;"></div>'
+
   return (
     f'<div class="corner-debug {style_name}">'
-    f'<div class="{marker_class} tl"></div>'
-    f'<div class="{marker_class} tr"></div>'
-    f'<div class="{marker_class} bl"></div>'
-    f'<div class="{marker_class} br"></div>'
+    f'{_mark("tl", left, top)}'
+    f'{_mark("tr", right, top)}'
+    f'{_mark("bl", left, bottom)}'
+    f'{_mark("br", right, bottom)}'
     '</div>'
   )
 
@@ -526,13 +579,29 @@ async def print_sheet_designer(
         settings.get("calibration_sequence", "same_seed_then_random"),
       ))
       if settings.get("calibration_corner_marks"):
-        corner_overlay = _build_calibration_corner_overlay(str(settings.get("calibration_corner_style", "dot")))
+        corner_overlay = _build_calibration_corner_overlay(
+          str(settings.get("calibration_corner_style", "dot")),
+          settings,
+          cols,
+          rows,
+        )
 
     for i in range(capacity):
       if mode == "calibration":
         if i in marked_set:
           run_label = f"{settings.get('calibration_run_label', 'RUN')} {run_no}"
-          inner = _build_calibration_cell(run_label, marker_style)
+          pattern_name = str(settings.get("calibration_pattern", "random_t"))
+          if pattern_name == "random_full_cross":
+            seed_for_run = seeds_by_run[run_no - 1]
+            x_pct, y_pct = _full_cross_point_for_cell(seed_for_run, i)
+            line_style = _pick_full_cross_line_style(str(settings.get("calibration_line_style", "solid")), seed_for_run, i)
+            inner = _build_calibration_cell(
+              run_label,
+              marker_style,
+              full_cross={"x_pct": x_pct, "y_pct": y_pct, "line_style": line_style},
+            )
+          else:
+            inner = _build_calibration_cell(run_label, marker_style)
         else:
           inner = ""
         classes = "cell calibration-cell"
@@ -675,6 +744,31 @@ async def print_sheet_designer(
     position: absolute; right: 0.7mm; bottom: 0.4mm;
     font-size: 5pt; opacity: 0.9; font-family: monospace;
   }}
+  .full-cross {{ position: absolute; inset: 0; }}
+  .full-cross .axis-h, .full-cross .axis-v {{ position: absolute; background: #000; }}
+  .full-cross .axis-h {{ left: 0; width: 100%; height: 0.35mm; transform: translateY(-50%); }}
+  .full-cross .axis-v {{ top: 0; height: 100%; width: 0.35mm; transform: translateX(-50%); }}
+  .full-cross-dashed .axis-h, .full-cross-dashed .axis-v {{
+    background: repeating-linear-gradient(
+      to right,
+      #000 0,
+      #000 1.2mm,
+      transparent 1.2mm,
+      transparent 2.0mm
+    );
+  }}
+  .full-cross-dashed .axis-v {{
+    background: repeating-linear-gradient(
+      to bottom,
+      #000 0,
+      #000 1.2mm,
+      transparent 1.2mm,
+      transparent 2.0mm
+    );
+  }}
+  .full-cross-dotted .axis-h, .full-cross-dotted .axis-v {{
+    background: repeating-radial-gradient(circle at center, #000 0 0.35mm, transparent 0.35mm 0.95mm);
+  }}
   .corner-debug {{
     position: absolute;
     inset: 0;
@@ -687,15 +781,13 @@ async def print_sheet_designer(
     height: 2.6mm;
     border-radius: 50%;
     background: #000;
+    transform: translate(-50%, -50%);
   }}
-  .corner-dot.tl {{ left: 0; top: 0; transform: translate(-50%, -50%); }}
-  .corner-dot.tr {{ right: 0; top: 0; transform: translate(50%, -50%); }}
-  .corner-dot.bl {{ left: 0; bottom: 0; transform: translate(-50%, 50%); }}
-  .corner-dot.br {{ right: 0; bottom: 0; transform: translate(50%, 50%); }}
   .corner-angle {{
     position: absolute;
     width: 6mm;
     height: 6mm;
+    transform: translate(-50%, -50%);
   }}
   .corner-angle::before,
   .corner-angle::after {{
@@ -703,16 +795,12 @@ async def print_sheet_designer(
     position: absolute;
     background: #000;
   }}
-  .corner-angle.tl {{ left: 0; top: 0; }}
   .corner-angle.tl::before {{ left: 0; top: 0; width: 100%; height: 0.5mm; }}
   .corner-angle.tl::after {{ left: 0; top: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.tr {{ right: 0; top: 0; }}
   .corner-angle.tr::before {{ right: 0; top: 0; width: 100%; height: 0.5mm; }}
   .corner-angle.tr::after {{ right: 0; top: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.bl {{ left: 0; bottom: 0; }}
   .corner-angle.bl::before {{ left: 0; bottom: 0; width: 100%; height: 0.5mm; }}
   .corner-angle.bl::after {{ left: 0; bottom: 0; width: 0.5mm; height: 100%; }}
-  .corner-angle.br {{ right: 0; bottom: 0; }}
   .corner-angle.br::before {{ right: 0; bottom: 0; width: 100%; height: 0.5mm; }}
   .corner-angle.br::after {{ right: 0; bottom: 0; width: 0.5mm; height: 100%; }}
   </style>
