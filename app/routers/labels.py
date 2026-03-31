@@ -14,8 +14,8 @@ router = APIRouter(prefix="/labels", tags=["labels"])
 class MarkingsRequest(BaseModel):
   text: str | None = None
   tokens: list[str] | None = None
-  width: int = 720
-  height: int = 120
+  width: int = 512
+  height: int = 512
 
 
 class MarkingsApplyRequest(MarkingsRequest):
@@ -35,7 +35,7 @@ async def generate_markings_svg(req: MarkingsRequest):
 
 
 @router.get("/markings-svg")
-async def generate_markings_svg_get(text: str, width: int = 720, height: int = 96):
+async def generate_markings_svg_get(text: str, width: int = 512, height: int = 512):
   if not text or len(text.strip()) < 1:
     raise HTTPException(400, "Text is required")
   return build_markings_svg(text=text, width=width, height=height)

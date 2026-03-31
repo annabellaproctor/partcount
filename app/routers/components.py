@@ -188,7 +188,10 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
             "short_title": c.short_title or "",
             "search_alias": c.search_alias or "",
             "value": c.value or "",
+            "unit": c.unit or "",
             "package": c.package or "",
+            "image_path": c.image_path or "",
+            "type_path": c.type_path or "",
             "is_generic": c.is_generic,
             "parent_id": c.parent_id,
         }

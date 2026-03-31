@@ -9,9 +9,11 @@
   <span style="color:var(--text);font-size:13px;">{{ box.model }}</span>
   <span class="muted">{{ box.cell_count }} cells</span>
   <span class="muted" style="font-size:10px;">{{ box.location or '' }}</span>
-  <span style="margin-left:auto;font-size:10px;color:var(--text3);">
-    drag to move · click empty to assign · click filled to clear
-  </span>
+  <label style="margin-left:auto;font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+    <input type="checkbox" id="edit-toggle" onchange="setEditMode(this.checked)">
+    Grid Edit Mode
+  </label>
+  <span style="font-size:10px;color:var(--text3);" id="grid-mode-hint">Preview mode: click part to open component page</span>
 </div>
 
 {% set cc = box.cell_count or 144 %}
@@ -37,8 +39,11 @@
                data-cell="{{ cell_id }}"
                data-comp-id="{{ comp.id if comp else '' }}"
                data-comp-name="{{ comp.name if comp else '' }}"
+               data-short-title="{{ comp.short_title if comp and comp.short_title else '' }}"
                data-barcode="{{ comp.barcode_id if comp else '' }}"
                data-val="{{ comp.value if comp else '' }}"
+               data-package="{{ comp.package if comp else '' }}"
+               data-image="{{ comp.image_path if comp else '' }}"
                draggable="{{ 'true' if comp else 'false' }}"
                onclick="cellClick(this)"
                ondragstart="dragStart(event)"
@@ -49,6 +54,7 @@
             {% if comp %}
               {% if comp.image_path %}<img src="{{ comp.image_path }}" class="cell-img" draggable="false">{% endif %}
               <div class="cell-label">{{ comp.value or comp.barcode_id }}</div>
+              <div class="cell-sub">{{ comp.short_title or comp.package or '' }}</div>
             {% else %}
               <div class="cell-empty-label">{{ cell_id }}</div>
             {% endif %}
@@ -73,8 +79,11 @@
                data-cell="{{ cell_id }}"
                data-comp-id="{{ comp.id if comp else '' }}"
                data-comp-name="{{ comp.name if comp else '' }}"
+               data-short-title="{{ comp.short_title if comp and comp.short_title else '' }}"
                data-barcode="{{ comp.barcode_id if comp else '' }}"
                data-val="{{ comp.value if comp else '' }}"
+               data-package="{{ comp.package if comp else '' }}"
+               data-image="{{ comp.image_path if comp else '' }}"
                draggable="{{ 'true' if comp else 'false' }}"
                onclick="cellClick(this)"
                ondragstart="dragStart(event)"
@@ -85,6 +94,7 @@
             {% if comp %}
               {% if comp.image_path %}<img src="{{ comp.image_path }}" class="cell-img" draggable="false">{% endif %}
               <div class="cell-label">{{ comp.value or comp.barcode_id }}</div>
+              <div class="cell-sub">{{ comp.short_title or comp.package or '' }}</div>
             {% else %}
               <div class="cell-empty-label">{{ cell_id }}</div>
             {% endif %}
@@ -134,9 +144,12 @@
 .grid-cell.dragging { opacity: 0.4; }
 .cell-img { width: 70%; height: 60%; object-fit: contain; pointer-events: none; }
 .cell-label { font-size: 9px; color: var(--green); text-align: center; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+.cell-sub { font-size: 8px; color: var(--text2); text-align: center; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 .cell-empty-label { font-size: 8px; color: var(--text3); }
 .comp-result-item { padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .comp-result-item:hover { background: var(--bg4); }
+.comp-result-thumb { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 3px; object-fit: contain; background: var(--bg2); }
+.grid-cell.preview-target { border-color: var(--amber); background: rgba(240,165,0,0.08); }
 </style>
 
 {% endblock %}
@@ -145,14 +158,40 @@
 const BOX_ID = "{{ box.id }}";
 let activeCellEl = null;
 let dragSrcEl = null;
-let _pendingCell = null, _pendingComp = null;
+let _pendingComp = null;
+let _pendingCells = new Set();
+let EDIT_MODE = false;
+let _paintDown = false;
 
 function cellClick(el) {
+  if (!EDIT_MODE) {
+    if (el.classList.contains('filled') && el.dataset.barcode) {
+      window.location.href = '/components/' + encodeURIComponent(el.dataset.barcode);
+    }
+    return;
+  }
+
+  if (_pendingComp) {
+    if (el.classList.contains('empty')) togglePendingCell(el);
+    return;
+  }
+
   if (el.classList.contains('filled')) {
     if (confirm('Clear ' + el.dataset.barcode + ' from ' + el.dataset.cell + '?')) clearCell(el);
   } else {
     openModal(el);
   }
+}
+
+function setEditMode(on) {
+  EDIT_MODE = !!on;
+  const hint = document.getElementById('grid-mode-hint');
+  if (hint) {
+    hint.textContent = EDIT_MODE
+      ? 'Edit mode: choose part, then click/drag over empty cells to preview-fill'
+      : 'Preview mode: click part to open component page';
+  }
+  if (!EDIT_MODE) clearPending();
 }
 
 async function clearCell(el) {
@@ -167,6 +206,7 @@ async function clearCell(el) {
 }
 
 function openModal(el) {
+  if (!EDIT_MODE) return;
   activeCellEl = el;
   document.getElementById('modal-cell-id').textContent = el.dataset.cell;
   document.getElementById('comp-search').value = '';
@@ -179,6 +219,39 @@ function openModal(el) {
 function closeModal() {
   document.getElementById('assign-modal').style.display = 'none';
   activeCellEl = null;
+}
+
+function previewHtmlForPending(comp) {
+  const top = comp.val || comp.barcode || '';
+  const sub = comp.shortTitle || comp.name || 'PREVIEW';
+  const img = comp.image ? '<img src="' + comp.image + '" class="cell-img" draggable="false">' : '';
+  return img +
+    '<div class="cell-label" style="color:var(--amber);">' + top + '</div>' +
+    '<div class="cell-sub" style="color:var(--amber);">' + sub + '</div>';
+}
+
+function appliedHtmlForComp(comp) {
+  const top = comp.val || comp.barcode || '';
+  const sub = comp.shortTitle || comp.name || '';
+  const img = comp.image ? '<img src="' + comp.image + '" class="cell-img" draggable="false">' : '';
+  return img +
+    '<div class="cell-label">' + top + '</div>' +
+    '<div class="cell-sub">' + sub + '</div>';
+}
+
+function togglePendingCell(el) {
+  if (!_pendingComp || !el || !el.classList.contains('empty')) return;
+  const cellId = el.dataset.cell;
+  if (_pendingCells.has(cellId)) {
+    _pendingCells.delete(cellId);
+    el.classList.remove('preview-target');
+    el.innerHTML = '<div class="cell-empty-label">' + cellId + '</div>';
+  } else {
+    _pendingCells.add(cellId);
+    el.classList.add('preview-target');
+    el.innerHTML = previewHtmlForPending(_pendingComp);
+  }
+  showPendingBar();
 }
 
 // Search components via API
@@ -203,12 +276,19 @@ function searchComps(q) {
         '<div class="comp-result-item" ' +
         'data-comp-id="' + c.id + '" ' +
         'data-barcode="' + (c.barcode_id||'') + '" ' +
+        'data-short-title="' + (c.short_title||'').replace(/"/g,'&quot;') + '" ' +
         'data-name="' + (c.name||'').replace(/"/g,'&quot;') + '" ' +
         'data-val="' + (c.value||'') + '" ' +
+        'data-image="' + (c.image_path||'') + '" ' +
         'onclick="selectComp(this)">' +
-        '<span class="bid" style="font-size:10px;">' + (c.barcode_id||'') + '</span>' +
-        '<span style="flex:1">' + (c.name||'') + '</span>' +
-        '<span class="muted">' + (c.value||'') + '</span>' +
+        ((c.image_path||'') ? '<img class="comp-result-thumb" src="' + c.image_path + '">' : '<div class="comp-result-thumb"></div>') +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<span class="bid" style="font-size:10px;">' + (c.barcode_id||'') + '</span>' +
+            '<span style="font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (c.short_title||c.name||'') + '</span>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + ([c.value||'', c.unit||'', c.package||'', c.type_path||''].filter(Boolean).join(' · ')) + '</div>' +
+        '</div>' +
         '</div>'
       ).join('');
     } catch(e) {
@@ -218,20 +298,19 @@ function searchComps(q) {
 }
 
 function selectComp(el) {
-  if (!activeCellEl) return;
-  _pendingCell = activeCellEl;
+  if (!activeCellEl || !EDIT_MODE) return;
   _pendingComp = {
     id: el.dataset.compId,
     barcode: el.dataset.barcode,
     name: el.dataset.name,
-    val: el.dataset.val
+    shortTitle: el.dataset.shortTitle || '',
+    val: el.dataset.val,
+    image: el.dataset.image || ''
   };
-  // Show amber preview on cell
-  activeCellEl.style.borderColor = 'var(--amber)';
-  activeCellEl.style.background = 'rgba(240,165,0,0.08)';
-  activeCellEl.innerHTML =
-    '<div class="cell-label" style="color:var(--amber);">' + (_pendingComp.val || _pendingComp.barcode) + '</div>' +
-    '<div style="font-size:7px;color:var(--amber);">PREVIEW</div>';
+  cancelAssign();
+  if (activeCellEl && activeCellEl.classList.contains('empty')) {
+    togglePendingCell(activeCellEl);
+  }
   closeModal();
   showPendingBar();
 }
@@ -247,51 +326,66 @@ function showPendingBar() {
     document.body.appendChild(bar);
   }
   bar.innerHTML =
-    '<span style="color:var(--amber);">Preview: <strong>' + (_pendingComp.barcode||'?') + '</strong> → ' + _pendingCell.dataset.cell + '</span>' +
-    '<button onclick="confirmAssign()" class="btn btn-primary btn-sm">✓ Confirm</button>' +
+    '<span style="color:var(--amber);">Preview: <strong>' + (_pendingComp?.barcode||'?') + '</strong> → ' + _pendingCells.size + ' cell(s)</span>' +
+    '<button onclick="confirmAssign()" class="btn btn-primary btn-sm">✓ Apply</button>' +
     '<button onclick="cancelAssign()" class="btn btn-danger btn-sm">✕ Cancel</button>';
   bar.style.display = 'flex';
 }
 
 async function confirmAssign() {
-  if (!_pendingCell || !_pendingComp) return;
-  const fd = new FormData();
-  fd.append('cell_id', _pendingCell.dataset.cell);
-  fd.append('component_id', _pendingComp.id);
-  const r = await fetch('/api/boxes/' + BOX_ID + '/assign', {method:'POST', body: fd});
-  if (r.ok) {
-    _pendingCell.style.borderColor = '';
-    _pendingCell.style.background = '';
-    _pendingCell.classList.replace('empty','filled');
-    _pendingCell.draggable = true;
-    _pendingCell.dataset.compId = _pendingComp.id;
-    _pendingCell.dataset.barcode = _pendingComp.barcode;
-    _pendingCell.dataset.val = _pendingComp.val;
-    _pendingCell.innerHTML = '<div class="cell-label">' + (_pendingComp.val || _pendingComp.barcode) + '</div>';
-    setStatus('Assigned ' + _pendingComp.barcode + ' → ' + _pendingCell.dataset.cell);
+  if (!_pendingComp || _pendingCells.size === 0) return;
+  let ok = 0;
+  for (const cellId of Array.from(_pendingCells)) {
+    const fd = new FormData();
+    fd.append('cell_id', cellId);
+    fd.append('component_id', _pendingComp.id);
+    const r = await fetch('/api/boxes/' + BOX_ID + '/assign', {method:'POST', body: fd});
+    if (!r.ok) continue;
+    ok += 1;
+    const el = document.getElementById('cell-' + cellId);
+    if (!el) continue;
+    el.classList.remove('preview-target');
+    el.classList.replace('empty','filled');
+    el.draggable = true;
+    el.dataset.compId = _pendingComp.id;
+    el.dataset.barcode = _pendingComp.barcode;
+    el.dataset.compName = _pendingComp.name || '';
+    el.dataset.shortTitle = _pendingComp.shortTitle || '';
+    el.dataset.val = _pendingComp.val || '';
+    el.dataset.image = _pendingComp.image || '';
+    el.innerHTML = appliedHtmlForComp(_pendingComp);
   }
+  setStatus('Assigned ' + ok + ' cell(s)');
   clearPending();
 }
 
 function cancelAssign() {
-  if (_pendingCell) {
-    _pendingCell.style.borderColor = '';
-    _pendingCell.style.background = '';
-    _pendingCell.classList.replace('filled','empty');
-    _pendingCell.draggable = false;
-    _pendingCell.innerHTML = '<div class="cell-empty-label">' + _pendingCell.dataset.cell + '</div>';
+  for (const cellId of Array.from(_pendingCells)) {
+    const el = document.getElementById('cell-' + cellId);
+    if (!el) continue;
+    el.classList.remove('preview-target');
+    if (el.classList.contains('empty')) {
+      el.innerHTML = '<div class="cell-empty-label">' + el.dataset.cell + '</div>';
+    }
   }
-  clearPending();
+  _pendingCells.clear();
+  const bar = document.getElementById('pending-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 function clearPending() {
-  _pendingCell = null; _pendingComp = null;
+  cancelAssign();
+  _pendingComp = null;
   const bar = document.getElementById('pending-bar');
   if (bar) bar.style.display = 'none';
 }
 
 // Drag and drop
 function dragStart(e) {
+  if (!EDIT_MODE) {
+    e.preventDefault();
+    return;
+  }
   dragSrcEl = e.currentTarget;
   dragSrcEl.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
@@ -304,6 +398,19 @@ async function dropCell(e) {
   e.preventDefault();
   const target = e.currentTarget;
   target.classList.remove('drag-over');
+  if (!EDIT_MODE) {
+    if (dragSrcEl) dragSrcEl.classList.remove('dragging');
+    dragSrcEl = null;
+    return;
+  }
+
+  if (_pendingComp && target.classList.contains('empty')) {
+    togglePendingCell(target);
+    if (dragSrcEl) dragSrcEl.classList.remove('dragging');
+    dragSrcEl = null;
+    return;
+  }
+
   if (!dragSrcEl || dragSrcEl === target) {
     if (dragSrcEl) dragSrcEl.classList.remove('dragging');
     dragSrcEl = null; return;
@@ -317,10 +424,26 @@ async function dropCell(e) {
   if (r.ok) {
     const srcHTML = dragSrcEl.innerHTML;
     const srcFilled = dragSrcEl.classList.contains('filled');
-    const srcData = {compId: dragSrcEl.dataset.compId, barcode: dragSrcEl.dataset.barcode, val: dragSrcEl.dataset.val};
+    const srcData = {
+      compId: dragSrcEl.dataset.compId,
+      barcode: dragSrcEl.dataset.barcode,
+      val: dragSrcEl.dataset.val,
+      compName: dragSrcEl.dataset.compName,
+      shortTitle: dragSrcEl.dataset.shortTitle,
+      image: dragSrcEl.dataset.image,
+      package: dragSrcEl.dataset.package,
+    };
     const tgtHTML = target.innerHTML;
     const tgtFilled = target.classList.contains('filled');
-    const tgtData = {compId: target.dataset.compId, barcode: target.dataset.barcode, val: target.dataset.val};
+    const tgtData = {
+      compId: target.dataset.compId,
+      barcode: target.dataset.barcode,
+      val: target.dataset.val,
+      compName: target.dataset.compName,
+      shortTitle: target.dataset.shortTitle,
+      image: target.dataset.image,
+      package: target.dataset.package,
+    };
 
     dragSrcEl.innerHTML = tgtHTML;
     dragSrcEl.classList.toggle('filled', tgtFilled);
@@ -351,9 +474,30 @@ document.getElementById('assign-modal').addEventListener('click', function(e) {
 });
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
 
+document.addEventListener('mousedown', (e) => {
+  if (!EDIT_MODE || !_pendingComp) return;
+  const cell = e.target.closest('.grid-cell.empty');
+  if (!cell) return;
+  _paintDown = true;
+  togglePendingCell(cell);
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!_paintDown || !EDIT_MODE || !_pendingComp) return;
+  const cell = e.target.closest && e.target.closest('.grid-cell.empty');
+  if (!cell) return;
+  if (!_pendingCells.has(cell.dataset.cell)) {
+    togglePendingCell(cell);
+  }
+});
+
+document.addEventListener('mouseup', () => { _paintDown = false; });
+
 function setStatus(msg) {
   const s = document.getElementById('grid-status');
   if(s) { s.textContent = msg; setTimeout(()=>s.textContent='', 3000); }
 }
+
+setEditMode(false);
 </script>
 {% endblock %}

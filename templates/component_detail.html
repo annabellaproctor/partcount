@@ -711,7 +711,7 @@ async function generateMarkingsSvg() {
   const r = await fetch('/labels/markings-svg', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text, width: 720, height: 120}),
+    body: JSON.stringify({text, width: 512, height: 512}),
   });
   if (!r.ok) {
     status.textContent = 'Generation failed';
@@ -743,8 +743,8 @@ async function applyMarkingsAsImage() {
     body: JSON.stringify({
       component_id: COMP_ID,
       text,
-      width: 720,
-      height: 120,
+      width: 512,
+      height: 512,
     }),
   });
   if (!r.ok) {

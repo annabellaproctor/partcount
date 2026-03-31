@@ -58,27 +58,26 @@ def parse_marking_tokens(text: str | None = None, tokens: list[str] | None = Non
 
 def render_markings_svg(
     entries: list[dict[str, Any]],
-    width: int = 720,
-    height: int = 120,
+    width: int = 512,
+    height: int = 512,
 ) -> str:
-    if width < 120:
-        width = 120
-    if height < 56:
-        height = 56
+    # Output is always square with transparent background, centered pill.
+    side = max(128, min(width, height))
+    width = side
+    height = side
 
     colors = [e for e in entries if e.get("kind") == "color"]
     texts = [str(e.get("text") or e.get("token") or "").strip() for e in entries if e.get("kind") == "text"]
     overlay_text = html.escape(" ".join([t for t in texts if t]))
 
-    container_x = 8
-    container_y = 8
-    container_w = width - 16
-    container_h = height - 16
+    container_w = int(width * 0.84)
+    container_h = int(container_w * 0.75)  # 3 high by 4 wide ratio.
+    container_x = int((width - container_w) / 2)
+    container_y = int((height - container_h) / 2)
     radius = int(container_h / 2)
     clip_id = "markings_clip"
 
     shapes: list[str] = [
-        f'<rect x="0" y="0" width="{width}" height="{height}" rx="12" fill="#0b1220"/>',
         f'<defs><clipPath id="{clip_id}"><rect x="{container_x}" y="{container_y}" width="{container_w}" height="{container_h}" rx="{radius}" ry="{radius}"/></clipPath></defs>',
     ]
 
@@ -94,7 +93,7 @@ def render_markings_svg(
         )
         if color_count == 2:
             stripe = colors[1].get("hex") or "#e5e7eb"
-            stripe_x = container_x + int(container_w * 0.72)
+            stripe_x = container_x + int(container_w * 0.74)
             stripe_w = max(10, int(container_w * 0.16))
             shapes.append(
                 f'<rect x="{stripe_x}" y="{container_y + 6}" width="{stripe_w}" height="{container_h - 12}" '
@@ -120,7 +119,13 @@ def render_markings_svg(
     if overlay_text:
         text_x = container_x + (container_w / 2)
         text_y = container_y + (container_h / 2) + 5
-        font_size = max(14, min(30, int(container_h * 0.42)))
+        max_font = int(container_h * 0.50)
+        min_font = 18
+        text_len = max(1, len(overlay_text))
+        target_w = container_w * 0.82
+        # Approximate monospace/sans average width factor for adaptive size.
+        est_from_width = int(target_w / (0.58 * text_len))
+        font_size = max(min_font, min(max_font, est_from_width))
         shapes.append(
             f'<text x="{text_x:.2f}" y="{text_y:.2f}" text-anchor="middle" '
             f'font-size="{font_size}" font-weight="800" letter-spacing="0.3" '
@@ -136,7 +141,7 @@ def render_markings_svg(
     )
 
 
-def build_markings_svg(text: str | None = None, tokens: list[str] | None = None, width: int = 720, height: int = 120) -> dict[str, Any]:
+def build_markings_svg(text: str | None = None, tokens: list[str] | None = None, width: int = 512, height: int = 512) -> dict[str, Any]:
     entries = parse_marking_tokens(text=text, tokens=tokens)
     svg = render_markings_svg(entries, width=width, height=height)
     data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
