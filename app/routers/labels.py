@@ -818,6 +818,7 @@ async def print_sheet_designer(
   mode: str = Query("front", pattern="^(front|barcode|calibration|grid_test)$"),
   q: str | None = None,
   barcode_ids: str | None = None,
+  settings_json: str | None = None,
   limit: int = 500,
   db: AsyncSession = Depends(get_db),
 ):
@@ -825,7 +826,15 @@ async def print_sheet_designer(
   if not row:
     raise HTTPException(404, "Profile not found")
 
-  settings = _clean_settings(row.settings if isinstance(row.settings, dict) else {})
+  settings_source = row.settings if isinstance(row.settings, dict) else {}
+  if settings_json:
+    try:
+      parsed = json.loads(settings_json)
+      if isinstance(parsed, dict):
+        settings_source = parsed
+    except Exception:
+      raise HTTPException(400, "Invalid settings_json")
+  settings = _clean_settings(settings_source)
   cols, rows = _compute_grid(settings)
   capacity = cols * rows
   take = max(1, min(limit, 2000))

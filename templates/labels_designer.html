@@ -399,7 +399,8 @@ function openPrint(mode) {
   const sel = document.getElementById('profile-select');
   const q = encodeURIComponent(document.getElementById('filter-q').value || '');
   const barcodeIds = encodeURIComponent((document.getElementById('barcode-list').value || '').replace(/\n/g, ','));
-  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}`;
+  const settingsJson = encodeURIComponent(JSON.stringify(getSettingsFromForm()));
+  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}&settings_json=${settingsJson}`;
   window.open(url, '_blank');
   document.getElementById('print-status').textContent = `Opened ${mode} print view`;
 }
