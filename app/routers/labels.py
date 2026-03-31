@@ -840,6 +840,7 @@ async def print_sheet_designer(
   q: str | None = None,
   barcode_ids: str | None = None,
   settings_json: str | None = None,
+  start_index: int = Query(0, ge=0),
   limit: int = 500,
   db: AsyncSession = Depends(get_db),
 ):
@@ -921,6 +922,8 @@ async def print_sheet_designer(
         )
 
     for i in range(capacity):
+      source_idx = i - start_index if mode in {"front", "barcode"} else i
+      has_component = source_idx >= 0 and source_idx < len(comps)
       if mode == "calibration":
         if i in marked_set:
           run_label = f"{settings.get('calibration_run_label', 'RUN')} {run_no}"
@@ -942,15 +945,16 @@ async def print_sheet_designer(
       else:
         if mode == "grid_test":
           inner = _build_grid_test_cell()
-        elif i >= len(comps):
+        elif not has_component:
           inner = ""
         elif mode == "barcode":
-          inner = _build_barcode_cell(comps[i], settings)
+          inner = _build_barcode_cell(comps[source_idx], settings)
         else:
-          inner = _build_front_cell(comps[i], settings)
+          inner = _build_front_cell(comps[source_idx], settings)
         classes = "cell"
 
-      cells.append(f'<div class="{classes}">{inner}{"" if mode == "calibration" else final_cut_overlay_html}</div>')
+      show_final_cut = bool(final_cut_overlay_html and mode in {"front", "barcode"} and has_component)
+      cells.append(f'<div class="{classes}">{inner}{final_cut_overlay_html if show_final_cut else ""}</div>')
 
     sheet = "".join(cells)
     header = ""
@@ -976,7 +980,9 @@ async def print_sheet_designer(
     cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
     page_blocks.insert(0, cover)
   elif tracked_mode:
-    for i, comp in enumerate(comps[:capacity]):
+    max_slots = max(0, capacity - start_index)
+    for slot_i, comp in enumerate(comps[:max_slots]):
+      i = start_index + slot_i
       r = i // cols
       c = i % cols
       _, box_label, box_r, box_c = slot_map.get(comp.id, (None, None, None, None))
@@ -1288,8 +1294,6 @@ async def print_sheet_designer(
     left: 0;
     top: 0;
     box-sizing: border-box;
-    border-right: 0.4pt dashed #5a5a5a;
-    border-bottom: 0.4pt dashed #5a5a5a;
     box-shadow: 0 0 0 100vmax rgba(80, 80, 80, 0.18);
     background: rgba(255, 255, 255, 0.01);
   }}

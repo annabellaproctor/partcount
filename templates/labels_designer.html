@@ -158,6 +158,13 @@
       <div class="p-3" style="display:flex;flex-direction:column;gap:8px;">
         <input id="filter-q" class="form-control" placeholder="Component filter query (name/value/package/barcode)">
         <textarea id="barcode-list" class="form-control" rows="4" placeholder="Optional explicit barcode list, comma-separated"></textarea>
+        <div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;">
+          <div style="max-width:220px;">
+            <label class="form-label">Start Index (not saved)</label>
+            <input id="start-index" class="form-control" type="number" min="0" step="1" value="0">
+          </div>
+          <div class="muted" style="font-size:11px;">Left to right, top to bottom. Use to continue printing on partially used sheets.</div>
+        </div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print Front Sheet</button>
           <button class="btn btn-primary btn-sm" onclick="openPrint('barcode')">Print Barcode Sheet</button>
@@ -401,10 +408,11 @@ function openPrint(mode) {
   const sel = document.getElementById('profile-select');
   const q = encodeURIComponent(document.getElementById('filter-q').value || '');
   const barcodeIds = encodeURIComponent((document.getElementById('barcode-list').value || '').replace(/\n/g, ','));
+  const startIndex = Math.max(0, parseInt(document.getElementById('start-index').value || '0', 10) || 0);
   const settingsJson = encodeURIComponent(JSON.stringify(getSettingsFromForm()));
-  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}&settings_json=${settingsJson}`;
+  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}&settings_json=${settingsJson}&start_index=${encodeURIComponent(startIndex)}`;
   window.open(url, '_blank');
-  document.getElementById('print-status').textContent = `Opened ${mode} print view`;
+  document.getElementById('print-status').textContent = `Opened ${mode} print view (start index ${startIndex})`;
 }
 
 document.getElementById('profile-select').addEventListener('change', (e) => {
