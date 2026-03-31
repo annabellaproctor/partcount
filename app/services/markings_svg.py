@@ -252,9 +252,18 @@ def render_markings_svg(
     if middle_slots <= 0:
         middle_slots = len(layout["left_stripes"]) + len(layout["right_stripes"])
 
+    shape_mode = bool(layout.get("shape"))
+
     # Default schema by band amount if no dot-shape token.
     compact_mode = 1 <= middle_slots <= 3
-    if compact_mode:
+    if shape_mode:
+        # Explicit shape mode uses the largest centered square region.
+        side_inner = int(width * 0.90)
+        container_w = side_inner
+        container_h = side_inner
+        radius = int(side_inner * 0.10)
+        gap = max(2, int(side_inner * 0.010))
+    elif compact_mode:
         container_h = int(height * 0.78)
         container_w = int(container_h * (3.0 / 4.0))
         container_w = min(container_w, int(width * 0.82))
