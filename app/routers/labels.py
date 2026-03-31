@@ -382,6 +382,53 @@ def _build_grid_test_cell() -> str:
   return '<div class="grid-test"><div class="sticker-zone"></div></div>'
 
 
+def _build_global_grid_overlay(settings: dict, cols: int, rows: int, *, show_grid: bool, show_debug: bool, show_x: bool) -> str:
+  if not (show_grid or show_debug or show_x):
+    return ""
+
+  cw = float(settings["cell_width_in"])
+  ch = float(settings["cell_height_in"])
+  gx = float(settings["gap_x_in"])
+  gy = float(settings["gap_y_in"])
+  grid_w = (cols * cw) + (max(0, cols - 1) * gx)
+  grid_h = (rows * ch) + (max(0, rows - 1) * gy)
+
+  lines = []
+  # Interior cut lines only (no outer border).
+  if show_grid:
+    for c in range(1, cols):
+      x = c * (cw + gx)
+      lines.append(f'<div class="gline v" style="left:{x:.6f}in;"></div>')
+    for r in range(1, rows):
+      y = r * (ch + gy)
+      lines.append(f'<div class="gline h" style="top:{y:.6f}in;"></div>')
+
+  labels = []
+  if show_debug:
+    for c in range(cols):
+      x = c * (cw + gx) + (cw / 2.0)
+      labels.append(f'<div class="gcol" style="left:{x:.6f}in;">C{c}</div>')
+    for r in range(rows):
+      y = r * (ch + gy) + (ch / 2.0)
+      labels.append(f'<div class="grow" style="top:{y:.6f}in;">R{r}</div>')
+
+  crosses = []
+  if show_x:
+    for r in range(rows):
+      top = r * (ch + gy)
+      for c in range(cols):
+        left = c * (cw + gx)
+        crosses.append(f'<div class="gcellx" style="left:{left:.6f}in;top:{top:.6f}in;width:{cw:.6f}in;height:{ch:.6f}in;"></div>')
+
+  return (
+    f'<div class="grid-overlay" style="width:{grid_w:.6f}in;height:{grid_h:.6f}in;">'
+    f'<div class="grid-overlay-lines">{"".join(lines)}</div>'
+    f'<div class="grid-overlay-x">{"".join(crosses)}</div>'
+    f'<div class="grid-overlay-labels">{"".join(labels)}</div>'
+    '</div>'
+  )
+
+
 def _build_calibration_cell(run_label: str, marker_style: str, full_cross: dict | None = None) -> str:
   if isinstance(full_cross, dict):
     x_pct = max(5.0, min(95.0, float(full_cross.get("x_pct", 50.0))))
@@ -872,29 +919,27 @@ async def print_sheet_designer(
           inner = _build_front_cell(comps[i], settings)
         classes = "cell"
 
-      cross = ""
-      full_grid = ""
-      debug_grid = ""
-      if settings["show_cut_grid"] and mode not in {"calibration", "grid_test"}:
-        cross = '<div class="cut-x cut-a"></div><div class="cut-x cut-b"></div>'
-      if settings.get("show_full_cut_grid") and mode == "grid_test":
-        full_grid = '<div class="cell-full-grid"></div>'
-      if settings.get("show_debug_grid") and mode == "grid_test":
-        rr = i // cols
-        cc = i % cols
-        debug_grid = f'<div class="cell-debug-grid">R{rr} C{cc}</div>'
-
-      cells.append(f'<div class="{classes}">{full_grid}{cross}{debug_grid}{inner}</div>')
+      cells.append(f'<div class="{classes}">{inner}</div>')
 
     sheet = "".join(cells)
     header = ""
     margin_headers = ""
+    grid_overlay = ""
     if mode == "calibration":
       seed_show = seeds_by_run[run_no - 1]
       header = f'<div class="cal-page-head">CAL {html.escape(settings.get("calibration_run_label", "RUN"))} {run_no} · seed {seed_show} · rev {rev}</div>'
     elif tracked_mode:
       margin_headers = _build_sheet_margin_headers(settings, cols, rows, sheet_code, printed_at, tracked_mode)
-    page_blocks.append(f'<div class="print-page">{header}{margin_headers}<div class="page">{corner_overlay}{sheet}</div></div>')
+    if mode != "calibration":
+      grid_overlay = _build_global_grid_overlay(
+        settings,
+        cols,
+        rows,
+        show_grid=bool(settings.get("show_full_cut_grid") or (settings.get("show_cut_grid") and mode == "grid_test")),
+        show_debug=bool(settings.get("show_debug_grid") and mode == "grid_test"),
+        show_x=bool(settings.get("show_cut_grid")),
+      )
+    page_blocks.append(f'<div class="print-page">{header}{margin_headers}<div class="page">{corner_overlay}{grid_overlay}{sheet}</div></div>')
 
   if mode == "calibration":
     cover = _build_calibration_cover_page(settings, cols, rows, rev, run_count, seeds_by_run, marks_by_run)
@@ -1035,17 +1080,44 @@ async def print_sheet_designer(
     border-radius: {radius_mm}mm;
     overflow: hidden;
     box-sizing: border-box;
+    z-index: 5;
   }}
   .calibration-cell {{ border-radius: 0; }}
-  .cut-x {{
+  .grid-overlay {{
     position: absolute;
-    left: 0; top: 0;
-    width: 100%; height: 100%;
+    left: 0;
+    top: 0;
+    z-index: 2;
     pointer-events: none;
-    opacity: {0.35 if mode == 'calibration' else 0.24};
   }}
-  .cut-a {{ border-top: 0.45pt dotted #444; transform: rotate(25deg) scale(1.35); transform-origin: center; }}
-  .cut-b {{ border-top: 0.45pt dotted #444; transform: rotate(-25deg) scale(1.35); transform-origin: center; }}
+  .grid-overlay-lines .gline {{ position: absolute; background: transparent; }}
+  .grid-overlay-lines .gline.v {{ top: 0; bottom: 0; border-left: 0.35pt dotted #555; opacity: 0.75; }}
+  .grid-overlay-lines .gline.h {{ left: 0; right: 0; border-top: 0.35pt dotted #555; opacity: 0.75; }}
+  .grid-overlay-x .gcellx {{ position: absolute; opacity: 0.27; }}
+  .grid-overlay-x .gcellx::before,
+  .grid-overlay-x .gcellx::after {{
+    content: '';
+    position: absolute;
+    left: 2%;
+    right: 2%;
+    top: 50%;
+    border-top: 0.3pt dotted #777;
+    transform-origin: center;
+  }}
+  .grid-overlay-x .gcellx::before {{ transform: rotate(24deg); }}
+  .grid-overlay-x .gcellx::after {{ transform: rotate(-24deg); }}
+  .grid-overlay-labels .gcol,
+  .grid-overlay-labels .grow {{
+    position: absolute;
+    font-size: 4.7pt;
+    color: #4a4a4a;
+    font-family: monospace;
+    background: rgba(255,255,255,0.78);
+    border-radius: 0.5mm;
+    padding: 0.1mm 0.35mm;
+  }}
+  .grid-overlay-labels .gcol {{ top: 0.18mm; transform: translateX(-50%); }}
+  .grid-overlay-labels .grow {{ left: 0.18mm; transform: translateY(-50%); }}
   .front {{
     position: absolute; inset: 0;
     display: flex;
@@ -1161,37 +1233,6 @@ async def print_sheet_designer(
   .barcode-wrap text {{ font-size: 5pt !important; }}
   .grid-test {{ position: absolute; inset: 0; padding: 0.8mm; box-sizing: border-box; display: flex; gap: 0; }}
   .grid-mini {{ flex: 1 1 0; border: 0.3pt solid #444; border-radius: 0.35mm; }}
-  .cell-full-grid {{
-    position: absolute;
-    inset: 0;
-    border: 0.5pt dashed #333;
-    border-radius: 0;
-    pointer-events: none;
-    z-index: 5;
-  }}
-  .cell-full-grid::before,
-  .cell-full-grid::after {{
-    content: '';
-    position: absolute;
-    background: repeating-linear-gradient(to right, #444 0 1.1mm, transparent 1.1mm 2.1mm);
-    opacity: 0.45;
-  }}
-  .cell-full-grid::before {{ left: 0; right: 0; top: 50%; height: 0.4pt; transform: translateY(-50%); }}
-  .cell-full-grid::after {{ top: 0; bottom: 0; left: 50%; width: 0.4pt; transform: translateX(-50%); background: repeating-linear-gradient(to bottom, #444 0 1.1mm, transparent 1.1mm 2.1mm); }}
-  .cell-debug-grid {{
-    position: absolute;
-    left: 0.6mm;
-    top: 0.45mm;
-    font-size: 5.1pt;
-    color: #111;
-    background: rgba(255,255,255,0.82);
-    border: 0.35pt solid #666;
-    border-radius: 0.7mm;
-    padding: 0.1mm 0.45mm;
-    font-family: monospace;
-    z-index: 6;
-    pointer-events: none;
-  }}
   .grid-test::before {{
     content: '';
     position: absolute;
