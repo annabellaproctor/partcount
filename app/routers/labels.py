@@ -781,14 +781,20 @@ async def print_sheet_designer(
     height: 2.6mm;
     border-radius: 50%;
     background: #000;
-    transform: translate(-50%, -50%);
   }}
+  .corner-dot.tl {{ transform: translate(0, 0); }}
+  .corner-dot.tr {{ transform: translate(-100%, 0); }}
+  .corner-dot.bl {{ transform: translate(0, -100%); }}
+  .corner-dot.br {{ transform: translate(-100%, -100%); }}
   .corner-angle {{
     position: absolute;
     width: 6mm;
     height: 6mm;
-    transform: translate(-50%, -50%);
   }}
+  .corner-angle.tl {{ transform: translate(0, 0); }}
+  .corner-angle.tr {{ transform: translate(-100%, 0); }}
+  .corner-angle.bl {{ transform: translate(0, -100%); }}
+  .corner-angle.br {{ transform: translate(-100%, -100%); }}
   .corner-angle::before,
   .corner-angle::after {{
     content: '';
