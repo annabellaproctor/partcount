@@ -617,6 +617,31 @@ async def get_barcode_svg(barcode_id: str, db: AsyncSession = Depends(get_db)):
     return Response(content=svg, media_type="image/svg+xml")
 
 
+@router.delete("/{barcode_id}/image")
+async def delete_component_image(barcode_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete/reset component image. Sets image_path to None for future re-upload."""
+    result = await db.execute(select(Component).where(Component.barcode_id == barcode_id))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(404, "Component not found")
+    
+    # Delete physical file if it exists
+    if comp.image_path:
+        try:
+            file_path = os.path.join("/app", comp.image_path.lstrip("/"))
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            log.warning(f"Failed to delete image file for {barcode_id}: {e}")
+    
+    # Clear image_path from database
+    comp.image_path = None
+    await db.commit()
+    
+    await manager.broadcast("component_updated", {"barcode_id": barcode_id, "field": "image_path", "value": None})
+    return {"deleted": True, "barcode_id": barcode_id}
+
+
 @router.post("/{barcode_id}/scan")
 async def scan_component(barcode_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(

@@ -185,7 +185,8 @@
                 📤 Upload
                 <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
               </label>
-              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:12px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openImageSearch(); toggleImageMenu();">🔍 Search</button>
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:12px;transition:background 0.15s;border-bottom:1px solid var(--border2);" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openImageSearch(); toggleImageMenu();">🔍 Search</button>
+              {% if comp.image_path %}<button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--red);cursor:pointer;font-size:12px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="deleteComponentImage(); toggleImageMenu();">🗑️ Delete</button>{% endif %}
             </div>
           </div>
         </div>
@@ -704,6 +705,30 @@ window.toggleSupplierForm = function() {
   const form = document.getElementById('supplier-form');
   if (form) {
     form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  }
+};
+
+// Delete component image
+window.deleteComponentImage = async function() {
+  if (!confirm('Delete this image? This action cannot be undone.')) return;
+  
+  try {
+    const r = await fetch(`/api/components/{{ comp.barcode_id }}/image`, {
+      method: 'DELETE',
+    });
+    if (r.ok) {
+      const data = await r.json();
+      // Hide the image and show placeholder
+      const img = document.getElementById('comp-img');
+      const placeholder = document.getElementById('comp-img-placeholder');
+      if (img) img.parentElement.replaceChild(placeholder, img);
+      addLog('Image deleted', 'info');
+      location.reload();
+    } else {
+      addLog('Failed to delete image: ' + r.status, 'error');
+    }
+  } catch(e) {
+    addLog('Error deleting image: ' + e.message, 'error');
   }
 };
 

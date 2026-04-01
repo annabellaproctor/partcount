@@ -2,8 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3ddc84">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LAB::INV">
+  <meta name="description" content="Real-time component inventory management system">
+  
   <title>{% block title %}LAB::INV{% endblock %}</title>
+  
+  <!-- Icons & PWA -->
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+  <link rel="apple-touch-icon" href="/static/favicon-192.png">
+  <link rel="manifest" href="/static/manifest.json">
+  
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
@@ -313,6 +326,46 @@
     .sep { color: var(--text3); margin: 0 4px; }
     .muted { color: var(--text3); }
     .page-title { font-size: 13px; color: var(--text2); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px; }
+
+    /* ── Mobile Responsive ── */
+    @media (max-width: 768px) {
+      body { font-size: 13px; }
+      .topbar { padding: 0 8px; height: 40px; }
+      .topbar .brand { font-size: 12px; letter-spacing: 2px; margin-right: 8px; }
+      .nav-link { font-size: 10px; letter-spacing: 0.5px; padding: 0 8px; }
+      .nav-link:nth-child(n+5) { display: none; }
+      .topbar-right { gap: 6px; }
+      .btn-sm { font-size: 10px !important; padding: 4px 8px !important; }
+      .form-control, .form-select { font-size: 12px !important; padding: 6px 8px !important; }
+      .card { border-radius: 4px; }
+      .p-3 { padding: 12px !important; }
+      .table { font-size: 11px; }
+      .table th, .table td { padding: 6px 4px !important; }
+      h1 { font-size: 18px !important; }
+      h2 { font-size: 16px !important; }
+      h3 { font-size: 14px !important; }
+      #shortcuts-bar { display: none !important; }
+    }
+
+    @media (max-width: 480px) {
+      body { font-size: 12px; }
+      .topbar { padding: 0 6px; height: 36px; }
+      .topbar .brand { font-size: 10px; letter-spacing: 1px; margin-right: 4px; }
+      .nav-link { font-size: 9px; padding: 0 4px; }
+      .btn-sm { font-size: 9px !important; padding: 3px 6px !important; }
+      .form-control, .form-select { font-size: 11px !important; padding: 5px 6px !important; }
+      .table { font-size: 10px; }
+      .table th, .table td { padding: 4px 2px !important; }
+      input[type="text"], input[type="number"], select { width: 100% !important; }
+      .profile-badge { width: 24px; height: 24px; font-size: 9px; }
+    }
+
+    /* ── iPad & Touch Optimization ── */
+    @media (hover: none) and (pointer: coarse) {
+      button, a, input, select { min-height: 40px; }
+      .btn { min-height: 36px; }
+      button { -webkit-user-select: none; user-select: none; }
+    }
   </style>
 </head>
 <body>
@@ -373,9 +426,28 @@
   <div id="event-log"></div>
 </div>
 
+<!-- Keyboard shortcuts footer (hidden on mobile, shown on desktop) -->
+<div id="shortcuts-bar" style="background:var(--bg2);border-top:1px solid var(--border);padding:6px 16px;height:28px;display:none;align-items:center;gap:24px;font-size:10px;color:var(--text3);overflow-x:auto;white-space:nowrap;@media (min-width:1024px) { display:flex; }">
+  <span style="color:var(--text2);">⌨ Shortcuts:</span>
+  <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">Ctrl K</kbd> search</span>
+  <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">?</kbd> help</span>
+  <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">A</kbd> add</span>
+  <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">↑↓←→</kbd> navigate</span>
+  <span style="margin-left:auto;color:var(--text3);" id="shortcuts-info"></span>
+</div>
+
 <script>
 const log = document.getElementById('event-log');
 const wsDot = document.getElementById('ws-dot');
+const shortcutsBar = document.getElementById('shortcuts-bar');
+
+// Show shortcuts bar on desktop
+if (window.innerWidth >= 1024) {
+  shortcutsBar.style.display = 'flex';
+}
+window.addEventListener('resize', () => {
+  shortcutsBar.style.display = window.innerWidth >= 1024 ? 'flex' : 'none';
+});
 
 function addLog(msg, cls='') {
   const ts = new Date().toTimeString().slice(0,8);
@@ -1310,6 +1382,46 @@ document.addEventListener('keydown', e => {
 })();
 </script>
 {% block scripts %}{% endblock %}
+
+<!-- Service Worker Registration for PWA -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js')
+    .then(reg => {
+      console.log('[PWA] Service Worker registered:', reg);
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'activated') {
+            console.log('[PWA] New Service Worker activated');
+            addLog('App updated', 'info');
+          }
+        });
+      });
+    })
+    .catch(err => console.log('[PWA] Service Worker registration failed:', err));
+  
+  // Check for updates periodically
+  setInterval(() => {
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(reg => reg.update());
+    });
+  }, 3600000); // Check every hour
+}
+
+// Install prompt for "Add to Home Screen"
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  console.log('[PWA] Install prompt deferred (can be shown to user)');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[PWA] App installed as PWA');
+  addLog('App installed!', 'info');
+});
+</script>
 
 </body>
 </html>

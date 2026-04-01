@@ -1,167 +1,171 @@
 {% extends "base.html" %}
 {% block title %}Components :: LAB::INV{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-  <div class="page-title" style="margin:0;">Components</div>
-  <span style="color:var(--text3);font-size:11px;">{{ rows|length }} total</span>
-  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-    <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer;">
-      <input type="checkbox" id="generic-filter" style="accent-color:var(--amber);" onchange="applyFilters()">
-      Generic only
-    </label>
-    <input class="form-control form-control-sm" style="width:200px;"
-           placeholder="Filter..." oninput="applyFilters()" id="text-filter">
-  </div>
-</div>
 
-<div class="card mb-3">
-  <div class="card-header"><span class="dot"></span>Batch Tools</div>
-  <div class="p-3" style="display:flex;flex-direction:column;gap:10px;">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <span id="batch-selection-count" class="muted" style="font-size:11px;">0 selected</span>
-      <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelected()">Delete Selected</button>
-      <button class="btn btn-primary btn-sm" onclick="bulkMergeSelected()">Merge Selected (2+)</button>
-      <select id="rename-mode" class="form-select form-select-sm" style="width:140px;">
-        <option value="set">Rename: Set</option>
-        <option value="prefix">Rename: Prefix</option>
-        <option value="suffix">Rename: Suffix</option>
-        <option value="replace">Rename: Replace</option>
-      </select>
-      <input id="rename-value" class="form-control form-control-sm" style="width:180px;" placeholder="Value / prefix / suffix">
-      <input id="rename-find" class="form-control form-control-sm" style="width:140px;" placeholder="Find (replace mode)">
-      <input id="rename-replace" class="form-control form-control-sm" style="width:140px;" placeholder="Replace with">
-      <button class="btn btn-primary btn-sm" onclick="bulkRenameSelected()">Run Rename</button>
-      <button class="btn btn-primary btn-sm" onclick="bulkAutoRenameSelected()">Auto Rename</button>
+<!-- Header -->
+<div style="max-width:1400px;margin:0 auto;padding:0 12px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:32px;margin-top:12px;">
+    <div>
+      <h1 style="font-size:24px;font-weight:600;color:var(--text);margin:0;margin-bottom:4px;">Components</h1>
+      <span style="color:var(--text3);font-size:12px;">{{ rows|length }} total · Use ⌘K to search</span>
     </div>
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <select id="bulk-ai-action" class="form-select form-select-sm" style="width:130px;">
-        <option value="repair">AI Repair</option>
-        <option value="add">AI Add</option>
-        <option value="remove">AI Remove</option>
-      </select>
-      <input id="bulk-ai-text" class="form-control form-control-sm" style="min-width:360px;flex:1;" placeholder="AI instruction for selected rows (modify multiple rows)">
-      <button class="btn btn-primary btn-sm" onclick="bulkAiModifySelected()">Apply AI to Selected</button>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <select id="bulk-ai-rename-model" class="form-select form-select-sm" style="width:200px;">
-        <option value="gemini-3-flash">AI model: gemini-3-flash</option>
-        <option value="gemini-3.1-flash-lite-preview">AI model: 3.1-flash-lite</option>
-        <option value="gemini-2.5-flash-lite">AI model: 2.5-flash-lite</option>
-      </select>
-      <input id="bulk-ai-rename-rules" class="form-control form-control-sm" style="min-width:420px;flex:1;" placeholder="Naming rules e.g. Resistor {value}{unit} {tolerance} {package}; Module {variant} {wireless}">
-      <button class="btn btn-primary btn-sm" onclick="bulkAiRenameSelected()">AI Rename by Rules</button>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input id="bulk-template" class="form-control form-control-sm" style="min-width:420px;flex:1;" placeholder="Template rename e.g. R-{index:03} {value}{unit} {package}">
-      <input id="bulk-template-start" type="number" class="form-control form-control-sm" style="width:110px;" value="1" placeholder="Start">
-      <button class="btn btn-primary btn-sm" onclick="bulkTemplateRenameSelected()">Template Rename</button>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input id="bulk-copy-source" class="form-control form-control-sm" style="width:190px;" placeholder="Source barcode (optional)">
-      <input id="bulk-copy-fields" class="form-control form-control-sm" style="min-width:340px;flex:1;" value="image_path,datasheet_url,package" placeholder="Fields to copy, comma-separated">
-      <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer;">
-        <input type="checkbox" id="bulk-copy-empty-only" checked>
-        Empty only
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="generic-filter" style="accent-color:var(--green);" onchange="applyFilters()">
+        Generic only
       </label>
-      <button class="btn btn-primary btn-sm" onclick="bulkCopyFieldsToSelected()">Copy Fields to Selected</button>
+      <input class="form-control form-control-sm" style="width:180px;font-size:11px;"
+             placeholder="Filter..." oninput="applyFilters()" id="text-filter">
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div style="display:flex;gap:8px;margin-bottom:24px;align-items:center;flex-wrap:wrap;">
+    <span id="batch-selection-count" class="muted" style="font-size:11px;">0 selected</span>
+    <button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="bulkDeleteSelected()" id="bulk-delete-btn" disabled>Delete</button>
+    <button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="toggleBatchTools()" id="batch-toggle-btn">▼ More Tools</button>
+  </div>
+
+  <!-- Batch tools (collapsible) -->
+  <div id="batch-tools-section" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:24px;">
+    <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;">Batch Operations</div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px;">
+      <!-- Rename -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Rename</div>
+        <div style="display:flex;gap:6px;">
+          <select id="rename-mode" class="form-select form-select-sm" style="flex:1;font-size:11px;">
+            <option value="set">Set</option>
+            <option value="prefix">Prefix</option>
+            <option value="suffix">Suffix</option>
+            <option value="replace">Replace</option>
+          </select>
+          <input id="rename-value" class="form-control form-control-sm" style="flex:2;font-size:11px;" placeholder="value">
+          <button class="btn btn-primary btn-sm" onclick="bulkRenameSelected()" style="font-size:11px;">Go</button>
+        </div>
+      </div>
+
+      <!-- AI Rename by Rules -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">AI Rules</div>
+        <div style="display:flex;gap:6px;">
+          <input id="bulk-ai-rename-rules" class="form-control form-control-sm" style="flex:1;font-size:11px;" placeholder="e.g. R {value}{unit} {tolerance}">
+          <button class="btn btn-primary btn-sm" onclick="bulkAiRenameSelected()" style="font-size:11px;">Go</button>
+        </div>
+      </div>
+
+      <!-- Template -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Template</div>
+        <div style="display:flex;gap:6px;">
+          <input id="bulk-template" class="form-control form-control-sm" style="flex:1;font-size:11px;" placeholder="R-{index:03} {value}">
+          <input id="bulk-template-start" type="number" class="form-control form-control-sm" style="width:60px;font-size:11px;" value="1">
+          <button class="btn btn-primary btn-sm" onclick="bulkTemplateRenameSelected()" style="font-size:11px;">Go</button>
+        </div>
+      </div>
+
+      <!-- AI Modify -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">AI Modify</div>
+        <div style="display:flex;gap:6px;">
+          <select id="bulk-ai-action" class="form-select form-select-sm" style="width:90px;font-size:11px;">
+            <option value="repair">Repair</option>
+            <option value="add">Add</option>
+            <option value="remove">Remove</option>
+          </select>
+          <input id="bulk-ai-text" class="form-control form-control-sm" style="flex:1;font-size:11px;" placeholder="AI instruction...">
+          <button class="btn btn-primary btn-sm" onclick="bulkAiModifySelected()" style="font-size:11px;">Go</button>
+        </div>
+      </div>
+
+      <!-- Copy Fields -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Copy Fields</div>
+        <div style="display:flex;gap:6px;">
+          <input id="bulk-copy-fields" class="form-control form-control-sm" style="flex:1;font-size:11px;" placeholder="image_path,datasheet_url" value="image_path,datasheet_url,package">
+          <button class="btn btn-primary btn-sm" onclick="bulkCopyFieldsToSelected()" style="font-size:11px;">Go</button>
+        </div>
+      </div>
+
+      <!-- Import/Export -->
+      <div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">CSV</div>
+        <div style="display:flex;gap:4px;">
+          <input id="csv-file" type="file" class="form-control form-control-sm" style="flex:1;font-size:11px;" accept=".csv,.txt,.tsv">
+          <button class="btn btn-primary btn-sm" onclick="importCsvNewOnly()" style="font-size:11px;">New</button>
+          <button class="btn btn-primary btn-sm" onclick="exportAllCsv()" style="font-size:11px;">Export</button>
+        </div>
+      </div>
     </div>
 
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input id="collection-command" class="form-control form-control-sm" style="min-width:460px;flex:1;" placeholder="Collection command e.g. add all resistors 5% tol, 1/4w carbon film resistor from 10ohm to 100ohm">
-      <button class="btn btn-primary btn-sm" onclick="runCollectionCommand()">Create Collection</button>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input id="csv-file" type="file" class="form-control form-control-sm" style="min-width:260px;max-width:380px;" accept=".csv,.txt,.tsv">
-      <select id="csv-delimiter" class="form-select form-select-sm" style="width:150px;">
-        <option value="auto">Delimiter: Auto</option>
-        <option value="semicolon">Delimiter: ;</option>
-        <option value="tab">Delimiter: Tab</option>
-        <option value="comma">Delimiter: ,</option>
-      </select>
-      <button class="btn btn-primary btn-sm" onclick="importCsvNewOnly()">Import New</button>
-      <button class="btn btn-primary btn-sm" onclick="importCsvModifications()">Import Modifications</button>
-      <button class="btn btn-primary btn-sm" onclick="exportAllCsv()">Export All</button>
-    </div>
     <div id="batch-status" class="muted" style="font-size:11px;"></div>
   </div>
+
+  <!-- Table -->
+  <div style="overflow-x:auto;margin-bottom:24px;">
+    <table class="table" id="comp-table" style="font-size:11px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="width:24px;"><input type="checkbox" id="select-all-rows" onchange="toggleSelectAll(this.checked)"></th>
+          <th>ID</th><th>Name</th><th>Value</th><th>Package</th>
+          <th>Type</th><th>Stock</th><th>Labels</th>
+        </tr>
+      </thead>
+      <tbody id="comp-table-body">
+        {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
+        <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.search_alias or '' }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }}"
+            data-is-generic="{{ 'true' if comp.is_generic else 'false' }}"
+            data-component-id="{{ comp.id }}"
+            data-barcode-id="{{ comp.barcode_id }}"
+            data-name="{{ comp.name|e }}"
+            style="border-bottom:1px solid var(--border2);">
+          <td><input type="checkbox" class="row-select" onchange="updateBatchSelection()" style="cursor:pointer;"></td>
+          <td><a href="/components/{{ comp.barcode_id }}" class="bid" style="font-size:10px;">{{ comp.barcode_id }}</a></td>
+          <td>
+            <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
+            {% if comp.is_generic %}
+            <span style="font-size:8px;text-transform:uppercase;background:var(--green);color:#000;padding:2px 4px;border-radius:2px;margin-left:4px;">G</span>
+            {% elif comp.parent_id %}
+            <span style="font-size:8px;text-transform:uppercase;background:var(--bg3);color:var(--text3);padding:2px 4px;border-radius:2px;margin-left:4px;">V</span>
+            {% endif %}
+            {% if kit_refs > 0 %}
+            <span style="font-size:8px;text-transform:uppercase;background:var(--blue);color:#fff;padding:2px 4px;border-radius:2px;margin-left:2px;">K×{{ kit_refs }}</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ comp.value or '—' }}</td>
+          <td class="muted" style="font-size:10px;">{{ comp.package or '—' }}</td>
+          <td class="muted" style="font-size:10px;">{{ ctype.name if ctype else '—' }}</td>
+          <td style="color:{% if total_stock and total_stock > 0 %}var(--green){% elif total_stock == 0 %}var(--text3){% else %}var(--red){% endif %};font-weight:600;">
+            {{ total_stock if total_stock is not none else '—' }}
+          </td>
+          <td>
+            <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs" style="font-size:9px;padding:3px 6px;">EXT</a>
+            <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs" style="font-size:9px;padding:3px 6px;">INT</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<div class="card mb-5">
-  <div class="card-header"><span class="dot"></span>Component Registry</div>
-  <table class="table" id="comp-table">
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="select-all-rows" onchange="toggleSelectAll(this.checked)"></th>
-        <th>ID</th><th>Image</th><th>Name</th><th>Value</th><th>Package</th>
-        <th>Manufacturer</th><th>Tolerance</th><th>Type</th><th>Type Path</th><th>Archetype</th><th>Total Stock</th><th>Labels</th>
-      </tr>
-    </thead>
-    <tbody id="comp-table-body">
-      {% for comp, ctype, total_stock, kit_refs, archetype_summary in rows %}
-      <tr data-search="{{ comp.barcode_id }} {{ comp.name }} {{ comp.search_alias or '' }} {{ comp.value or '' }} {{ comp.package or '' }} {{ ctype.name if ctype else '' }} {{ comp.type_path or '' }} {{ archetype_summary or '' }} {{ comp.sticker_tag_no or '' }}"
-          data-is-generic="{{ 'true' if comp.is_generic else 'false' }}"
-          data-component-id="{{ comp.id }}"
-          data-barcode-id="{{ comp.barcode_id }}"
-          data-name="{{ comp.name|e }}">
-        <td><input type="checkbox" class="row-select" onchange="updateBatchSelection()"></td>
-        <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
-        <td>
-          {% if comp.image_path %}
-          <img src="{{ comp.image_path }}" style="height:28px;width:28px;object-fit:contain;">
-          {% else %}<span class="muted">—</span>{% endif %}
-        </td>
-        <td>
-          <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
-          {% if comp.short_title and comp.short_title != comp.name %}
-          <div class="comp-compact-title">{{ comp.short_title }}</div>
-          {% endif %}
-          {% if comp.is_generic %}
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:1px 5px;border-radius:2px;margin-left:4px;">GENERIC</span>
-          {% elif comp.parent_id %}
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--bg3);color:var(--text3);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid var(--border);">SPECIFIC</span>
-          {% endif %}
-          {% if kit_refs > 0 %}
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(74,158,255,0.15);color:var(--blue);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(74,158,255,0.25);">KIT ×{{ kit_refs }}</span>
-          {% endif %}
-          {% if comp.notes and '[UNREVIEWED]' in comp.notes %}
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(240,165,0,0.15);color:var(--amber);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(240,165,0,0.25);">UNREVIEWED</span>
-          {% endif %}
-          {% if comp.notes and '[CONFLICT]' in comp.notes %}
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:rgba(224,85,85,0.15);color:var(--red);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid rgba(224,85,85,0.25);">CONFLICT</span>
-          {% endif %}
-          {% if comp.sticker_tag_no %}
-          <span style="font-size:9px;letter-spacing:0.5px;background:var(--bg3);color:var(--text2);padding:1px 5px;border-radius:2px;margin-left:4px;border:1px solid var(--border);">TAG #{{ comp.sticker_tag_no }}</span>
-          {% endif %}
-        </td>
-        <td>{{ comp.value or '—' }}</td>
-        <td class="muted">{{ comp.package or '—' }}</td>
-        <td class="muted">{{ comp.mpn or '—' }}</td>
-        <td class="muted">{{ comp.tolerance or '—' }}</td>
-        <td class="muted">{{ ctype.name if ctype else '—' }}</td>
-        <td class="muted" style="font-size:11px;">{{ comp.type_path or '—' }}</td>
-        <td class="muted" style="font-size:10px;max-width:220px;">{{ archetype_summary or '—' }}</td>
-        <td style="color:{% if total_stock is not none and total_stock <= 10 %}var(--red){% elif total_stock %}var(--green){% else %}var(--text3){% endif %}">
-          {{ total_stock if total_stock is not none else '—' }}
-          {% if comp.is_generic %}<span class="muted" style="font-size:9px;"> all</span>{% endif %}
-        </td>
-        <td>
-          <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">EXT</a>
-          <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">INT</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function toggleBatchTools() {
+  const section = document.getElementById('batch-tools-section');
+  const btn = document.getElementById('batch-toggle-btn');
+  if (section.style.display === 'none') {
+    section.style.display = 'block';
+    btn.textContent = '▲ Hide Tools';
+  } else {
+    section.style.display = 'none';
+    btn.textContent = '▼ More Tools';
+  }
+}
+
 function getSelectedRows() {
   return Array.from(document.querySelectorAll('#comp-table tbody tr'))
     .filter(r => r.querySelector('.row-select')?.checked)
@@ -195,6 +199,8 @@ function updateBatchSelection() {
   const count = getSelectedIds().length
   const el = document.getElementById('batch-selection-count')
   if (el) el.textContent = `${count} selected`
+  const deleteBtn = document.getElementById('bulk-delete-btn')
+  if (deleteBtn) deleteBtn.disabled = count === 0
   syncSelectAllState()
 }
 

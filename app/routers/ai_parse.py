@@ -4,7 +4,8 @@ Smart model selection: Automatically picks best available model based on quota.
 Falls back to alternatives when primary model quota is exhausted.
 https://ai.google.dev/pricing
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 import os, json, logging, re
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from google import genai
 from google.genai import types
 from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
+from app.models.database import get_db
+from app.services.api_usage import track_api_call
 
 log = logging.getLogger("ai_parse")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -363,6 +366,7 @@ async def _gemini(
     retry_count: int = 0,
     collapse_list: bool = True,
     preferred_model: str | None = None,
+    db: AsyncSession | None = None,
 ):
     """Call Gemini API with smart model selection and fallback"""
     if not client:
@@ -383,13 +387,25 @@ async def _gemini(
     for attempt, model in enumerate(model_chain[retry_count:], start=retry_count):
         global _current_model
         _current_model = model
-
+        
+        start_time = datetime.utcnow()
         try:
             async with _gemini_semaphore:
                 loop = asyncio.get_running_loop()
                 result = await asyncio.wait_for(
                     loop.run_in_executor(_gemini_executor, _gemini_call_sync, prompt, schema, model),
                     timeout=GEMINI_TIMEOUT_SECONDS,
+                )
+
+            # Track successful call
+            if db:
+                response_time_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+                await track_api_call(
+                    db,
+                    api_name="gemini",
+                    endpoint=model,
+                    success=True,
+                    response_time_ms=response_time_ms,
                 )
 
             # Handle case where Gemini returns a list instead of object
@@ -402,6 +418,15 @@ async def _gemini(
             return result
 
         except asyncio.TimeoutError:
+            # Track timeout
+            if db:
+                await track_api_call(
+                    db,
+                    api_name="gemini",
+                    endpoint=model,
+                    success=False,
+                    error_message=f"Timeout after {GEMINI_TIMEOUT_SECONDS}s",
+                )
             log_failed_request("timeout", {
                 "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
                 "model": model,
@@ -410,6 +435,15 @@ async def _gemini(
             raise HTTPException(504, f"Gemini request timed out after {GEMINI_TIMEOUT_SECONDS:.0f}s")
         except Exception as e:
             error_msg = str(e)
+            # Track error
+            if db:
+                await track_api_call(
+                    db,
+                    api_name="gemini",
+                    endpoint=model,
+                    success=False,
+                    error_message=error_msg[:200],
+                )
             log_failed_request("sdk_error", {
                 "error": error_msg,
                 "type": type(e).__name__,
