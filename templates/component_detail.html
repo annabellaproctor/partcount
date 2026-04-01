@@ -271,7 +271,7 @@
             </div>
             <div>
               <label class="form-label" style="font-size:10px;">Quantity / Target</label>
-              <input id="stock-qty" type="number" min="0" step="1" value="1" class="form-control form-control-sm" style="width:120px;">
+              <input id="stock-qty" type="number" step="1" value="1" class="form-control form-control-sm" style="width:120px;">
             </div>
             <div style="flex:1;min-width:200px;">
               <label class="form-label" style="font-size:10px;">Note (optional)</label>
@@ -895,11 +895,6 @@ async function runStockAction(action) {
     status.textContent = 'Quantity must be > 0';
     return;
   }
-  if (action === 'calibrate' && qty < 0) {
-    status.textContent = 'Calibration target must be >= 0';
-    return;
-  }
-
   status.textContent = 'Saving...';
   const r = await fetch('/api/components/' + COMP_ID + '/inventory-action', {
     method: 'POST',

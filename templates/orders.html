@@ -1,87 +1,152 @@
 {% extends "base.html" %}
 {% block title %}Orders :: LAB::INV{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-  <div class="page-title" style="margin:0;">Orders</div>
-  <span style="color:var(--text3);font-size:11px;">{{ orders|length }} total</span>
-</div>
-
-<div class="card mb-4">
-  <div class="card-header"><span class="dot"></span>AI Order Parse (Noisy Website Copy/Paste)</div>
-  <div class="p-3">
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Rich Paste Area (keeps links/headings/format clues)</div>
-    <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:120px;overflow:auto;"></div>
-    <div style="font-size:10px;color:var(--text3);margin-top:5px;">Tip: paste directly from website or docs here. Plain text fallback is below.</div>
-    <textarea id="order-ai-text" class="form-control" rows="7" placeholder="Paste full webpage text from any site..."></textarea>
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-      <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
-      <span id="order-ai-status" class="muted" style="font-size:11px;"></span>
-    </div>
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+  <div>
+    <div class="page-title" style="margin:0;">Orders</div>
+    <div class="muted" style="font-size:11px;">Fast draft workflow + explicit status/receive controls. Keyboard: `/` search, `Alt+N` component row, `Alt+K` kit row, `Alt+S` create.</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <input id="orders-filter" class="form-control form-control-sm" placeholder="Search references, suppliers, status..." style="width:260px;">
+    <button class="btn btn-primary btn-sm" onclick="toggleOrderHelp()">Shortcuts</button>
   </div>
 </div>
 
-<div class="card mb-4">
-  <div class="card-header"><span class="dot"></span>New Order Draft</div>
-  <div class="p-3">
-    <div class="row g-2" style="margin-bottom:8px;">
-      <div class="col-md-4">
-        <label class="form-label">Supplier</label>
-        <select id="order-supplier" class="form-select">
-          <option value="">-- select --</option>
-          {% for s in suppliers %}
-          <option value="{{ s.id }}">{{ s.name }}</option>
-          {% endfor %}
-        </select>
+<div class="row g-3 mb-4">
+  <div class="col-xl-7">
+    <div class="card h-100">
+      <div class="card-header"><span class="dot"></span>New Order Draft</div>
+      <div class="p-3">
+        <div class="row g-2" style="margin-bottom:8px;">
+          <div class="col-md-4">
+            <label class="form-label">Supplier</label>
+            <select id="order-supplier" class="form-select">
+              <option value="">-- select --</option>
+              {% for s in suppliers %}
+              <option value="{{ s.id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Reference</label>
+            <input id="order-ref" class="form-control" placeholder="Order ID / invoice ref">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Total Cost</label>
+            <input id="order-total" class="form-control" type="number" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="addComponentOrderRow()" title="Alt+N">+ Component Row</button>
+          <button class="btn btn-primary btn-sm" onclick="addKitOrderRow()" title="Alt+K">+ Kit Row</button>
+          <span class="muted" style="font-size:10px;">Choose existing component or create on-the-fly.</span>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Component Line Items</div>
+          <div id="component-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Kit Line Items (expanded on save)</div>
+          <div id="kit-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
+          <button id="create-order-btn" class="btn btn-primary" onclick="createOrderFromDraft()" title="Alt+S">Create Order</button>
+          <span id="order-create-status" class="muted" style="font-size:11px;"></span>
+        </div>
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Reference</label>
-        <input id="order-ref" class="form-control" placeholder="Order ID / invoice ref">
+    </div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="card h-100">
+      <div class="card-header"><span class="dot"></span>AI Order Parse</div>
+      <div class="p-3">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Rich Paste Area</div>
+        <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:95px;overflow:auto;"></div>
+        <textarea id="order-ai-text" class="form-control" rows="6" placeholder="Paste full webpage text from any site..." style="margin-top:8px;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
+          <span id="order-ai-status" class="muted" style="font-size:11px;"></span>
+        </div>
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Total Cost</label>
-        <input id="order-total" class="form-control" type="number" step="0.01" placeholder="0.00">
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-top:10px;">
-      <button class="btn btn-primary btn-sm" onclick="addComponentOrderRow()">+ Component Row</button>
-      <button class="btn btn-primary btn-sm" onclick="addKitOrderRow()">+ Kit Row</button>
-    </div>
-
-    <div style="margin-top:10px;">
-      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Component Line Items</div>
-      <div id="component-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
-    </div>
-
-    <div style="margin-top:12px;">
-      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Kit Line Items (expanded into component order items on save)</div>
-      <div id="kit-order-lines" style="display:flex;flex-direction:column;gap:6px;"></div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
-      <button class="btn btn-primary" onclick="createOrderFromDraft()">Create Order</button>
-      <span id="order-create-status" class="muted" style="font-size:11px;"></span>
     </div>
   </div>
 </div>
 
 <div class="card mb-5">
   <div class="card-header"><span class="dot"></span>Existing Orders</div>
-  <table class="table">
-    <thead>
-      <tr><th>Reference</th><th>Status</th><th>Total</th><th>Created</th></tr>
-    </thead>
-    <tbody>
-      {% for o in orders %}
-      <tr>
-        <td>{{ o.reference or o.id }}</td>
-        <td class="muted">{{ o.status or 'pending' }}</td>
-        <td class="muted">{{ o.total_cost or '—' }}</td>
-        <td class="muted">{{ o.created_at.strftime('%Y-%m-%d') if o.created_at else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="p-2">
+    <table class="table" id="orders-table">
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Supplier</th>
+          <th>Status</th>
+          <th>Open Qty</th>
+          <th>Lines</th>
+          <th>Total</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in order_summaries %}
+        <tr data-order-id="{{ o.id }}" data-filter="{{ (o.reference or o.id)|lower }} {{ (o.supplier_name or '')|lower }} {{ (o.status or 'pending')|lower }}">
+          <td>{{ o.reference or o.id }}</td>
+          <td class="muted">{{ o.supplier_name or '—' }}</td>
+          <td>
+            <select class="form-select form-select-sm" style="min-width:110px;" onchange="setOrderStatus('{{ o.id }}', this.value)">
+              {% set st = o.status or 'pending' %}
+              <option value="pending" {% if st == 'pending' %}selected{% endif %}>pending</option>
+              <option value="ordered" {% if st == 'ordered' %}selected{% endif %}>ordered</option>
+              <option value="received" {% if st == 'received' %}selected{% endif %}>received</option>
+              <option value="cancelled" {% if st == 'cancelled' %}selected{% endif %}>cancelled</option>
+            </select>
+          </td>
+          <td class="muted">{{ o.open_qty }}</td>
+          <td class="muted">{{ o.line_count }}</td>
+          <td class="muted">{{ o.total_cost if o.total_cost is not none else '—' }}</td>
+          <td class="muted">{{ o.created_at.strftime('%Y-%m-%d') if o.created_at else '—' }}</td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-primary btn-xs" onclick="viewOrder('{{ o.id }}')">View</button>
+              {% if (o.status or 'pending') != 'received' %}
+              <button class="btn btn-primary btn-xs" onclick="receiveOrder('{{ o.id }}')">Receive</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div id="orders-status" class="muted" style="font-size:11px;padding:4px 8px;"></div>
+  </div>
+</div>
+
+<div id="order-help-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;padding:24px;">
+  <div class="card" style="max-width:520px;margin:0 auto;">
+    <div class="card-header"><span class="dot"></span>Orders Shortcuts</div>
+    <div class="p-3" style="font-size:12px;line-height:1.8;">
+      <div><strong>/</strong> Focus orders search</div>
+      <div><strong>Alt+N</strong> Add component row</div>
+      <div><strong>Alt+K</strong> Add kit row</div>
+      <div><strong>Alt+S</strong> Create order</div>
+      <div><strong>Esc</strong> Close this panel</div>
+      <div style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="toggleOrderHelp(false)">Close</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="order-view-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;padding:22px;overflow:auto;">
+  <div class="card" style="max-width:900px;margin:0 auto;">
+    <div class="card-header"><span class="dot"></span>Order Detail</div>
+    <div class="p-3" id="order-view-body" style="font-size:12px;"></div>
+    <div class="p-3" style="padding-top:0;"><button class="btn btn-primary btn-sm" onclick="closeOrderView()">Close</button></div>
+  </div>
 </div>
 {% endblock %}
 
@@ -101,6 +166,12 @@ function _componentOptions() {
   return html;
 }
 
+function _componentFilterOptions(query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return ORDER_COMPONENT_DATA.slice(0, 150);
+  return ORDER_COMPONENT_DATA.filter(c => `${c.barcode_id} ${c.name}`.toLowerCase().includes(q)).slice(0, 150);
+}
+
 function _kitOptions() {
   let html = '<option value="">-- kit --</option>';
   for (const k of ORDER_KIT_DATA) {
@@ -113,9 +184,10 @@ function addComponentOrderRow(prefill = {}) {
   const container = document.getElementById('component-order-lines');
   const row = document.createElement('div');
   row.style.display = 'grid';
-  row.style.gridTemplateColumns = '2.2fr 2fr 0.8fr 1fr auto';
+  row.style.gridTemplateColumns = '1.2fr 2fr 1.6fr 0.8fr 1fr auto';
   row.style.gap = '6px';
   row.innerHTML = `
+    <input type="text" class="form-control order-comp-search" placeholder="search component..." aria-label="Search component">
     <select class="form-select order-comp">${_componentOptions()}</select>
     <input type="text" class="form-control order-new-name" placeholder="new component name" style="display:none;">
     <input type="number" class="form-control order-qty" min="1" value="${prefill.quantity || 1}">
@@ -124,7 +196,26 @@ function addComponentOrderRow(prefill = {}) {
   `;
   container.appendChild(row);
   const sel = row.querySelector('.order-comp');
+  const search = row.querySelector('.order-comp-search');
   const newName = row.querySelector('.order-new-name');
+
+  const rebuildOptions = (q='') => {
+    const subset = _componentFilterOptions(q);
+    sel.innerHTML = '<option value="">-- component --</option>';
+    for (const c of subset) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.barcode_id} · ${c.name}`;
+      sel.appendChild(opt);
+    }
+    const addOpt = document.createElement('option');
+    addOpt.value = '__NEW__';
+    addOpt.textContent = '➕ Add new component...';
+    sel.appendChild(addOpt);
+  };
+
+  rebuildOptions(prefill.new_name || '');
+  search.addEventListener('input', () => rebuildOptions(search.value));
 
   sel.onchange = () => {
     newName.style.display = sel.value === '__NEW__' ? '' : 'none';
@@ -254,6 +345,7 @@ async function createOrderFromDraft() {
   }
 
   status.textContent = 'Creating order...';
+  document.getElementById('create-order-btn').disabled = true;
   const fd = new FormData();
   fd.append('supplier_id', supplierId);
   fd.append('reference', document.getElementById('order-ref').value || '');
@@ -261,6 +353,7 @@ async function createOrderFromDraft() {
   const createResp = await fetch('/api/suppliers/orders', { method: 'POST', body: fd });
   if (!createResp.ok) {
     status.textContent = 'Failed to create order';
+    document.getElementById('create-order-btn').disabled = false;
     return;
   }
 
@@ -350,6 +443,108 @@ async function createOrderFromDraft() {
   setTimeout(() => location.reload(), 400);
 }
 
+async function receiveOrder(orderId) {
+  const status = document.getElementById('orders-status');
+  status.textContent = 'Receiving order...';
+  const r = await fetch(`/api/suppliers/orders/${orderId}/receive`, {method:'POST'});
+  if (!r.ok) {
+    status.textContent = `Receive failed (${r.status})`;
+    return;
+  }
+  status.textContent = 'Order received';
+  setTimeout(() => location.reload(), 250);
+}
+
+async function setOrderStatus(orderId, newStatus) {
+  const status = document.getElementById('orders-status');
+  const fd = new FormData();
+  fd.append('status', newStatus);
+  const r = await fetch(`/api/suppliers/orders/${orderId}/status`, {method:'POST', body: fd});
+  if (!r.ok) {
+    status.textContent = `Status update failed (${r.status})`;
+    return;
+  }
+  status.textContent = `Status updated to ${newStatus}`;
+}
+
+async function viewOrder(orderId) {
+  const modal = document.getElementById('order-view-modal');
+  const body = document.getElementById('order-view-body');
+  modal.style.display = 'block';
+  body.innerHTML = '<div class="muted">Loading...</div>';
+  const r = await fetch(`/api/suppliers/orders/${orderId}`);
+  if (!r.ok) {
+    body.innerHTML = `<div class="muted">Failed to load order (${r.status})</div>`;
+    return;
+  }
+  const d = await r.json();
+  const items = d.items || [];
+  body.innerHTML = `
+    <div style="margin-bottom:8px;"><strong>${d.reference || d.id}</strong> · <span class="muted">${d.status}</span></div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px;">${items.length} line(s)</div>
+    <table class="table">
+      <thead><tr><th>Component</th><th>Ordered</th><th>Received</th><th>Price</th></tr></thead>
+      <tbody>
+        ${items.map(i => `<tr><td>${(i.barcode_id || '—')} · ${(i.component_name || 'Unknown')}</td><td>${i.quantity_ordered}</td><td>${i.quantity_received}</td><td>${i.unit_price ?? '—'}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function closeOrderView() {
+  document.getElementById('order-view-modal').style.display = 'none';
+}
+
+function toggleOrderHelp(forceState) {
+  const el = document.getElementById('order-help-modal');
+  if (typeof forceState === 'boolean') {
+    el.style.display = forceState ? 'block' : 'none';
+    return;
+  }
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function applyOrdersFilter() {
+  const q = (document.getElementById('orders-filter').value || '').toLowerCase().trim();
+  document.querySelectorAll('#orders-table tbody tr').forEach(tr => {
+    const hay = tr.getAttribute('data-filter') || '';
+    tr.style.display = !q || hay.includes(q) ? '' : 'none';
+  });
+}
+
 addComponentOrderRow();
+
+document.getElementById('orders-filter').addEventListener('input', applyOrdersFilter);
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    document.getElementById('orders-filter').focus();
+    return;
+  }
+  if (e.key === '?' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    toggleOrderHelp();
+    return;
+  }
+  if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+    e.preventDefault();
+    addComponentOrderRow();
+    return;
+  }
+  if (e.altKey && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    addKitOrderRow();
+    return;
+  }
+  if (e.altKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    createOrderFromDraft();
+    return;
+  }
+  if (e.key === 'Escape') {
+    closeOrderView();
+    toggleOrderHelp(false);
+  }
+});
 </script>
 {% endblock %}

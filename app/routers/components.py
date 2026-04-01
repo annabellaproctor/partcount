@@ -655,7 +655,7 @@ async def update_stock(
     fp = fp_result.scalar_one_or_none()
     if not fp:
         raise HTTPException(404, "Footprint not found")
-    fp.quantity = max(0, fp.quantity + delta)
+    fp.quantity = int(fp.quantity or 0) + int(delta)
     comp_result = await db.execute(select(Component).where(Component.barcode_id == barcode_id))
     comp = comp_result.scalar_one_or_none()
     write_stock_change(barcode_id, comp.name if comp else barcode_id, delta, fp.quantity, footprint_id)
@@ -677,7 +677,7 @@ class InventoryActionRequest(BaseModel):
 
 
 def _effective_quantity(fp: Footprint) -> int:
-    return max(0, int(fp.quantity or 0) + int(fp.sigma_adjustment or 0))
+    return int(fp.quantity or 0) + int(fp.sigma_adjustment or 0)
 
 
 @router.post("/{component_id}/stock")
@@ -689,7 +689,7 @@ async def update_stock_by_id(
     """
     Atomically increment or decrement stock for a component identified by UUID.
     If footprint_id is omitted, the first footprint for the component is used.
-    Quantity is clamped to >= 0.
+    Quantity updates allow negatives to support audit and correction workflows.
     """
     comp_result = await db.execute(select(Component).where(Component.id == component_id))
     comp = comp_result.scalar_one_or_none()
@@ -711,7 +711,7 @@ async def update_stock_by_id(
     if not fp:
         raise HTTPException(404, "No footprint found for this component")
 
-    fp.quantity = max(0, fp.quantity + req.delta)
+    fp.quantity = int(fp.quantity or 0) + int(req.delta)
     write_stock_change(comp.barcode_id, comp.name, req.delta, fp.quantity, fp.id)
     await manager.broadcast(
         "stock_change",
@@ -862,8 +862,6 @@ async def inventory_action(
     qty = int(req.quantity or 0)
     if action in {"take", "put", "restock", "order"} and qty <= 0:
         raise HTTPException(400, "quantity must be > 0 for this action")
-    if action == "calibrate" and qty < 0:
-        raise HTTPException(400, "calibration target must be >= 0")
 
     if req.footprint_id:
         fp = (await db.execute(
@@ -896,7 +894,7 @@ async def inventory_action(
     sigma_change = 0
 
     if action == "take":
-        fp.quantity = max(0, raw_before - qty)
+        fp.quantity = raw_before - qty
         quantity_change = int(fp.quantity or 0) - raw_before
     elif action in {"put", "restock"}:
         fp.quantity = raw_before + qty

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import asyncio, os, json
 
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, Supplier, InventoryEvent
+from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, PurchaseOrderItem, Supplier, InventoryEvent
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
 from app.schemas.type_hierarchy import get_fields_for_type, flatten_type_paths
@@ -80,6 +80,64 @@ async def get_icon(component_type: str):
     svg = get_icon(component_type)
     return Response(content=svg, media_type="image/svg+xml",
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/search-index")
+async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
+    take = max(20, min(limit, 1200))
+    comps = (await db.execute(select(Component).order_by(Component.updated_at.desc()).limit(take))).scalars().all()
+    kits_rows = (await db.execute(select(Kit).order_by(Kit.updated_at.desc()).limit(max(30, min(300, take // 2))))).scalars().all()
+    projects_rows = (await db.execute(select(Project).order_by(Project.updated_at.desc()).limit(120))).scalars().all()
+    boxes_rows = (await db.execute(select(Box).order_by(Box.slot_index, Box.label).limit(300))).scalars().all()
+
+    pages = [
+        {"label": "Dashboard", "route": "/", "kind": "page"},
+        {"label": "Components", "route": "/components", "kind": "page"},
+        {"label": "Registry", "route": "/registry", "kind": "page"},
+        {"label": "Kits", "route": "/kits", "kind": "page"},
+        {"label": "Orders", "route": "/orders", "kind": "page"},
+        {"label": "Boxes", "route": "/boxes", "kind": "page"},
+        {"label": "Projects", "route": "/projects", "kind": "page"},
+        {"label": "Labels", "route": "/labels/designer", "kind": "page"},
+        {"label": "Scan", "route": "/scan", "kind": "page"},
+        {"label": "Settings", "route": "/settings", "kind": "page"},
+    ]
+
+    items = pages + [
+        {
+            "label": f"{c.barcode_id} · {c.name}",
+            "route": f"/components/{c.barcode_id}",
+            "kind": "component",
+            "tokens": " ".join(filter(None, [c.barcode_id, c.name, c.value, c.package, c.search_alias]))
+        }
+        for c in comps
+    ] + [
+        {
+            "label": f"{k.barcode_id} · {k.name}",
+            "route": f"/kits/{k.id}",
+            "kind": "kit",
+            "tokens": " ".join(filter(None, [k.barcode_id, k.name, k.description]))
+        }
+        for k in kits_rows
+    ] + [
+        {
+            "label": p.name,
+            "route": f"/projects/{p.id}",
+            "kind": "project",
+            "tokens": " ".join(filter(None, [p.name, p.description]))
+        }
+        for p in projects_rows
+    ] + [
+        {
+            "label": f"{b.label} · {b.model or 'Box'}",
+            "route": "/boxes",
+            "kind": "box",
+            "tokens": " ".join(filter(None, [b.label, b.model, b.location]))
+        }
+        for b in boxes_rows
+    ]
+
+    return {"items": items}
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: AsyncSession = Depends(get_db)):
@@ -280,7 +338,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
     footprints = (await db.execute(select(Footprint).where(Footprint.component_id == comp.id))).scalars().all()
     for fp in footprints:
         fp.sigma_adjustment = int(fp.sigma_adjustment or 0)
-        fp.effective_quantity = max(0, int(fp.quantity or 0) + fp.sigma_adjustment)
+        fp.effective_quantity = int(fp.quantity or 0) + fp.sigma_adjustment
     bins = (await db.execute(
         select(BinAssignment, Box).join(Box, Box.id == BinAssignment.box_id)
         .where(BinAssignment.component_id == comp.id, BinAssignment.active == True)
@@ -381,6 +439,37 @@ async def orders_page(request: Request, db: AsyncSession = Depends(get_db)):
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
     suppliers_list = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
     orders = (await db.execute(select(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()))).scalars().all()
+    order_summary_rows = (await db.execute(
+        select(
+            PurchaseOrder.id,
+            PurchaseOrder.reference,
+            PurchaseOrder.status,
+            PurchaseOrder.created_at,
+            PurchaseOrder.order_date,
+            PurchaseOrder.total_cost,
+            Supplier.name.label("supplier_name"),
+            func.count(PurchaseOrderItem.id).label("line_count"),
+            func.coalesce(func.sum(PurchaseOrderItem.quantity_ordered - PurchaseOrderItem.quantity_received), 0).label("open_qty"),
+        )
+        .join(Supplier, Supplier.id == PurchaseOrder.supplier_id, isouter=True)
+        .join(PurchaseOrderItem, PurchaseOrderItem.order_id == PurchaseOrder.id, isouter=True)
+        .group_by(PurchaseOrder.id, Supplier.name)
+        .order_by(PurchaseOrder.created_at.desc())
+    )).all()
+    order_summaries = [
+        {
+            "id": r.id,
+            "reference": r.reference,
+            "status": r.status,
+            "created_at": r.created_at,
+            "order_date": r.order_date,
+            "total_cost": r.total_cost,
+            "supplier_name": r.supplier_name,
+            "line_count": int(r.line_count or 0),
+            "open_qty": int(r.open_qty or 0),
+        }
+        for r in order_summary_rows
+    ]
     components_list = (await db.execute(select(Component).order_by(Component.barcode_id))).scalars().all()
     kits_list = (await db.execute(select(Kit).order_by(Kit.barcode_id))).scalars().all()
     components_json = json.dumps([
@@ -396,6 +485,7 @@ async def orders_page(request: Request, db: AsyncSession = Depends(get_db)):
         "profile": profile,
         "suppliers": suppliers_list,
         "orders": orders,
+        "order_summaries": order_summaries,
         "components": components_list,
         "kits": kits_list,
         "components_json": components_json,
