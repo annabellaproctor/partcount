@@ -408,7 +408,7 @@ async def search(
             if merged_top is None:
                 try:
                     from app.routers.ai_parse import merge_results, MergeRequest
-                    merged_top = await merge_results(MergeRequest(results=top, query=query))
+                    merged_top = await merge_results(MergeRequest(results=top, query=query), db=db)
                     # Cache the merge result
                     if merged_top and db:
                         try:

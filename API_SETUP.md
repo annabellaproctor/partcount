@@ -142,6 +142,22 @@ If Gemini is unavailable, the assistant can use any OpenAI-compatible endpoint i
 
 **Rate limit**: Not tracked (high free tier limits)
 
+### Runtime Provider Manager (in-app)
+
+You can now edit AI providers live in **Settings → AI Providers Runtime** without restarting the app.
+
+Supported features:
+- Enable/disable providers mid-session
+- Edit provider base URL, API key, default model, and fallback models
+- Choose routing strategy: `priority`, `round_robin`, or `weighted_random`
+- Configure model per task (`assistant`, `parse`, `enrich`, `order`, `merge`, `classify`, `rename`)
+- Test provider routing directly from the Settings page
+
+Behavior:
+- Requests route to a selected provider using the configured strategy
+- If that provider fails, the system falls back to remaining enabled providers in order
+- Task-specific model mappings are used before provider default model
+
 ## Testing Your Setup
 
 After adding keys, test each source:

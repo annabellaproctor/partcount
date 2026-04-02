@@ -9,7 +9,7 @@ import asyncio, os, json
 from pathlib import Path
 
 from app.models.database import get_db
-from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, PurchaseOrderItem, Supplier, InventoryEvent
+from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, PurchaseOrderItem, Supplier, InventoryEvent, SystemSetting
 from app.routers import components, boxes, labels, projects, apikeys, suppliers, images, migrate, lookup, manufacturers, ai_parse, usage_stats, kits
 from app.services.ws_manager import manager
 from app.schemas.type_hierarchy import get_fields_for_type, flatten_type_paths
@@ -89,13 +89,34 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 @app.get("/api/sources")
-async def get_sources():
+async def get_sources(db: AsyncSession = Depends(get_db)):
     """Returns which supplier APIs are currently configured and available."""
     import os
+    ai_providers = []
+    try:
+        row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "ai_provider_config_v1"))).scalar_one_or_none()
+        if row and (row.value or "").strip():
+            cfg = json.loads(row.value)
+            ai_providers = [
+                {
+                    "id": p.get("id"),
+                    "type": p.get("type"),
+                    "enabled": bool(p.get("enabled")),
+                    "ready": bool(p.get("enabled")) and (
+                        (p.get("type") == "gemini" and bool((p.get("api_key") or "").strip()))
+                        or (p.get("type") in {"openai", "openai-compatible"} and bool((p.get("base_url") or "").strip()))
+                    ),
+                }
+                for p in (cfg.get("providers") or [])
+            ]
+    except Exception:
+        ai_providers = []
+
     return {
         "digikey": bool(os.getenv("DIGIKEY_CLIENT_ID")),
         "mouser":  bool(os.getenv("MOUSER_API_KEY")),
         "gemini":  bool(os.getenv("GEMINI_API_KEY")),
+        "ai_providers": ai_providers,
         "trustedparts": False,  # pending
     }
 

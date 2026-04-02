@@ -6,17 +6,19 @@ https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel, Field
 import os, json, logging, re, uuid
 from datetime import datetime, timedelta
 import asyncio
+import random
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import httpx
 from google import genai
 from google.genai import types
 from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
 from app.models.database import get_db
+from app.models.models import SystemSetting
 from app.services.ai_context import build_workspace_snapshot, extract_text_from_upload, get_ai_sources, upsert_ai_source, serialize_ai_source, AI_SOURCE_DIR
 from app.services.api_usage import track_api_call
 
@@ -31,6 +33,7 @@ AI_OPENAI_BASE_URL = os.getenv("AI_OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL"
 AI_OPENAI_API_KEY = os.getenv("AI_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
 AI_OPENAI_MODEL = os.getenv("AI_OPENAI_MODEL", "gpt-4o-mini").strip()
 AI_ASSISTANT_TIMEOUT_SECONDS = float(os.getenv("AI_ASSISTANT_TIMEOUT_SECONDS", "30"))
+AI_PROVIDER_CONFIG_KEY = "ai_provider_config_v1"
 
 # Initialize client
 client = None
@@ -49,6 +52,7 @@ _max_failed_logs = 50
 _current_model = None
 _last_model_check = None
 _model_check_interval = timedelta(minutes=30)
+_provider_rr_state: dict[str, int] = {}
 
 # Free tier models ranked by quota (RPD)
 FREE_TIER_MODELS = [
@@ -57,6 +61,205 @@ FREE_TIER_MODELS = [
     {"name": "gemini-3-flash", "rpd": 20, "rpm": 5, "tpm": 250000},
 ]
 GEMINI_RENAME_MODEL = os.getenv("GEMINI_RENAME_MODEL", "gemini-3-flash")
+
+AI_TASKS = ["assistant", "parse", "enrich", "order", "merge", "classify", "rename"]
+
+
+def _default_ai_provider_config() -> dict:
+    return {
+        "strategy": "priority",  # priority | round_robin | weighted_random
+        "task_model_preferences": {
+            "assistant": "",
+            "parse": "",
+            "enrich": "",
+            "order": "",
+            "merge": "",
+            "classify": "",
+            "rename": "",
+        },
+        "providers": [
+            {
+                "id": "gemini-default",
+                "type": "gemini",
+                "label": "Gemini",
+                "enabled": bool(GEMINI_KEY),
+                "priority": 10,
+                "weight": 1,
+                "api_key": GEMINI_KEY,
+                "base_url": "",
+                "default_model": FREE_TIER_MODELS[0]["name"],
+                "models": {
+                    "assistant": FREE_TIER_MODELS[0]["name"],
+                    "parse": FREE_TIER_MODELS[0]["name"],
+                    "enrich": FREE_TIER_MODELS[0]["name"],
+                    "order": FREE_TIER_MODELS[0]["name"],
+                    "merge": FREE_TIER_MODELS[0]["name"],
+                    "classify": FREE_TIER_MODELS[0]["name"],
+                    "rename": GEMINI_RENAME_MODEL,
+                },
+                "fallback_models": [m["name"] for m in FREE_TIER_MODELS[1:]],
+            },
+            {
+                "id": "openai-compatible-default",
+                "type": "openai-compatible",
+                "label": "OpenAI Compatible",
+                "enabled": bool(AI_OPENAI_BASE_URL),
+                "priority": 20,
+                "weight": 1,
+                "api_key": AI_OPENAI_API_KEY,
+                "base_url": AI_OPENAI_BASE_URL,
+                "default_model": AI_OPENAI_MODEL,
+                "models": {
+                    "assistant": AI_OPENAI_MODEL,
+                    "parse": AI_OPENAI_MODEL,
+                    "enrich": AI_OPENAI_MODEL,
+                    "order": AI_OPENAI_MODEL,
+                    "merge": AI_OPENAI_MODEL,
+                    "classify": AI_OPENAI_MODEL,
+                    "rename": AI_OPENAI_MODEL,
+                },
+                "fallback_models": [],
+            },
+        ],
+    }
+
+
+def _normalize_provider(raw: dict) -> dict:
+    p = raw if isinstance(raw, dict) else {}
+    provider_type = (p.get("type") or "openai-compatible").strip().lower()
+    models = p.get("models") if isinstance(p.get("models"), dict) else {}
+    norm_models = {task: (models.get(task) or "").strip() for task in AI_TASKS}
+    return {
+        "id": (p.get("id") or f"provider-{uuid.uuid4().hex[:8]}").strip(),
+        "type": provider_type,
+        "label": (p.get("label") or provider_type).strip(),
+        "enabled": bool(p.get("enabled", True)),
+        "priority": int(p.get("priority") or 100),
+        "weight": max(1, int(p.get("weight") or 1)),
+        "api_key": (p.get("api_key") or "").strip(),
+        "base_url": (p.get("base_url") or "").strip().rstrip("/"),
+        "default_model": (p.get("default_model") or "").strip(),
+        "models": norm_models,
+        "fallback_models": [str(m).strip() for m in (p.get("fallback_models") or []) if str(m).strip()],
+    }
+
+
+def _sanitize_provider_for_client(provider: dict) -> dict:
+    p = dict(provider)
+    key = p.get("api_key") or ""
+    p["api_key_masked"] = ("" if not key else ("*" * max(0, len(key) - 4)) + key[-4:])
+    p.pop("api_key", None)
+    return p
+
+
+def _normalize_ai_provider_config(raw: dict | None) -> dict:
+    base = _default_ai_provider_config()
+    data = raw if isinstance(raw, dict) else {}
+    strategy = str(data.get("strategy") or base["strategy"]).strip().lower()
+    if strategy not in {"priority", "round_robin", "weighted_random"}:
+        strategy = "priority"
+
+    prefs = data.get("task_model_preferences") if isinstance(data.get("task_model_preferences"), dict) else {}
+    task_prefs = {task: str(prefs.get(task) or "").strip() for task in AI_TASKS}
+
+    raw_providers = data.get("providers") if isinstance(data.get("providers"), list) else base["providers"]
+    providers = [_normalize_provider(p) for p in raw_providers]
+    if not providers:
+        providers = [_normalize_provider(p) for p in base["providers"]]
+
+    return {
+        "strategy": strategy,
+        "task_model_preferences": task_prefs,
+        "providers": providers,
+    }
+
+
+async def _get_ai_provider_config(db: AsyncSession | None) -> dict:
+    if not db:
+        return _normalize_ai_provider_config(None)
+    row = (await db.execute(select(SystemSetting).where(SystemSetting.key == AI_PROVIDER_CONFIG_KEY))).scalar_one_or_none()
+    if not row or not (row.value or "").strip():
+        cfg = _normalize_ai_provider_config(None)
+        db.add(SystemSetting(key=AI_PROVIDER_CONFIG_KEY, value=json.dumps(cfg, ensure_ascii=False)))
+        await db.flush()
+        return cfg
+    try:
+        loaded = json.loads(row.value)
+    except Exception:
+        loaded = None
+    cfg = _normalize_ai_provider_config(loaded)
+    if loaded != cfg:
+        row.value = json.dumps(cfg, ensure_ascii=False)
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+    return cfg
+
+
+async def _set_ai_provider_config(db: AsyncSession, cfg: dict) -> dict:
+    existing = await _get_ai_provider_config(db)
+    existing_keys = {
+        (p.get("id") or "").strip(): (p.get("api_key") or "")
+        for p in (existing.get("providers") or [])
+        if (p.get("id") or "").strip()
+    }
+
+    normalized = _normalize_ai_provider_config(cfg)
+    for p in normalized.get("providers") or []:
+        pid = (p.get("id") or "").strip()
+        if pid and not (p.get("api_key") or "").strip() and existing_keys.get(pid):
+            p["api_key"] = existing_keys[pid]
+
+    row = (await db.execute(select(SystemSetting).where(SystemSetting.key == AI_PROVIDER_CONFIG_KEY))).scalar_one_or_none()
+    payload = json.dumps(normalized, ensure_ascii=False)
+    if row:
+        row.value = payload
+        row.updated_at = datetime.utcnow()
+    else:
+        db.add(SystemSetting(key=AI_PROVIDER_CONFIG_KEY, value=payload))
+    await db.flush()
+    return normalized
+
+
+def _provider_is_ready(provider: dict) -> bool:
+    if not provider.get("enabled"):
+        return False
+    ptype = provider.get("type")
+    if ptype == "gemini":
+        return bool(provider.get("api_key"))
+    if ptype in {"openai", "openai-compatible"}:
+        return bool(provider.get("base_url"))
+    return False
+
+
+def _ordered_candidate_providers(cfg: dict, task: str) -> list[dict]:
+    candidates = [p for p in (cfg.get("providers") or []) if _provider_is_ready(p)]
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda p: (int(p.get("priority") or 100), p.get("id") or ""))
+    strategy = (cfg.get("strategy") or "priority").strip().lower()
+    if strategy == "priority" or len(candidates) == 1:
+        return candidates
+
+    if strategy == "round_robin":
+        key = f"{task}:{'|'.join(p.get('id') or '' for p in candidates)}"
+        idx = _provider_rr_state.get(key, 0) % len(candidates)
+        _provider_rr_state[key] = idx + 1
+        return candidates[idx:] + candidates[:idx]
+
+    if strategy == "weighted_random":
+        total = sum(max(1, int(p.get("weight") or 1)) for p in candidates)
+        draw = random.uniform(0, total)
+        upto = 0.0
+        chosen_idx = 0
+        for i, p in enumerate(candidates):
+            upto += max(1, int(p.get("weight") or 1))
+            if upto >= draw:
+                chosen_idx = i
+                break
+        return candidates[chosen_idx:] + candidates[:chosen_idx]
+
+    return candidates
 
 COMPONENT_EDITABLE_FIELDS = {
     "name", "value", "unit", "package", "voltage_rating", "tolerance", "notes",
@@ -223,8 +426,16 @@ def _strip_json_fences(text: str) -> str:
     return blob.strip()
 
 
-async def _call_openai_compatible(prompt: str, schema: dict, model: str | None = None) -> dict:
-    if not AI_OPENAI_BASE_URL:
+async def _call_openai_compatible(
+    prompt: str,
+    schema: dict,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout_seconds: float = AI_ASSISTANT_TIMEOUT_SECONDS,
+) -> dict:
+    if not base_url:
         raise HTTPException(503, "OpenAI-compatible AI provider is not configured")
 
     model_name = model or AI_OPENAI_MODEL
@@ -248,17 +459,17 @@ async def _call_openai_compatible(prompt: str, schema: dict, model: str | None =
         "response_format": {"type": "json_object"},
     }
     headers = {"Content-Type": "application/json"}
-    if AI_OPENAI_API_KEY:
-        headers["Authorization"] = f"Bearer {AI_OPENAI_API_KEY}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
-    async with httpx.AsyncClient(timeout=AI_ASSISTANT_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         try:
-            r = await client.post(f"{AI_OPENAI_BASE_URL}/chat/completions", json=payload, headers=headers)
+            r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
         except Exception:
             payload.pop("response_format", None)
-            r = await client.post(f"{AI_OPENAI_BASE_URL}/chat/completions", json=payload, headers=headers)
+            r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
 
@@ -269,28 +480,9 @@ async def _call_openai_compatible(prompt: str, schema: dict, model: str | None =
     return json.loads(content)
 
 
-async def _call_data_aware_ai(prompt: str, schema: dict, *, preferred_model: str | None = None, allow_openai: bool = True) -> dict:
-    if AI_PROVIDER == "gemini" or (AI_PROVIDER == "auto" and client):
-        return await _gemini(prompt, schema, preferred_model=preferred_model)
-
-    if allow_openai and (AI_PROVIDER in {"openai", "openai-compatible", "auto"}):
-        if AI_OPENAI_BASE_URL:
-            return await _call_openai_compatible(prompt, schema, model=preferred_model)
-
-    return {
-        "reply": "AI provider is not configured. Add GEMINI_API_KEY or AI_OPENAI_BASE_URL to enable model-backed responses.",
-        "confidence": 0.0,
-        "actions": [],
-        "queries": [],
-        "migration_sql": [],
-        "cleanup_steps": [],
-        "source": "local_fallback",
-    }
-
-
-def _gemini_call_sync(prompt: str, schema: dict, model: str):
+def _gemini_call_sync(prompt: str, schema: dict, model: str, api_key: str):
     """Blocking Gemini SDK call executed in dedicated worker threads."""
-    sdk_client = genai.Client(api_key=GEMINI_KEY)
+    sdk_client = genai.Client(api_key=api_key)
     response = sdk_client.models.generate_content(
         model=model,
         contents=prompt,
@@ -304,6 +496,102 @@ def _gemini_call_sync(prompt: str, schema: dict, model: str):
     if not raw_text:
         raise ValueError("Gemini returned empty response body")
     return json.loads(raw_text)
+
+
+def _task_model_for_provider(provider: dict, task: str, preferred_model: str | None, cfg: dict | None = None) -> str:
+    if preferred_model:
+        return preferred_model
+    cfg = cfg or {}
+    task_prefs = cfg.get("task_model_preferences") if isinstance(cfg.get("task_model_preferences"), dict) else {}
+    if task_prefs.get(task):
+        return str(task_prefs[task]).strip()
+    models = provider.get("models") if isinstance(provider.get("models"), dict) else {}
+    if models.get(task):
+        return str(models[task]).strip()
+    return str(provider.get("default_model") or "").strip()
+
+
+async def _call_provider(
+    provider: dict,
+    prompt: str,
+    schema: dict,
+    *,
+    task: str,
+    preferred_model: str | None,
+    cfg: dict | None,
+    collapse_list: bool,
+    db: AsyncSession | None,
+) -> dict:
+    provider_type = (provider.get("type") or "").strip().lower()
+    model = _task_model_for_provider(provider, task, preferred_model, cfg)
+    if provider_type == "gemini":
+        return await _gemini(
+            prompt,
+            schema,
+            preferred_model=model,
+            collapse_list=collapse_list,
+            db=db,
+            api_key=(provider.get("api_key") or "").strip(),
+            fallback_models=provider.get("fallback_models") or [],
+        )
+
+    if provider_type in {"openai", "openai-compatible"}:
+        return await _call_openai_compatible(
+            prompt,
+            schema,
+            base_url=(provider.get("base_url") or "").strip().rstrip("/"),
+            api_key=(provider.get("api_key") or "").strip(),
+            model=model,
+        )
+
+    raise HTTPException(400, f"Unsupported provider type: {provider_type}")
+
+
+async def _call_data_aware_ai(
+    prompt: str,
+    schema: dict,
+    *,
+    task: str,
+    preferred_model: str | None = None,
+    collapse_list: bool = True,
+    db: AsyncSession | None = None,
+) -> dict:
+    cfg = await _get_ai_provider_config(db)
+    candidates = _ordered_candidate_providers(cfg, task)
+    if not candidates:
+        return {
+            "reply": "No configured AI provider is active. Add at least one enabled provider in Settings > AI Providers.",
+            "confidence": 0.0,
+            "actions": [],
+            "queries": [],
+            "migration_sql": [],
+            "cleanup_steps": [],
+            "source": "local_fallback",
+        }
+
+    errors: list[str] = []
+    for provider in candidates:
+        provider_id = provider.get("id") or provider.get("label") or provider.get("type")
+        try:
+            result = await _call_provider(
+                provider,
+                prompt,
+                schema,
+                task=task,
+                preferred_model=preferred_model,
+                cfg=cfg,
+                collapse_list=collapse_list,
+                db=db,
+            )
+            if isinstance(result, dict):
+                result.setdefault("provider_id", provider_id)
+                result.setdefault("provider_type", provider.get("type"))
+            return result
+        except Exception as exc:
+            errors.append(f"{provider_id}: {str(exc)[:160]}")
+            continue
+
+    raise HTTPException(502, "All AI providers failed. " + " | ".join(errors[:4]))
 
 
 def _suggest_needed_details(mode: str, existing_data: dict | None) -> list[str]:
@@ -459,19 +747,23 @@ async def _gemini(
     collapse_list: bool = True,
     preferred_model: str | None = None,
     db: AsyncSession | None = None,
+    api_key: str | None = None,
+    fallback_models: list[str] | None = None,
 ):
     """Call Gemini API with smart model selection and fallback"""
-    if not client:
+    effective_key = (api_key or GEMINI_KEY or "").strip()
+    if not effective_key:
         raise HTTPException(
             503, 
             "Gemini AI is not configured. Add GEMINI_API_KEY to .env (free tier: no billing required)"
         )
-    
+
+    fallback = [m for m in (fallback_models or []) if isinstance(m, str) and m.strip()]
     model_chain = [m["name"] for m in FREE_TIER_MODELS]
-    if preferred_model and preferred_model not in model_chain:
-        model_chain = [preferred_model] + model_chain
-    elif preferred_model:
-        model_chain = [preferred_model] + [m for m in model_chain if m != preferred_model]
+    if fallback:
+        model_chain = list(dict.fromkeys(fallback + model_chain))
+    if preferred_model and preferred_model.strip():
+        model_chain = [preferred_model.strip()] + [m for m in model_chain if m != preferred_model.strip()]
     else:
         selected = select_best_model()
         model_chain = [selected] + [m for m in model_chain if m != selected]
@@ -485,7 +777,7 @@ async def _gemini(
             async with _gemini_semaphore:
                 loop = asyncio.get_running_loop()
                 result = await asyncio.wait_for(
-                    loop.run_in_executor(_gemini_executor, _gemini_call_sync, prompt, schema, model),
+                    loop.run_in_executor(_gemini_executor, _gemini_call_sync, prompt, schema, model, effective_key),
                     timeout=GEMINI_TIMEOUT_SECONDS,
                 )
 
@@ -630,7 +922,13 @@ class AssistantActionResponse(BaseModel):
     source_ids_used: list[str] = Field(default_factory=list)
 
 
-async def generate_component_title_with_rules(component_data: dict, rules: str, model: str | None = None) -> dict:
+class ProviderConfigUpdateRequest(BaseModel):
+    strategy: str = "priority"
+    task_model_preferences: dict = Field(default_factory=dict)
+    providers: list[dict] = Field(default_factory=list)
+
+
+async def generate_component_title_with_rules(component_data: dict, rules: str, model: str | None = None, db: AsyncSession | None = None) -> dict:
     if not rules or len(rules.strip()) < 4:
         raise HTTPException(400, "Rules text too short")
 
@@ -659,7 +957,7 @@ Constraints:
 """
 
     chosen_model = (model or "").strip() or GEMINI_RENAME_MODEL
-    result = await _gemini(prompt, schema, preferred_model=chosen_model)
+    result = await _call_data_aware_ai(prompt, schema, task="rename", preferred_model=chosen_model, db=db)
     title = (result.get("name") or "").strip()
     if not title:
         raise HTTPException(502, "AI rename returned empty title")
@@ -673,8 +971,8 @@ Constraints:
 
 
 @router.post("/rename-component-title")
-async def rename_component_title(req: RenameWithRulesRequest):
-    return await generate_component_title_with_rules(req.component_data or {}, req.rules, req.model)
+async def rename_component_title(req: RenameWithRulesRequest, db: AsyncSession = Depends(get_db)):
+    return await generate_component_title_with_rules(req.component_data or {}, req.rules, req.model, db=db)
 
 
 class OrderParseRequest(BaseModel):
@@ -916,7 +1214,7 @@ Workspace context and reference sources:
 Text:
 {req.text[:16000]}"""
 
-    result = await _gemini(prompt, COMPONENT_SCHEMA)
+    result = await _call_data_aware_ai(prompt, COMPONENT_SCHEMA, task="parse", db=db)
     type_path = result.get("type_path")
 
     # Keep backwards compatibility for existing UI that expects flat "type".
@@ -1040,7 +1338,7 @@ Strict output rules for patch_fields:
 Noisy text:
 {req.text[:16000]}"""
 
-    result = await _gemini(prompt, schema)
+    result = await _call_data_aware_ai(prompt, schema, task="enrich", db=db)
     result["patch_fields"] = result.get("patch_fields") or {}
     result["remove_fields"] = result.get("remove_fields") or []
     result["assumptions"] = [str(x).strip() for x in (result.get("assumptions") or []) if str(x).strip()]
@@ -1156,14 +1454,14 @@ Rich/HTML snippet:
 Text:
 {req.text[:18000]}"""
 
-    raw = await _gemini(prompt, schema, collapse_list=False)
+    raw = await _call_data_aware_ai(prompt, schema, task="order", collapse_list=False, db=db)
     result = _normalize_order_parse_result(raw)
     result["source"] = "gemini_order_parse"
     return result
 
 
 @router.post("/merge")
-async def merge_results(req: MergeRequest):
+async def merge_results(req: MergeRequest, db: AsyncSession = Depends(get_db)):
     """Merge multiple lookup results into best single record."""
     if not req.results:
         raise HTTPException(400, "No results to merge")
@@ -1183,13 +1481,13 @@ Set confidence 0.0-1.0. In 'reasoning', briefly explain key decisions made.
 Results to merge:
 {results_json}"""
 
-    result = await _gemini(prompt, MERGE_SCHEMA)
+    result = await _call_data_aware_ai(prompt, MERGE_SCHEMA, task="merge", db=db)
     result["source"] = "gemini_merged"
     return result
 
 
 @router.post("/classify")
-async def classify_component(req: ParseRequest):
+async def classify_component(req: ParseRequest, db: AsyncSession = Depends(get_db)):
     """Classify component and suggest barcode prefix."""
     CLASSIFY_SCHEMA = {
         "type": "object",
@@ -1207,13 +1505,63 @@ J=connector, K=relay, LED=led, M=module, S=sensor, Y=crystal, F=fuse, SW=switch.
 
 Component: {req.text[:500]}"""
 
-    return await _gemini(prompt, CLASSIFY_SCHEMA)
+    return await _call_data_aware_ai(prompt, CLASSIFY_SCHEMA, task="classify", db=db)
 
 
 @router.get("/sources")
 async def list_ai_sources(limit: int = 20, db: AsyncSession = Depends(get_db)):
     sources = await get_ai_sources(db, limit=max(1, min(limit, 50)))
     return {"sources": sources}
+
+
+@router.get("/provider-config")
+async def get_provider_config(db: AsyncSession = Depends(get_db)):
+    cfg = await _get_ai_provider_config(db)
+    return {
+        "strategy": cfg.get("strategy"),
+        "task_model_preferences": cfg.get("task_model_preferences") or {},
+        "providers": [_sanitize_provider_for_client(p) for p in (cfg.get("providers") or [])],
+    }
+
+
+@router.put("/provider-config")
+async def update_provider_config(req: ProviderConfigUpdateRequest, db: AsyncSession = Depends(get_db)):
+    normalized = await _set_ai_provider_config(db, req.model_dump())
+    return {
+        "ok": True,
+        "strategy": normalized.get("strategy"),
+        "task_model_preferences": normalized.get("task_model_preferences") or {},
+        "providers": [_sanitize_provider_for_client(p) for p in (normalized.get("providers") or [])],
+    }
+
+
+@router.post("/provider-test")
+async def provider_test(task: str = Form("assistant"), message: str = Form("ping"), db: AsyncSession = Depends(get_db)):
+    task_name = (task or "assistant").strip().lower()
+    if task_name not in set(AI_TASKS):
+        raise HTTPException(400, f"Unsupported task: {task_name}")
+    schema = {
+        "type": "object",
+        "properties": {
+            "reply": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["reply", "confidence"],
+    }
+    result = await _call_data_aware_ai(
+        f"Task={task_name}. Reply in one line to: {message[:200]}",
+        schema,
+        task=task_name,
+        db=db,
+    )
+    return {
+        "ok": True,
+        "task": task_name,
+        "provider_id": result.get("provider_id"),
+        "provider_type": result.get("provider_type"),
+        "reply": result.get("reply", ""),
+        "confidence": result.get("confidence", 0.0),
+    }
 
 
 @router.post("/references/text")
@@ -1343,7 +1691,7 @@ If the request is ambiguous, explain what current data you could verify and what
         "required": ["reply", "confidence", "actions", "queries", "cleanup_steps", "migration_sql", "source_ids_used"],
     }
 
-    result = await _call_data_aware_ai(prompt, schema, preferred_model=req.model)
+    result = await _call_data_aware_ai(prompt, schema, task="assistant", preferred_model=req.model, db=db)
     result.setdefault("source", "ai_assistant")
     result.setdefault("workspace", workspace)
     result.setdefault("source_ids_used", req.source_ids or [])

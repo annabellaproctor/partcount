@@ -81,6 +81,43 @@
     </div>
 
     <div class="card mt-3">
+      <div class="card-header"><span class="dot"></span>AI Providers Runtime</div>
+      <div class="p-3">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <label class="muted" style="font-size:10px;letter-spacing:1px;text-transform:uppercase;">Strategy</label>
+          <select id="ai-strategy" class="form-select" style="max-width:220px;" onchange="onAiStrategyChanged()">
+            <option value="priority">priority</option>
+            <option value="round_robin">round_robin</option>
+            <option value="weighted_random">weighted_random</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="addAiProvider()">Add Provider</button>
+          <button class="btn btn-primary btn-sm" onclick="refreshAiProviders()">Reload</button>
+          <button class="btn btn-primary btn-sm" onclick="saveAiProviders()">Save</button>
+        </div>
+
+        <div style="margin:10px 0 6px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Task → Model Preferences (optional global override)</div>
+        <div id="ai-task-models" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:10px;"></div>
+
+        <div id="ai-provider-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <select id="ai-test-task" class="form-select" style="max-width:180px;">
+            <option value="assistant">assistant</option>
+            <option value="parse">parse</option>
+            <option value="enrich">enrich</option>
+            <option value="order">order</option>
+            <option value="merge">merge</option>
+            <option value="classify">classify</option>
+            <option value="rename">rename</option>
+          </select>
+          <input id="ai-test-message" class="form-control" style="max-width:360px;" value="ping" placeholder="test message">
+          <button class="btn btn-primary btn-sm" onclick="testAiProviderConfig()">Test Route</button>
+          <span id="ai-provider-status" class="muted" style="font-size:11px;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
       <div class="card-header"><span class="dot"></span>Archetype Field Explorer</div>
       <div class="p-3">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -231,10 +268,213 @@ async function loadArchetypeFields() {
   }
 }
 
+const AI_TASKS = ['assistant', 'parse', 'enrich', 'order', 'merge', 'classify', 'rename'];
+let _aiProviderConfig = {strategy: 'priority', task_model_preferences: {}, providers: []};
+
+function aiProviderTemplate() {
+  return {
+    id: 'provider-' + Math.random().toString(36).slice(2, 8),
+    type: 'openai-compatible',
+    label: 'New Provider',
+    enabled: true,
+    priority: 50,
+    weight: 1,
+    base_url: '',
+    api_key: '',
+    default_model: '',
+    fallback_models: [],
+    models: {assistant: '', parse: '', enrich: '', order: '', merge: '', classify: '', rename: ''},
+  };
+}
+
+function renderAiTaskModelPrefs() {
+  const wrap = document.getElementById('ai-task-models');
+  if (!wrap) return;
+  const prefs = _aiProviderConfig.task_model_preferences || {};
+  wrap.innerHTML = AI_TASKS.map(task => `
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;">${task}</label>
+      <input class="form-control" style="font-size:11px;" value="${prefs[task] || ''}" onchange="setTaskModelPref('${task}', this.value)">
+    </div>
+  `).join('');
+}
+
+function setTaskModelPref(task, value) {
+  if (!_aiProviderConfig.task_model_preferences) _aiProviderConfig.task_model_preferences = {};
+  _aiProviderConfig.task_model_preferences[task] = value || '';
+}
+
+function renderAiProviders() {
+  const list = document.getElementById('ai-provider-list');
+  if (!list) return;
+  const providers = Array.isArray(_aiProviderConfig.providers) ? _aiProviderConfig.providers : [];
+  if (!providers.length) {
+    list.innerHTML = '<div class="muted" style="font-size:11px;">No providers configured yet.</div>';
+    return;
+  }
+  list.innerHTML = providers.map((p, idx) => {
+    const fallback = Array.isArray(p.fallback_models) ? p.fallback_models.join(', ') : '';
+    const taskRows = AI_TASKS.map(task => `
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:9px;color:var(--text3);text-transform:uppercase;">${task}</label>
+        <input class="form-control" style="font-size:10px;padding:4px 6px;" value="${(p.models || {})[task] || ''}" onchange="updateProviderTaskModel(${idx}, '${task}', this.value)">
+      </div>
+    `).join('');
+    return `
+      <div style="border:1px solid var(--border2);border-radius:4px;padding:10px;background:var(--bg3);">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <input class="form-control" style="max-width:160px;font-size:11px;" value="${p.id || ''}" onchange="updateProviderField(${idx}, 'id', this.value)">
+          <input class="form-control" style="max-width:180px;font-size:11px;" value="${p.label || ''}" onchange="updateProviderField(${idx}, 'label', this.value)">
+          <select class="form-select" style="max-width:170px;font-size:11px;" onchange="updateProviderField(${idx}, 'type', this.value)">
+            <option value="gemini" ${p.type === 'gemini' ? 'selected' : ''}>gemini</option>
+            <option value="openai-compatible" ${p.type === 'openai-compatible' || p.type === 'openai' ? 'selected' : ''}>openai-compatible</option>
+          </select>
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="updateProviderField(${idx}, 'enabled', this.checked)">enabled</label>
+          <button class="btn btn-danger btn-xs" onclick="removeAiProvider(${idx})">Remove</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:8px;">
+          <div><label style="font-size:10px;color:var(--text3);">priority</label><input type="number" class="form-control" value="${p.priority ?? 50}" onchange="updateProviderField(${idx}, 'priority', Number(this.value||50))"></div>
+          <div><label style="font-size:10px;color:var(--text3);">weight</label><input type="number" class="form-control" value="${p.weight ?? 1}" onchange="updateProviderField(${idx}, 'weight', Number(this.value||1))"></div>
+          <div><label style="font-size:10px;color:var(--text3);">default model</label><input class="form-control" value="${p.default_model || ''}" onchange="updateProviderField(${idx}, 'default_model', this.value)"></div>
+          <div><label style="font-size:10px;color:var(--text3);">fallback models (csv)</label><input class="form-control" value="${fallback}" onchange="updateProviderFallback(${idx}, this.value)"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:8px;">
+          <div><label style="font-size:10px;color:var(--text3);">base url</label><input class="form-control" value="${p.base_url || ''}" onchange="updateProviderField(${idx}, 'base_url', this.value)"></div>
+          <div><label style="font-size:10px;color:var(--text3);">api key</label><input class="form-control" value="${p.api_key || ''}" placeholder="${p.api_key_masked || ''}" onchange="updateProviderField(${idx}, 'api_key', this.value)"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Task model routing</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:6px;">${taskRows}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateProviderField(idx, field, value) {
+  if (!_aiProviderConfig.providers?.[idx]) return;
+  _aiProviderConfig.providers[idx][field] = value;
+}
+
+function updateProviderFallback(idx, csv) {
+  if (!_aiProviderConfig.providers?.[idx]) return;
+  _aiProviderConfig.providers[idx].fallback_models = (csv || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
+function updateProviderTaskModel(idx, task, value) {
+  if (!_aiProviderConfig.providers?.[idx]) return;
+  if (!_aiProviderConfig.providers[idx].models) _aiProviderConfig.providers[idx].models = {};
+  _aiProviderConfig.providers[idx].models[task] = value || '';
+}
+
+function onAiStrategyChanged() {
+  const sel = document.getElementById('ai-strategy');
+  if (sel) _aiProviderConfig.strategy = sel.value;
+}
+
+function addAiProvider() {
+  if (!_aiProviderConfig.providers) _aiProviderConfig.providers = [];
+  _aiProviderConfig.providers.push(aiProviderTemplate());
+  renderAiProviders();
+}
+
+function removeAiProvider(idx) {
+  _aiProviderConfig.providers.splice(idx, 1);
+  renderAiProviders();
+}
+
+async function refreshAiProviders() {
+  const status = document.getElementById('ai-provider-status');
+  if (status) status.textContent = 'Loading provider config...';
+  try {
+    const r = await fetch('/api/ai/provider-config');
+    if (!r.ok) throw new Error('failed');
+    const cfg = await r.json();
+    _aiProviderConfig = {
+      strategy: cfg.strategy || 'priority',
+      task_model_preferences: cfg.task_model_preferences || {},
+      providers: (cfg.providers || []).map(p => ({
+        ...aiProviderTemplate(),
+        ...p,
+        api_key: '',
+        models: {...aiProviderTemplate().models, ...(p.models || {})},
+      })),
+    };
+    const strategy = document.getElementById('ai-strategy');
+    if (strategy) strategy.value = _aiProviderConfig.strategy;
+    renderAiTaskModelPrefs();
+    renderAiProviders();
+    if (status) status.textContent = 'Provider config loaded';
+  } catch (_) {
+    if (status) status.textContent = 'Failed to load provider config';
+  }
+}
+
+async function saveAiProviders() {
+  const status = document.getElementById('ai-provider-status');
+  if (status) status.textContent = 'Saving...';
+  try {
+    const payload = {
+      strategy: _aiProviderConfig.strategy || 'priority',
+      task_model_preferences: _aiProviderConfig.task_model_preferences || {},
+      providers: (_aiProviderConfig.providers || []).map(p => ({
+        id: (p.id || '').trim(),
+        type: (p.type || 'openai-compatible').trim(),
+        label: (p.label || '').trim(),
+        enabled: !!p.enabled,
+        priority: Number(p.priority || 100),
+        weight: Number(p.weight || 1),
+        base_url: (p.base_url || '').trim(),
+        api_key: (p.api_key || '').trim(),
+        default_model: (p.default_model || '').trim(),
+        fallback_models: Array.isArray(p.fallback_models) ? p.fallback_models : [],
+        models: p.models || {},
+      })),
+    };
+    const r = await fetch('/api/ai/provider-config', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('failed');
+    const saved = await r.json();
+    _aiProviderConfig.strategy = saved.strategy || payload.strategy;
+    _aiProviderConfig.task_model_preferences = saved.task_model_preferences || payload.task_model_preferences;
+    _aiProviderConfig.providers = (saved.providers || []).map(p => ({
+      ...aiProviderTemplate(),
+      ...p,
+      api_key: '',
+      models: {...aiProviderTemplate().models, ...(p.models || {})},
+    }));
+    renderAiTaskModelPrefs();
+    renderAiProviders();
+    if (status) status.textContent = 'Saved';
+  } catch (_) {
+    if (status) status.textContent = 'Save failed';
+  }
+}
+
+async function testAiProviderConfig() {
+  const status = document.getElementById('ai-provider-status');
+  const task = document.getElementById('ai-test-task')?.value || 'assistant';
+  const message = document.getElementById('ai-test-message')?.value || 'ping';
+  if (status) status.textContent = 'Testing route...';
+  try {
+    const form = new FormData();
+    form.append('task', task);
+    form.append('message', message);
+    const r = await fetch('/api/ai/provider-test', {method: 'POST', body: form});
+    if (!r.ok) throw new Error('failed');
+    const data = await r.json();
+    if (status) status.textContent = `OK · ${data.provider_id || 'provider'} (${data.provider_type || ''})`;
+  } catch (_) {
+    if (status) status.textContent = 'Provider test failed';
+  }
+}
+
 // Load on page load
 document.addEventListener('DOMContentLoaded', () => {
   refreshUsage();
   loadArchetypeCatalog();
+  refreshAiProviders();
 });
 </script>
 {% endblock %}
