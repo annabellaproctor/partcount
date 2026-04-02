@@ -91,14 +91,21 @@
             <option value="weighted_random">weighted_random</option>
           </select>
           <button class="btn btn-primary btn-sm" onclick="addAiProvider()">Add Provider</button>
+          <button class="btn btn-primary btn-sm" onclick="applyOllamaGroqPreset()">Preset: Ollama + Groq</button>
           <button class="btn btn-primary btn-sm" onclick="refreshAiProviders()">Reload</button>
           <button class="btn btn-primary btn-sm" onclick="saveAiProviders()">Save</button>
+          <button class="btn btn-primary btn-sm" onclick="copyAiProviderJson()">Copy JSON</button>
+          <button class="btn btn-primary btn-sm" onclick="loadAiProviderJsonFromEditor()">Apply JSON</button>
         </div>
 
         <div style="margin:10px 0 6px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Task → Model Preferences (optional global override)</div>
         <div id="ai-task-models" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:10px;"></div>
 
         <div id="ai-provider-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+
+        <div style="margin:10px 0 6px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Provider Config JSON (collaborative)</div>
+        <textarea id="ai-provider-json" class="form-control" rows="12" spellcheck="false" style="font-family:var(--font);font-size:11px;"></textarea>
+        <div class="muted" style="font-size:10px;margin-top:5px;">API keys are masked on load. Leave blank to keep the existing stored key for that provider ID.</div>
 
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">
           <select id="ai-test-task" class="form-select" style="max-width:180px;">
@@ -271,6 +278,143 @@ async function loadArchetypeFields() {
 const AI_TASKS = ['assistant', 'parse', 'enrich', 'order', 'merge', 'classify', 'rename'];
 let _aiProviderConfig = {strategy: 'priority', task_model_preferences: {}, providers: []};
 
+function normalizedAiConfigForSave() {
+  return {
+    strategy: _aiProviderConfig.strategy || 'priority',
+    task_model_preferences: _aiProviderConfig.task_model_preferences || {},
+    providers: (_aiProviderConfig.providers || []).map(p => ({
+      id: (p.id || '').trim(),
+      type: (p.type || 'openai-compatible').trim(),
+      label: (p.label || '').trim(),
+      enabled: !!p.enabled,
+      priority: Number(p.priority || 100),
+      weight: Number(p.weight || 1),
+      base_url: (p.base_url || '').trim(),
+      api_key: (p.api_key || '').trim(),
+      default_model: (p.default_model || '').trim(),
+      fallback_models: Array.isArray(p.fallback_models) ? p.fallback_models : [],
+      models: p.models || {},
+    })),
+  };
+}
+
+function syncAiProviderJsonEditor() {
+  const el = document.getElementById('ai-provider-json');
+  if (!el) return;
+  el.value = JSON.stringify(normalizedAiConfigForSave(), null, 2);
+}
+
+function hydrateAiProviderConfig(cfg) {
+  _aiProviderConfig = {
+    strategy: cfg.strategy || 'priority',
+    task_model_preferences: cfg.task_model_preferences || {},
+    providers: (cfg.providers || []).map(p => ({
+      ...aiProviderTemplate(),
+      ...p,
+      api_key: p.api_key || '',
+      models: {...aiProviderTemplate().models, ...(p.models || {})},
+    })),
+  };
+}
+
+function loadAiProviderJsonFromEditor() {
+  const status = document.getElementById('ai-provider-status');
+  const el = document.getElementById('ai-provider-json');
+  if (!el) return;
+  try {
+    const parsed = JSON.parse(el.value || '{}');
+    hydrateAiProviderConfig(parsed);
+    const strategy = document.getElementById('ai-strategy');
+    if (strategy) strategy.value = _aiProviderConfig.strategy;
+    renderAiTaskModelPrefs();
+    renderAiProviders();
+    syncAiProviderJsonEditor();
+    if (status) status.textContent = 'Applied JSON to editor';
+  } catch (e) {
+    if (status) status.textContent = 'Invalid JSON';
+  }
+}
+
+async function copyAiProviderJson() {
+  const status = document.getElementById('ai-provider-status');
+  const el = document.getElementById('ai-provider-json');
+  if (!el) return;
+  syncAiProviderJsonEditor();
+  try {
+    await navigator.clipboard.writeText(el.value || '');
+    if (status) status.textContent = 'JSON copied';
+  } catch (_) {
+    if (status) status.textContent = 'Copy failed';
+  }
+}
+
+function applyOllamaGroqPreset() {
+  const status = document.getElementById('ai-provider-status');
+  const preset = {
+    strategy: 'priority',
+    task_model_preferences: {
+      assistant: 'llama-3.3-70b-versatile',
+      parse: 'llama-3.1-8b-instant',
+      enrich: 'llama-3.3-70b-versatile',
+      order: 'llama-3.1-8b-instant',
+      merge: 'llama-3.1-8b-instant',
+      classify: 'llama-3.1-8b-instant',
+      rename: 'llama-3.1-8b-instant',
+    },
+    providers: [
+      {
+        id: 'ollama-local',
+        type: 'openai-compatible',
+        label: 'Ollama Local',
+        enabled: true,
+        priority: 10,
+        weight: 1,
+        base_url: 'http://localhost:11434/v1',
+        api_key: '',
+        default_model: 'qwen2.5:14b-instruct',
+        fallback_models: ['llama3.1:8b-instruct'],
+        models: {
+          assistant: 'qwen2.5:14b-instruct',
+          parse: 'llama3.1:8b-instruct',
+          enrich: 'qwen2.5:14b-instruct',
+          order: 'llama3.1:8b-instruct',
+          merge: 'llama3.1:8b-instruct',
+          classify: 'llama3.1:8b-instruct',
+          rename: 'llama3.1:8b-instruct',
+        },
+      },
+      {
+        id: 'groq-cloud',
+        type: 'openai-compatible',
+        label: 'Groq Cloud',
+        enabled: true,
+        priority: 20,
+        weight: 1,
+        base_url: 'https://api.groq.com/openai/v1',
+        api_key: '',
+        default_model: 'llama-3.1-8b-instant',
+        fallback_models: ['qwen/qwen3-32b', 'moonshotai/kimi-k2-instruct'],
+        models: {
+          assistant: 'llama-3.3-70b-versatile',
+          parse: 'llama-3.1-8b-instant',
+          enrich: 'llama-3.3-70b-versatile',
+          order: 'llama-3.1-8b-instant',
+          merge: 'llama-3.1-8b-instant',
+          classify: 'llama-3.1-8b-instant',
+          rename: 'llama-3.1-8b-instant',
+        },
+      },
+    ],
+  };
+  hydrateAiProviderConfig(preset);
+  const strategy = document.getElementById('ai-strategy');
+  if (strategy) strategy.value = _aiProviderConfig.strategy;
+  renderAiTaskModelPrefs();
+  renderAiProviders();
+  syncAiProviderJsonEditor();
+  if (status) status.textContent = 'Applied Ollama + Groq preset (add API key and save).';
+}
+
 function aiProviderTemplate() {
   return {
     id: 'provider-' + Math.random().toString(36).slice(2, 8),
@@ -302,6 +446,7 @@ function renderAiTaskModelPrefs() {
 function setTaskModelPref(task, value) {
   if (!_aiProviderConfig.task_model_preferences) _aiProviderConfig.task_model_preferences = {};
   _aiProviderConfig.task_model_preferences[task] = value || '';
+  syncAiProviderJsonEditor();
 }
 
 function renderAiProviders() {
@@ -352,33 +497,39 @@ function renderAiProviders() {
 function updateProviderField(idx, field, value) {
   if (!_aiProviderConfig.providers?.[idx]) return;
   _aiProviderConfig.providers[idx][field] = value;
+  syncAiProviderJsonEditor();
 }
 
 function updateProviderFallback(idx, csv) {
   if (!_aiProviderConfig.providers?.[idx]) return;
   _aiProviderConfig.providers[idx].fallback_models = (csv || '').split(',').map(x => x.trim()).filter(Boolean);
+  syncAiProviderJsonEditor();
 }
 
 function updateProviderTaskModel(idx, task, value) {
   if (!_aiProviderConfig.providers?.[idx]) return;
   if (!_aiProviderConfig.providers[idx].models) _aiProviderConfig.providers[idx].models = {};
   _aiProviderConfig.providers[idx].models[task] = value || '';
+  syncAiProviderJsonEditor();
 }
 
 function onAiStrategyChanged() {
   const sel = document.getElementById('ai-strategy');
   if (sel) _aiProviderConfig.strategy = sel.value;
+  syncAiProviderJsonEditor();
 }
 
 function addAiProvider() {
   if (!_aiProviderConfig.providers) _aiProviderConfig.providers = [];
   _aiProviderConfig.providers.push(aiProviderTemplate());
   renderAiProviders();
+  syncAiProviderJsonEditor();
 }
 
 function removeAiProvider(idx) {
   _aiProviderConfig.providers.splice(idx, 1);
   renderAiProviders();
+  syncAiProviderJsonEditor();
 }
 
 async function refreshAiProviders() {
@@ -388,20 +539,19 @@ async function refreshAiProviders() {
     const r = await fetch('/api/ai/provider-config');
     if (!r.ok) throw new Error('failed');
     const cfg = await r.json();
-    _aiProviderConfig = {
+    hydrateAiProviderConfig({
       strategy: cfg.strategy || 'priority',
       task_model_preferences: cfg.task_model_preferences || {},
       providers: (cfg.providers || []).map(p => ({
-        ...aiProviderTemplate(),
         ...p,
         api_key: '',
-        models: {...aiProviderTemplate().models, ...(p.models || {})},
       })),
-    };
+    });
     const strategy = document.getElementById('ai-strategy');
     if (strategy) strategy.value = _aiProviderConfig.strategy;
     renderAiTaskModelPrefs();
     renderAiProviders();
+    syncAiProviderJsonEditor();
     if (status) status.textContent = 'Provider config loaded';
   } catch (_) {
     if (status) status.textContent = 'Failed to load provider config';
@@ -412,23 +562,7 @@ async function saveAiProviders() {
   const status = document.getElementById('ai-provider-status');
   if (status) status.textContent = 'Saving...';
   try {
-    const payload = {
-      strategy: _aiProviderConfig.strategy || 'priority',
-      task_model_preferences: _aiProviderConfig.task_model_preferences || {},
-      providers: (_aiProviderConfig.providers || []).map(p => ({
-        id: (p.id || '').trim(),
-        type: (p.type || 'openai-compatible').trim(),
-        label: (p.label || '').trim(),
-        enabled: !!p.enabled,
-        priority: Number(p.priority || 100),
-        weight: Number(p.weight || 1),
-        base_url: (p.base_url || '').trim(),
-        api_key: (p.api_key || '').trim(),
-        default_model: (p.default_model || '').trim(),
-        fallback_models: Array.isArray(p.fallback_models) ? p.fallback_models : [],
-        models: p.models || {},
-      })),
-    };
+    const payload = normalizedAiConfigForSave();
     const r = await fetch('/api/ai/provider-config', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
@@ -436,16 +570,14 @@ async function saveAiProviders() {
     });
     if (!r.ok) throw new Error('failed');
     const saved = await r.json();
-    _aiProviderConfig.strategy = saved.strategy || payload.strategy;
-    _aiProviderConfig.task_model_preferences = saved.task_model_preferences || payload.task_model_preferences;
-    _aiProviderConfig.providers = (saved.providers || []).map(p => ({
-      ...aiProviderTemplate(),
-      ...p,
-      api_key: '',
-      models: {...aiProviderTemplate().models, ...(p.models || {})},
-    }));
+    hydrateAiProviderConfig({
+      strategy: saved.strategy || payload.strategy,
+      task_model_preferences: saved.task_model_preferences || payload.task_model_preferences,
+      providers: (saved.providers || []).map(p => ({ ...p, api_key: '' })),
+    });
     renderAiTaskModelPrefs();
     renderAiProviders();
+    syncAiProviderJsonEditor();
     if (status) status.textContent = 'Saved';
   } catch (_) {
     if (status) status.textContent = 'Save failed';
