@@ -366,7 +366,7 @@ function showPendingBar() {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'pending-bar';
-    bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+    bar.style.cssText = 'position:fixed;bottom:calc(var(--footer-dock-h, 56px) + 18px);left:50%;transform:translateX(-50%);' +
       'background:var(--bg2);border:1px solid var(--amber);border-radius:3px;' +
       'padding:8px 16px;display:flex;gap:12px;align-items:center;z-index:300;font-size:12px;white-space:nowrap;';
     document.body.appendChild(bar);

@@ -29,6 +29,8 @@
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
     :root {
+      --topbar-h: 42px;
+      --footer-dock-h: 56px;
       --bg:       #0a0a0a;
       --bg2:      #111111;
       --bg3:      #181818;
@@ -81,7 +83,7 @@
       background: var(--bg2);
       border-bottom: 1px solid var(--border);
       padding: 0 16px;
-      height: 42px;
+      height: var(--topbar-h);
       display: flex;
       align-items: center;
       gap: 0;
@@ -164,17 +166,17 @@
     .workbench {
       display: flex;
       width: 100%;
-      min-height: calc(100vh - 42px);
+      min-height: calc(100vh - var(--topbar-h));
       align-items: stretch;
     }
     .main {
-      padding: 20px 20px 176px;
+      padding: 20px 20px calc(var(--footer-dock-h) + 28px);
       flex: 1;
       min-width: 0;
       transition: padding-right 0.14s ease;
     }
     body.assistant-open .main {
-      padding-right: 10px;
+      padding-right: 12px;
     }
 
     .kbd-pulse {
@@ -338,12 +340,11 @@
 
     /* ── event log ── */
     .eventlog-bar {
-      position: fixed;
-      bottom: 28px; left: 0; right: 0;
+      position: static;
       background: var(--bg2);
       border-top: 1px solid var(--border);
       padding: 6px 16px 8px;
-      z-index: 200;
+      z-index: auto;
     }
     .eventlog-label {
       font-size: 9px; color: var(--text3);
@@ -363,10 +364,6 @@
     .log-line.error  { color: var(--red); }
     .log-line.info   { color: var(--blue); }
     .copyright-bar {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
       height: 28px;
       background: #07160f;
       border-top: 1px solid #0f2e20;
@@ -374,9 +371,20 @@
       align-items: center;
       justify-content: space-between;
       padding: 0 12px;
-      z-index: 210;
+      position: static;
+      z-index: auto;
       font-size: 10px;
       color: var(--text3);
+    }
+    .footer-dock {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 205;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.18);
     }
     .copyright-foot {
       position: absolute;
@@ -389,9 +397,9 @@
 
     #ai-assistant-shell {
       position: sticky;
-      top: 42px;
+      top: var(--topbar-h);
       align-self: flex-start;
-      height: calc(100vh - 42px - 94px);
+      height: calc(100vh - var(--topbar-h) - var(--footer-dock-h));
       width: var(--assistant-width, 380px);
       min-width: 280px;
       max-width: 60vw;
@@ -543,11 +551,11 @@
       #shortcuts-bar { display: none !important; }
       #ai-assistant-shell {
         position: fixed;
-        top: 42px;
+        top: var(--topbar-h);
         right: 0;
         width: min(86vw, 420px);
         max-width: 86vw;
-        height: calc(100vh - 42px - 94px);
+        height: calc(100vh - var(--topbar-h) - var(--footer-dock-h));
         border-left: 1px solid var(--border2);
       }
       .ai-handle { width: 12px; }
@@ -645,14 +653,16 @@
 
 <div id="link-preview" style="display:none;position:fixed;z-index:1400;max-width:340px;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:8px;"></div>
 
-<div class="eventlog-bar">
-  <div class="eventlog-label">event log</div>
-  <div id="event-log"></div>
-</div>
+<div class="footer-dock">
+  <div class="eventlog-bar">
+    <div class="eventlog-label">event log</div>
+    <div id="event-log"></div>
+  </div>
 
-<div class="copyright-bar">
-  <span id="copyright-text"></span>
-  <button class="btn btn-primary btn-xs" onclick="openLicensesModal()">Open Source & Data Attributions</button>
+  <div class="copyright-bar">
+    <span id="copyright-text"></span>
+    <button class="btn btn-primary btn-xs" onclick="openLicensesModal()">Open Source & Data Attributions</button>
+  </div>
 </div>
 
 <div id="licenses-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.86);z-index:1300;padding:24px 16px;">
