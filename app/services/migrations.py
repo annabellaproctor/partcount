@@ -416,6 +416,33 @@ MIGRATIONS = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_ai_context_cache_scope ON ai_context_cache (scope)",
     ]),
+
+    (19, "external catalog item cache for partner-friendly ranked search", [
+        """CREATE TABLE IF NOT EXISTS external_catalog_items (
+            id VARCHAR PRIMARY KEY,
+            item_key VARCHAR NOT NULL UNIQUE,
+            source VARCHAR NOT NULL,
+            source_item_id VARCHAR,
+            mpn VARCHAR,
+            manufacturer VARCHAR,
+            name VARCHAR,
+            description TEXT,
+            package VARCHAR,
+            datasheet_url VARCHAR,
+            image_url VARCHAR,
+            product_url VARCHAR,
+            search_text TEXT,
+            payload_json TEXT,
+            retention_policy VARCHAR DEFAULT 'full',
+            importance_score FLOAT DEFAULT 0,
+            first_seen TIMESTAMP DEFAULT NOW(),
+            last_seen TIMESTAMP DEFAULT NOW(),
+            seen_count INTEGER DEFAULT 1
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_external_catalog_items_source ON external_catalog_items (source)",
+        "CREATE INDEX IF NOT EXISTS idx_external_catalog_items_last_seen ON external_catalog_items (last_seen DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_external_catalog_items_mpn ON external_catalog_items (mpn)",
+    ]),
 ]
 
 

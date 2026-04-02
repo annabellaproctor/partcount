@@ -53,6 +53,7 @@ _current_model = None
 _last_model_check = None
 _model_check_interval = timedelta(minutes=30)
 _provider_rr_state: dict[str, int] = {}
+_provider_health: dict[str, dict] = {}
 
 # Free tier models ranked by quota (RPD)
 FREE_TIER_MODELS = [
@@ -138,6 +139,7 @@ def _normalize_provider(raw: dict) -> dict:
         "weight": max(1, int(p.get("weight") or 1)),
         "api_key": (p.get("api_key") or "").strip(),
         "base_url": (p.get("base_url") or "").strip().rstrip("/"),
+        "alt_base_urls": [str(u).strip().rstrip("/") for u in (p.get("alt_base_urls") or []) if str(u).strip()],
         "default_model": (p.get("default_model") or "").strip(),
         "models": norm_models,
         "fallback_models": [str(m).strip() for m in (p.get("fallback_models") or []) if str(m).strip()],
@@ -231,10 +233,67 @@ def _provider_is_ready(provider: dict) -> bool:
     return False
 
 
+def _is_local_openai_endpoint(base_url: str) -> bool:
+    b = (base_url or "").lower()
+    return any(x in b for x in ["localhost", "127.0.0.1", "host.docker.internal", "172.17.0.1"]) or b.startswith("http://ollama")
+
+
+def _provider_health_entry(provider_id: str) -> dict:
+    return _provider_health.setdefault(provider_id, {"failures": 0, "cooldown_until": None, "last_error": "", "last_ok": None})
+
+
+def _provider_mark_success(provider: dict):
+    pid = (provider.get("id") or provider.get("label") or "provider").strip()
+    state = _provider_health_entry(pid)
+    state["failures"] = 0
+    state["cooldown_until"] = None
+    state["last_error"] = ""
+    state["last_ok"] = datetime.utcnow().isoformat()
+
+
+def _provider_mark_failure(provider: dict, error: Exception):
+    pid = (provider.get("id") or provider.get("label") or "provider").strip()
+    state = _provider_health_entry(pid)
+    state["failures"] = int(state.get("failures") or 0) + 1
+    message = str(error)[:220]
+    state["last_error"] = message
+
+    cooldown = 0
+    if isinstance(error, HTTPException) and error.status_code == 429:
+        cooldown = 45
+    elif isinstance(error, HTTPException) and error.status_code in {502, 503, 504}:
+        cooldown = 25
+    else:
+        cooldown = min(20 + (state["failures"] * 8), 90)
+
+    # Keep local providers available aggressively even if they fail once.
+    if provider.get("type") in {"openai", "openai-compatible"} and _is_local_openai_endpoint(provider.get("base_url") or ""):
+        cooldown = min(cooldown, 6)
+
+    state["cooldown_until"] = (datetime.utcnow() + timedelta(seconds=cooldown)).isoformat() if cooldown > 0 else None
+
+
+def _provider_is_in_cooldown(provider: dict) -> bool:
+    pid = (provider.get("id") or provider.get("label") or "provider").strip()
+    state = _provider_health.get(pid) or {}
+    cutoff = state.get("cooldown_until")
+    if not cutoff:
+        return False
+    try:
+        return datetime.fromisoformat(cutoff) > datetime.utcnow()
+    except Exception:
+        return False
+
+
 def _ordered_candidate_providers(cfg: dict, task: str) -> list[dict]:
     candidates = [p for p in (cfg.get("providers") or []) if _provider_is_ready(p)]
     if not candidates:
         return []
+
+    active = [p for p in candidates if not _provider_is_in_cooldown(p)]
+    cooling = [p for p in candidates if _provider_is_in_cooldown(p)]
+    # Prefer non-cooling providers; if all are cooling we still attempt them.
+    candidates = active + cooling if active else cooling
 
     candidates.sort(key=lambda p: (int(p.get("priority") or 100), p.get("id") or ""))
     strategy = (cfg.get("strategy") or "priority").strip().lower()
@@ -467,6 +526,13 @@ async def _call_openai_compatible(
             r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
+        except httpx.HTTPStatusError as exc:
+            retry_after = (exc.response.headers.get("retry-after") or "").strip() if exc.response is not None else ""
+            if exc.response is not None and exc.response.status_code == 429:
+                detail = f"OpenAI-compatible provider rate limited (429). retry-after={retry_after or 'n/a'}"
+                raise HTTPException(429, detail)
+            status = exc.response.status_code if exc.response is not None else 502
+            raise HTTPException(502 if status >= 500 else status, f"OpenAI-compatible provider error ({status})")
         except Exception:
             payload.pop("response_format", None)
             r = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
@@ -536,13 +602,32 @@ async def _call_provider(
         )
 
     if provider_type in {"openai", "openai-compatible"}:
-        return await _call_openai_compatible(
-            prompt,
-            schema,
-            base_url=(provider.get("base_url") or "").strip().rstrip("/"),
-            api_key=(provider.get("api_key") or "").strip(),
-            model=model,
+        base_urls = []
+        primary = (provider.get("base_url") or "").strip().rstrip("/")
+        if primary:
+            base_urls.append(primary)
+        base_urls.extend(
+            u for u in [str(x).strip().rstrip("/") for x in (provider.get("alt_base_urls") or []) if str(x).strip()] if u and u not in base_urls
         )
+        if not base_urls:
+            raise HTTPException(503, "OpenAI-compatible provider has no base URL configured")
+
+        last_exc: Exception | None = None
+        for url in base_urls:
+            try:
+                return await _call_openai_compatible(
+                    prompt,
+                    schema,
+                    base_url=url,
+                    api_key=(provider.get("api_key") or "").strip(),
+                    model=model,
+                )
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc:
+            raise last_exc
+        raise HTTPException(502, "OpenAI-compatible provider endpoints failed")
 
     raise HTTPException(400, f"Unsupported provider type: {provider_type}")
 
@@ -586,8 +671,10 @@ async def _call_data_aware_ai(
             if isinstance(result, dict):
                 result.setdefault("provider_id", provider_id)
                 result.setdefault("provider_type", provider.get("type"))
+            _provider_mark_success(provider)
             return result
         except Exception as exc:
+            _provider_mark_failure(provider, exc)
             errors.append(f"{provider_id}: {str(exc)[:160]}")
             continue
 

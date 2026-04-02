@@ -158,6 +158,16 @@ Behavior:
 - If that provider fails, the system falls back to remaining enabled providers in order
 - Task-specific model mappings are used before provider default model
 
+### Supplier Cache Safety (Mouser conservative mode)
+
+The lookup engine now stores **item-level cache entries** to reduce repeated partner API calls.
+
+For `mouser`, cache retention is intentionally strict until API agreement terms are explicitly reviewed:
+- Stored: source, source item id, MPN, manufacturer, short name, package, datasheet URL, relevance counters
+- Not stored: full payload blobs, long description text, product page URL, image URL
+
+If your Mouser contract explicitly permits broader persistence, this policy can be relaxed in `lookup_engine`.
+
 ## Testing Your Setup
 
 After adding keys, test each source:

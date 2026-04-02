@@ -14,6 +14,7 @@ from app.services.generic_icons import get_icon_data_url, infer_type
 log = logging.getLogger("lookup_engine")
 
 CACHE_TTL = timedelta(hours=24)
+ITEM_CACHE_TTL = timedelta(days=45)
 # Maximum characters of MPN/name used when building the Gemini merge cache key.
 _MERGE_KEY_MPN_CHARS = 40
 # Minimum Gemini confidence to inject the AI-merged result as the top result.
@@ -215,6 +216,211 @@ def _score(r: dict, query: str, preferred_manufacturers: set) -> float:
     return max(0.0, min(1.0, score))
 
 
+def _tokenize(text: str) -> list[str]:
+    return [t for t in re.findall(r"[a-z0-9]{2,}", (text or "").lower()) if t]
+
+
+def _catalog_policy(source: str, item: dict) -> dict:
+    """
+    Conservative storage policy:
+    - mouser: keep minimal index fields only (no full payload/description/image/product URL)
+    - others: keep richer fields to improve local search quality
+    """
+    src = (source or "").lower()
+    base = {
+        "source": src,
+        "source_item_id": (item.get("source_item_id") or item.get("mpn") or item.get("name") or "")[:120],
+        "mpn": (item.get("mpn") or "")[:120],
+        "manufacturer": (item.get("manufacturer") or "")[:160],
+        "name": (item.get("name") or "")[:300],
+        "package": (item.get("package") or "")[:120],
+        "datasheet_url": (item.get("datasheet_url") or "")[:500],
+        "importance_score": float(item.get("_score") or 0.0),
+    }
+
+    if src == "mouser":
+        # Restrictive mode until Mouser policy review is explicitly confirmed.
+        base.update({
+            "description": "",
+            "image_url": "",
+            "product_url": "",
+            "payload_json": "",
+            "retention_policy": "minimal",
+        })
+    else:
+        safe_payload = {
+            "mpn": item.get("mpn"),
+            "manufacturer": item.get("manufacturer"),
+            "name": item.get("name"),
+            "value": item.get("value"),
+            "unit": item.get("unit"),
+            "package": item.get("package"),
+            "datasheet_url": item.get("datasheet_url"),
+            "image_url": item.get("image_url"),
+            "source": item.get("source") or src,
+        }
+        base.update({
+            "description": (item.get("description") or "")[:2000],
+            "image_url": (item.get("image_url") or "")[:600],
+            "product_url": (item.get("url") or item.get("product_url") or "")[:600],
+            "payload_json": json.dumps(safe_payload, ensure_ascii=False),
+            "retention_policy": "full",
+        })
+    return base
+
+
+def _search_text_for_item(policy_item: dict) -> str:
+    parts = [
+        policy_item.get("source", ""),
+        policy_item.get("source_item_id", ""),
+        policy_item.get("mpn", ""),
+        policy_item.get("manufacturer", ""),
+        policy_item.get("name", ""),
+        policy_item.get("description", ""),
+        policy_item.get("package", ""),
+    ]
+    return " ".join(p for p in parts if p).strip()[:4000]
+
+
+async def _cache_catalog_items(db: Optional[AsyncSession], source: str, items: list[dict]):
+    if not db or not items:
+        return
+    now = datetime.utcnow()
+    for raw in items:
+        try:
+            item = _catalog_policy(source, raw)
+            key_parts = [item.get("source", ""), item.get("source_item_id", ""), item.get("mpn", ""), item.get("manufacturer", ""), item.get("name", "")]
+            item_key = hashlib.sha1("|".join(key_parts).encode("utf-8", "ignore")).hexdigest()
+            search_text = _search_text_for_item(item)
+            await db.execute(
+                text(
+                    "INSERT INTO external_catalog_items "
+                    "(id, item_key, source, source_item_id, mpn, manufacturer, name, description, package, datasheet_url, image_url, product_url, search_text, payload_json, retention_policy, importance_score, first_seen, last_seen, seen_count) "
+                    "VALUES (:id, :item_key, :source, :source_item_id, :mpn, :manufacturer, :name, :description, :package, :datasheet_url, :image_url, :product_url, :search_text, :payload_json, :retention_policy, :importance_score, :first_seen, :last_seen, 1) "
+                    "ON CONFLICT (item_key) DO UPDATE SET "
+                    "mpn = COALESCE(NULLIF(EXCLUDED.mpn, ''), external_catalog_items.mpn), "
+                    "manufacturer = COALESCE(NULLIF(EXCLUDED.manufacturer, ''), external_catalog_items.manufacturer), "
+                    "name = COALESCE(NULLIF(EXCLUDED.name, ''), external_catalog_items.name), "
+                    "description = CASE WHEN external_catalog_items.retention_policy = 'minimal' THEN external_catalog_items.description ELSE COALESCE(NULLIF(EXCLUDED.description, ''), external_catalog_items.description) END, "
+                    "package = COALESCE(NULLIF(EXCLUDED.package, ''), external_catalog_items.package), "
+                    "datasheet_url = COALESCE(NULLIF(EXCLUDED.datasheet_url, ''), external_catalog_items.datasheet_url), "
+                    "image_url = CASE WHEN external_catalog_items.retention_policy = 'minimal' THEN external_catalog_items.image_url ELSE COALESCE(NULLIF(EXCLUDED.image_url, ''), external_catalog_items.image_url) END, "
+                    "product_url = CASE WHEN external_catalog_items.retention_policy = 'minimal' THEN external_catalog_items.product_url ELSE COALESCE(NULLIF(EXCLUDED.product_url, ''), external_catalog_items.product_url) END, "
+                    "search_text = COALESCE(NULLIF(EXCLUDED.search_text, ''), external_catalog_items.search_text), "
+                    "payload_json = CASE WHEN external_catalog_items.retention_policy = 'minimal' THEN external_catalog_items.payload_json ELSE COALESCE(NULLIF(EXCLUDED.payload_json, ''), external_catalog_items.payload_json) END, "
+                    "importance_score = GREATEST(COALESCE(external_catalog_items.importance_score, 0), COALESCE(EXCLUDED.importance_score, 0)), "
+                    "retention_policy = CASE WHEN external_catalog_items.retention_policy = 'minimal' THEN 'minimal' ELSE EXCLUDED.retention_policy END, "
+                    "last_seen = EXCLUDED.last_seen, "
+                    "seen_count = external_catalog_items.seen_count + 1"
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "item_key": item_key,
+                    "source": item.get("source") or source,
+                    "source_item_id": item.get("source_item_id") or "",
+                    "mpn": item.get("mpn") or "",
+                    "manufacturer": item.get("manufacturer") or "",
+                    "name": item.get("name") or "",
+                    "description": item.get("description") or "",
+                    "package": item.get("package") or "",
+                    "datasheet_url": item.get("datasheet_url") or "",
+                    "image_url": item.get("image_url") or "",
+                    "product_url": item.get("product_url") or "",
+                    "search_text": search_text,
+                    "payload_json": item.get("payload_json") or "",
+                    "retention_policy": item.get("retention_policy") or "full",
+                    "importance_score": float(item.get("importance_score") or 0.0),
+                    "first_seen": now,
+                    "last_seen": now,
+                },
+            )
+        except Exception as exc:
+            log.debug(f"catalog cache upsert skipped: {exc}")
+
+
+def _cached_item_score(row: dict, query: str, preferred_mfrs: set) -> float:
+    q_tokens = set(_tokenize(query))
+    name_tokens = set(_tokenize(row.get("name") or ""))
+    text_tokens = set(_tokenize(row.get("search_text") or ""))
+    overlap = len(q_tokens.intersection(text_tokens))
+    if not q_tokens:
+        overlap_ratio = 0
+    else:
+        overlap_ratio = overlap / max(1, len(q_tokens))
+
+    score = 0.25 + overlap_ratio * 0.55
+    if (row.get("mpn") or "").lower() == query.lower().strip():
+        score += 0.2
+    if any(t in name_tokens for t in q_tokens):
+        score += 0.08
+    if (row.get("manufacturer") or "").lower() in preferred_mfrs:
+        score += 0.08
+    score += min(0.1, (row.get("seen_count") or 0) * 0.01)
+    age_hours = ((datetime.utcnow() - (row.get("last_seen") or datetime.utcnow())).total_seconds() / 3600.0)
+    score += max(-0.08, 0.08 - age_hours / (24 * 14))
+    score += min(0.08, float(row.get("importance_score") or 0.0) * 0.15)
+    return max(0.0, min(1.0, score))
+
+
+async def _search_cached_catalog(db: Optional[AsyncSession], query: str, limit: int, preferred_mfrs: set) -> list[dict]:
+    if not db or not query.strip():
+        return []
+    tokens = _tokenize(query)[:6]
+    if not tokens:
+        return []
+    params = {"ttl_cutoff": datetime.utcnow() - ITEM_CACHE_TTL}
+    clauses = []
+    for i, token in enumerate(tokens):
+        key = f"t{i}"
+        params[key] = f"%{token}%"
+        clauses.append(f"search_text ILIKE :{key}")
+
+    sql = (
+        "SELECT source, source_item_id, mpn, manufacturer, name, description, package, datasheet_url, image_url, product_url, search_text, retention_policy, importance_score, seen_count, last_seen "
+        "FROM external_catalog_items "
+        "WHERE last_seen >= :ttl_cutoff AND (" + " OR ".join(clauses) + ") "
+        "ORDER BY last_seen DESC, seen_count DESC "
+        "LIMIT :take"
+    )
+    params["take"] = max(limit * 6, 60)
+    rows = (await db.execute(text(sql), params)).mappings().all()
+    out = []
+    for row in rows:
+        d = dict(row)
+        candidate = {
+            "name": d.get("name") or d.get("mpn") or d.get("source_item_id") or "Unknown",
+            "manufacturer": d.get("manufacturer") or "",
+            "mpn": d.get("mpn") or "",
+            "package": d.get("package") or "",
+            "description": d.get("description") or "",
+            "datasheet_url": d.get("datasheet_url") or "",
+            "image_url": d.get("image_url") or "",
+            "url": d.get("product_url") or "",
+            "source": f"catalog_cache:{d.get('source') or 'unknown'}",
+            "retention_policy": d.get("retention_policy") or "full",
+            "_catalog_cached": True,
+        }
+        candidate["inferred_type"] = infer_type((candidate.get("name", "") + " " + candidate.get("description", "")))
+        candidate["generic_icon"] = get_icon_data_url(candidate["inferred_type"]) if not candidate.get("image_url") else ""
+        candidate["_score"] = _cached_item_score(d, query, preferred_mfrs)
+        candidate["high_confidence"] = candidate["_score"] >= 0.64 and bool(candidate.get("mpn") or candidate.get("datasheet_url"))
+        out.append(candidate)
+
+    out.sort(key=lambda x: x.get("_score", 0), reverse=True)
+    # de-dupe by mpn/name
+    seen = set()
+    uniq = []
+    for item in out:
+        key = (item.get("mpn") or "").strip().upper() or (item.get("name") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        uniq.append(item)
+        if len(uniq) >= limit:
+            break
+    return uniq
+
+
 async def _get_preferred_manufacturers(db: AsyncSession) -> set:
     """Returns set of manufacturer names from existing components."""
     try:
@@ -237,6 +443,7 @@ async def search(
     limit: int = 12,
 ) -> dict:
     cache_key_dk = f"digikey:{query.lower().strip()}"
+    cache_key_mo = f"mouser:{query.lower().strip()}"
     cache_key_lc = f"lcsc:{query.lower().strip()}"
     cache_key_auto = f"auto:{query.lower().strip()}"
 
@@ -256,8 +463,15 @@ async def search(
             pass
 
     # try cache for each source unless force
-    dk_results, lc_results = [], []
-    dk_cached, lc_cached = False, False
+    dk_results, mouser_results, lc_results = [], [], []
+    dk_cached, mouser_cached, lc_cached = False, False, False
+
+    cached_ranked_results = []
+    if not force and db:
+        try:
+            cached_ranked_results = await _search_cached_catalog(db, query, max(limit, 12), preferred_mfrs)
+        except Exception:
+            cached_ranked_results = []
 
     if not force and db and source in ("auto", "digikey"):
         try:
@@ -269,6 +483,19 @@ async def search(
             if row and row.fetched_at and (datetime.utcnow() - row.fetched_at) < CACHE_TTL:
                 dk_results = json.loads(row.result_json)
                 dk_cached = True
+        except Exception:
+            pass
+
+    if not force and db and source in ("auto", "mouser"):
+        try:
+            r = await db.execute(
+                text("SELECT result_json, fetched_at FROM component_lookups WHERE query = :q ORDER BY fetched_at DESC LIMIT 1"),
+                {"q": cache_key_mo}
+            )
+            row = r.fetchone()
+            if row and row.fetched_at and (datetime.utcnow() - row.fetched_at) < CACHE_TTL:
+                mouser_results = json.loads(row.result_json)
+                mouser_cached = True
         except Exception:
             pass
 
@@ -293,13 +520,16 @@ async def search(
         fetch_tasks.append(digikey.search(query, limit=10, db=db))
         fetch_labels.append("digikey")
 
-    if source in ("auto", "mouser"):
+    # Partner-protect mode: when local item cache is already strong, skip live source calls.
+    strong_cache = bool(cached_ranked_results and cached_ranked_results[0].get("_score", 0) >= 0.68 and len(cached_ranked_results) >= max(4, limit // 2))
+
+    if not strong_cache and source in ("auto", "mouser") and not mouser_cached:
         import os as _os
         if _os.getenv("MOUSER_API_KEY"):
             fetch_tasks.append(mouser.search(query, limit=10))
             fetch_labels.append("mouser")
 
-    if source in ("lcsc",):
+    if not strong_cache and source in ("lcsc",):
         # LCSC API offline — stub returns empty, kept for future
         fetch_tasks.append(lcsc.search(query, limit=10))
         fetch_labels.append("lcsc")
@@ -313,12 +543,17 @@ async def search(
             valid = [r for r in (res or []) if _is_valid_result(r)]
             if label == "digikey":
                 dk_results = valid
+            elif label == "mouser":
+                mouser_results = valid
             else:
                 lc_results = valid
 
+            if valid and db:
+                await _cache_catalog_items(db, label, valid)
+
             # cache valid results — upsert so repeated searches replace stale data
             if valid and db:
-                cache_key = cache_key_dk if label == "digikey" else cache_key_lc
+                cache_key = cache_key_dk if label == "digikey" else (cache_key_mo if label == "mouser" else cache_key_lc)
                 try:
                     await db.execute(
                         text(
@@ -342,7 +577,7 @@ async def search(
     # merge — deduplicate by MPN
     seen_mpns = set()
     merged = []
-    for r in dk_results + lc_results:
+    for r in cached_ranked_results + dk_results + mouser_results + lc_results:
         mpn = (r.get("mpn") or "").strip().upper()
         key = mpn or r.get("name", "")[:30]
         if key and key in seen_mpns:
@@ -366,7 +601,18 @@ async def search(
 
     # If we got results from both sources, use Gemini to merge the top result
     # for maximum data quality on the best match
-    final_source = "merged" if (dk_results and lc_results) else ("digikey" if dk_results else "lcsc")
+    if strong_cache and not (dk_results or mouser_results or lc_results):
+        final_source = "catalog_cache"
+    elif dk_results and lc_results:
+        final_source = "merged"
+    elif dk_results:
+        final_source = "digikey"
+    elif mouser_results:
+        final_source = "mouser"
+    elif lc_results:
+        final_source = "lcsc"
+    else:
+        final_source = "cache"
     
     if dk_results and lc_results and merged and os.getenv("GEMINI_API_KEY"):
         # Guard: skip merge if top results are clearly different components.
@@ -446,8 +692,10 @@ async def search(
     return {
         "results": merged[:limit],
         "source": final_source,
-        "cached": dk_cached or lc_cached,
+        "cached": dk_cached or mouser_cached or lc_cached or bool(cached_ranked_results),
+        "catalog_cached_count": len(cached_ranked_results),
         "dk_count": len(dk_results),
+        "mouser_count": len(mouser_results),
         "lc_count": len(lc_results),
         "generic_suggestion": await suggest_generic(query, db),
     }

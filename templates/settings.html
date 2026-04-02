@@ -290,6 +290,7 @@ function normalizedAiConfigForSave() {
       priority: Number(p.priority || 100),
       weight: Number(p.weight || 1),
       base_url: (p.base_url || '').trim(),
+      alt_base_urls: Array.isArray(p.alt_base_urls) ? p.alt_base_urls.map(u => String(u || '').trim()).filter(Boolean) : [],
       api_key: (p.api_key || '').trim(),
       default_model: (p.default_model || '').trim(),
       fallback_models: Array.isArray(p.fallback_models) ? p.fallback_models : [],
@@ -354,22 +355,45 @@ function applyOllamaGroqPreset() {
     strategy: 'priority',
     task_model_preferences: {
       assistant: 'llama-3.3-70b-versatile',
-      parse: 'llama-3.1-8b-instant',
+      parse: 'gemini-3.1-flash-lite-preview',
       enrich: 'llama-3.3-70b-versatile',
-      order: 'llama-3.1-8b-instant',
-      merge: 'llama-3.1-8b-instant',
-      classify: 'llama-3.1-8b-instant',
-      rename: 'llama-3.1-8b-instant',
+      order: 'gemini-3.1-flash-lite-preview',
+      merge: 'gemini-3.1-flash-lite-preview',
+      classify: 'gemini-3.1-flash-lite-preview',
+      rename: 'gemini-3.1-flash-lite-preview',
     },
     providers: [
+      {
+        id: 'gemini-free',
+        type: 'gemini',
+        label: 'Gemini Free',
+        enabled: true,
+        priority: 10,
+        weight: 2,
+        base_url: '',
+        alt_base_urls: [],
+        api_key: '',
+        default_model: 'gemini-3.1-flash-lite-preview',
+        fallback_models: ['gemini-2.5-flash-lite', 'gemini-3-flash'],
+        models: {
+          assistant: 'gemini-3.1-flash-lite-preview',
+          parse: 'gemini-3.1-flash-lite-preview',
+          enrich: 'gemini-3.1-flash-lite-preview',
+          order: 'gemini-3.1-flash-lite-preview',
+          merge: 'gemini-3.1-flash-lite-preview',
+          classify: 'gemini-3.1-flash-lite-preview',
+          rename: 'gemini-3.1-flash-lite-preview',
+        },
+      },
       {
         id: 'ollama-local',
         type: 'openai-compatible',
         label: 'Ollama Local',
         enabled: true,
-        priority: 10,
+        priority: 90,
         weight: 1,
-        base_url: 'http://localhost:11434/v1',
+        base_url: 'http://host.docker.internal:11434/v1',
+        alt_base_urls: ['http://localhost:11434/v1', 'http://172.17.0.1:11434/v1'],
         api_key: '',
         default_model: 'qwen2.5:14b-instruct',
         fallback_models: ['llama3.1:8b-instruct'],
@@ -391,6 +415,7 @@ function applyOllamaGroqPreset() {
         priority: 20,
         weight: 1,
         base_url: 'https://api.groq.com/openai/v1',
+        alt_base_urls: [],
         api_key: '',
         default_model: 'llama-3.1-8b-instant',
         fallback_models: ['qwen/qwen3-32b', 'moonshotai/kimi-k2-instruct'],
@@ -412,7 +437,7 @@ function applyOllamaGroqPreset() {
   renderAiTaskModelPrefs();
   renderAiProviders();
   syncAiProviderJsonEditor();
-  if (status) status.textContent = 'Applied Ollama + Groq preset (add API key and save).';
+  if (status) status.textContent = 'Applied Gemini + Groq + Ollama preset (add keys and save).';
 }
 
 function aiProviderTemplate() {
@@ -424,6 +449,7 @@ function aiProviderTemplate() {
     priority: 50,
     weight: 1,
     base_url: '',
+    alt_base_urls: [],
     api_key: '',
     default_model: '',
     fallback_models: [],
@@ -485,6 +511,7 @@ function renderAiProviders() {
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:8px;">
           <div><label style="font-size:10px;color:var(--text3);">base url</label><input class="form-control" value="${p.base_url || ''}" onchange="updateProviderField(${idx}, 'base_url', this.value)"></div>
+          <div><label style="font-size:10px;color:var(--text3);">alt base urls (csv)</label><input class="form-control" value="${Array.isArray(p.alt_base_urls) ? p.alt_base_urls.join(', ') : ''}" onchange="updateProviderAltUrls(${idx}, this.value)"></div>
           <div><label style="font-size:10px;color:var(--text3);">api key</label><input class="form-control" value="${p.api_key || ''}" placeholder="${p.api_key_masked || ''}" onchange="updateProviderField(${idx}, 'api_key', this.value)"></div>
         </div>
         <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Task model routing</div>
@@ -503,6 +530,12 @@ function updateProviderField(idx, field, value) {
 function updateProviderFallback(idx, csv) {
   if (!_aiProviderConfig.providers?.[idx]) return;
   _aiProviderConfig.providers[idx].fallback_models = (csv || '').split(',').map(x => x.trim()).filter(Boolean);
+  syncAiProviderJsonEditor();
+}
+
+function updateProviderAltUrls(idx, csv) {
+  if (!_aiProviderConfig.providers?.[idx]) return;
+  _aiProviderConfig.providers[idx].alt_base_urls = (csv || '').split(',').map(x => x.trim()).filter(Boolean);
   syncAiProviderJsonEditor();
 }
 
