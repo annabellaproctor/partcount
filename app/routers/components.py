@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/components", tags=["components"])
 
 CSV_FIELDS = [
     "barcode_id", "name", "short_title", "short_title_manual",
-    "value", "unit", "package", "tolerance", "voltage_rating",
+    "value", "unit", "package", "tolerance", "voltage_rating", "current_rating", "power_rating",
     "mpn", "digikey_pn", "lcsc_pn", "datasheet_url", "description", "notes",
     "type_path", "type_data", "sticker_tag_no", "search_alias",
 ]
@@ -242,6 +242,8 @@ async def list_components(db: AsyncSession = Depends(get_db), q: str = None, gen
             "value": c.value or "",
             "unit": c.unit or "",
             "package": c.package or "",
+            "current_rating": c.current_rating,
+            "power_rating": c.power_rating,
             "image_path": c.image_path or "",
             "image_query": c.image_query or "",
             "sticker_tag_no": c.sticker_tag_no,
@@ -278,6 +280,8 @@ async def export_all_components(
             "package": c.package or "",
             "tolerance": c.tolerance or "",
             "voltage_rating": "" if c.voltage_rating is None else f"{c.voltage_rating:g}",
+            "current_rating": "" if c.current_rating is None else f"{c.current_rating:g}",
+            "power_rating": "" if c.power_rating is None else f"{c.power_rating:g}",
             "mpn": c.mpn or "",
             "digikey_pn": c.digikey_pn or "",
             "lcsc_pn": c.lcsc_pn or "",
@@ -332,6 +336,8 @@ async def import_components_new(
                 package=(payload.get("package") or None),
                 tolerance=(payload.get("tolerance") or None),
                 voltage_rating=(float(payload["voltage_rating"]) if payload.get("voltage_rating") else None),
+                current_rating=(float(payload["current_rating"]) if payload.get("current_rating") else None),
+                power_rating=(float(payload["power_rating"]) if payload.get("power_rating") else None),
                 mpn=(payload.get("mpn") or None),
                 digikey_pn=(payload.get("digikey_pn") or None),
                 lcsc_pn=(payload.get("lcsc_pn") or None),
@@ -396,6 +402,14 @@ async def import_components_modifications(
                     continue
                 if f == "voltage_rating":
                     comp.voltage_rating = float(val) if val else None
+                    changed = True
+                    continue
+                if f == "current_rating":
+                    comp.current_rating = float(val) if val else None
+                    changed = True
+                    continue
+                if f == "power_rating":
+                    comp.power_rating = float(val) if val else None
                     changed = True
                     continue
                 if f == "sticker_tag_no":
@@ -472,6 +486,8 @@ async def create_component(
     unit: str = Form(None),
     package: str = Form(None),
     voltage_rating: float = Form(None),
+    current_rating: float = Form(None),
+    power_rating: float = Form(None),
     tolerance: str = Form(None),
     type_id: str = Form(None),
     type_path: str = Form(None),
@@ -578,6 +594,8 @@ async def create_component(
         unit=unit,
         package=package,
         voltage_rating=voltage_rating,
+        current_rating=current_rating,
+        power_rating=power_rating,
         tolerance=tolerance,
         type_id=type_id,
         notes=notes,
@@ -1025,6 +1043,8 @@ class ComponentPatchRequest(BaseModel):
     unit: Optional[str] = None
     package: Optional[str] = None
     voltage_rating: Optional[float] = None
+    current_rating: Optional[float] = None
+    power_rating: Optional[float] = None
     tolerance: Optional[str] = None
     notes: Optional[str] = None
     datasheet_url: Optional[str] = None
@@ -1074,7 +1094,8 @@ class BulkAutoRenameRequest(BaseModel):
 class BulkAIModifyRequest(BaseModel):
     component_ids: list[str]
     text: str
-    action: str = "repair"
+    action: str = "smart"
+    page_context: Optional[dict] = None
 
 
 class BulkAIRenameRequest(BaseModel):
@@ -1154,8 +1175,11 @@ async def patch_component(
         mfr = (await db.execute(
             select(Manufacturer).where(Manufacturer.name.ilike(f"%{manufacturer_name}%")).limit(1)
         )).scalar_one_or_none()
-        if mfr:
-            comp.manufacturer_id = mfr.id
+        if not mfr:
+            mfr = Manufacturer(name=manufacturer_name.strip())
+            db.add(mfr)
+            await db.flush()
+        comp.manufacturer_id = mfr.id
 
     short_title_value = payload.pop("short_title", None) if "short_title" in payload else None
     short_title_manual_flag = payload.pop("short_title_manual", None) if "short_title_manual" in payload else None
@@ -1272,7 +1296,7 @@ async def bulk_merge_components(req: BulkMergeRequest, db: AsyncSession = Depend
             continue
 
         # Fill empty target fields from source.
-        for field in ["value", "unit", "package", "voltage_rating", "tolerance", "notes", "datasheet_url", "mpn", "digikey_pn", "lcsc_pn", "description", "type_path"]:
+        for field in ["value", "unit", "package", "voltage_rating", "current_rating", "power_rating", "tolerance", "notes", "datasheet_url", "mpn", "digikey_pn", "lcsc_pn", "description", "type_path"]:
             if getattr(target, field) in (None, "") and getattr(source, field) not in (None, ""):
                 setattr(target, field, getattr(source, field))
 
@@ -1388,6 +1412,8 @@ async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession =
             "unit": comp.unit,
             "package": comp.package,
             "voltage_rating": comp.voltage_rating,
+            "current_rating": comp.current_rating,
+            "power_rating": comp.power_rating,
             "tolerance": comp.tolerance,
             "description": comp.description,
             "notes": comp.notes,
@@ -1397,6 +1423,7 @@ async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession =
             "datasheet_url": comp.datasheet_url,
             "type_path": comp.type_path,
             "type_data": comp.type_data if isinstance(comp.type_data, dict) else {},
+            "page_context": req.page_context or {},
         }
 
         try:
@@ -1405,6 +1432,7 @@ async def bulk_ai_modify_components(req: BulkAIModifyRequest, db: AsyncSession =
                 action=req.action,
                 text=req.text,
                 existing_data=existing,
+                page_context=req.page_context or {},
             ))
             patch_fields = ai.get("patch_fields") or {}
             clear_fields = ai.get("remove_fields") or []
@@ -1507,7 +1535,7 @@ async def bulk_template_rename_components(req: BulkTemplateRenameRequest, db: As
 async def bulk_copy_fields(req: BulkCopyFieldsRequest, db: AsyncSession = Depends(get_db)):
     allowed_fields = {
         "image_path", "image_query", "sticker_tag_no", "datasheet_url", "package", "type_path", "type_data", "mpn",
-        "description", "notes", "value", "unit", "tolerance", "voltage_rating",
+        "description", "notes", "value", "unit", "tolerance", "voltage_rating", "current_rating", "power_rating",
         "digikey_pn", "lcsc_pn",
     }
     fields = [f for f in req.fields if f in allowed_fields]

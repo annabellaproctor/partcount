@@ -110,6 +110,8 @@ class Component(Base):
     unit = Column(String)
     package = Column(String)
     voltage_rating = Column(Float)
+    current_rating = Column(Float)
+    power_rating = Column(Float)
     tolerance = Column(String)
     notes = Column(Text)
     image_path = Column(String)

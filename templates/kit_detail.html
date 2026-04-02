@@ -17,13 +17,11 @@
 </div>
 
 <div class="card mb-4">
-  <div class="card-header"><span class="dot"></span>AI Kit Repair</div>
+  <div class="card-header"><span class="dot"></span>AI Kit Smart Modify</div>
   <div class="p-3">
     <textarea id="kit-ai-text" class="form-control" rows="6" placeholder="Paste noisy webpage/cart text to repair kit details or suggest kit components..."></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-      <button class="btn btn-primary btn-sm" onclick="analyzeKitText('repair')">AI Repair</button>
-      <button class="btn btn-primary btn-sm" onclick="analyzeKitText('add')">AI Add Missing</button>
-      <button class="btn btn-danger btn-sm" onclick="analyzeKitText('remove')">AI Suggest Remove</button>
+      <button class="btn btn-primary btn-sm" onclick="analyzeKitText()">Analyze + Suggest</button>
       <span id="kit-ai-status" class="muted" style="font-size:11px;"></span>
     </div>
     <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
@@ -68,7 +66,7 @@
 <script>
 let _kitAiData = null;
 
-async function analyzeKitText(action) {
+async function analyzeKitText() {
   const text = document.getElementById('kit-ai-text').value.trim();
   const status = document.getElementById('kit-ai-status');
   if (!text) {
@@ -82,6 +80,7 @@ async function analyzeKitText(action) {
     barcode_id: "{{ kit.barcode_id|e }}",
     description: "{{ (kit.description or '')|e }}",
     notes: "{{ (kit.notes or '')|e }}",
+    components: {{ (kit_components_context or []) | tojson }},
   };
 
   const r = await fetch('/api/ai/enrich-record', {
@@ -89,9 +88,15 @@ async function analyzeKitText(action) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       mode: 'kit',
-      action,
+      action: 'smart',
       text,
       existing_data: existing,
+      page_context: {
+        page: 'kit_detail',
+        route: location.pathname,
+        kit_id: "{{ kit.id }}",
+        kit_barcode: "{{ kit.barcode_id }}",
+      },
     }),
   });
 
@@ -158,6 +163,10 @@ async function applyKitAiPatch() {
       quantity: c.quantity || 1,
       value: c.value || null,
       unit: c.unit || null,
+      package: c.package || null,
+      mpn: c.mpn || null,
+      manufacturer_name: c.manufacturer_name || null,
+      stock_quantity: c.stock_quantity || 0,
       notes: c.notes || null,
     })).filter(c => c.name);
   }

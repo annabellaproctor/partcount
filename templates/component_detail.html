@@ -126,14 +126,27 @@
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header"><span class="dot"></span>Component Info</div>
         <div class="p-3">
-          <table style="width:100%;font-size:11px;border-collapse:collapse;">
-            <tr><td class="muted" style="padding:4px 0;">Barcode</td><td style="padding:4px 0;">{{ comp.barcode_id }}</td></tr>
-            <tr><td class="muted" style="padding:4px 0;">Type</td><td style="padding:4px 0;">{{ ctype.name if ctype else '—' }}</td></tr>
-            <tr><td class="muted" style="padding:4px 0;">Package</td><td style="padding:4px 0;">{{ comp.package or '—' }}</td></tr>
-            <tr><td class="muted" style="padding:4px 0;">MPN</td><td style="padding:4px 0;">{{ comp.mpn or '—' }}</td></tr>
-            <tr><td class="muted" style="padding:4px 0;">DigiKey</td><td style="padding:4px 0;">{{ comp.digikey_pn or '—' }}</td></tr>
-            <tr><td class="muted" style="padding:4px 0;">LCSC</td><td style="padding:4px 0;">{{ comp.lcsc_pn or '—' }}</td></tr>
-          </table>
+          <div class="muted" style="font-size:10px;margin-bottom:8px;">Barcode: {{ comp.barcode_id }} · Type: {{ ctype.name if ctype else '—' }}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <input id="edit-value" class="form-control form-control-sm" placeholder="Value" value="{{ (comp.value or '')|e }}">
+            <input id="edit-unit" class="form-control form-control-sm" placeholder="Unit" value="{{ (comp.unit or '')|e }}">
+            <input id="edit-package" class="form-control form-control-sm" placeholder="Package" value="{{ (comp.package or '')|e }}">
+            <input id="edit-mpn" class="form-control form-control-sm" placeholder="MPN" value="{{ (comp.mpn or '')|e }}">
+            <input id="edit-digikey" class="form-control form-control-sm" placeholder="DigiKey PN" value="{{ (comp.digikey_pn or '')|e }}">
+            <input id="edit-lcsc" class="form-control form-control-sm" placeholder="LCSC PN" value="{{ (comp.lcsc_pn or '')|e }}">
+            <input id="edit-voltage" type="number" step="any" class="form-control form-control-sm" placeholder="Voltage (V)" value="{{ comp.voltage_rating if comp.voltage_rating is not none else '' }}">
+            <input id="edit-current" type="number" step="any" class="form-control form-control-sm" placeholder="Current (A)" value="{{ comp.current_rating if comp.current_rating is not none else '' }}">
+            <input id="edit-power" type="number" step="any" class="form-control form-control-sm" placeholder="Power (W)" value="{{ comp.power_rating if comp.power_rating is not none else '' }}">
+            <input id="edit-tolerance" class="form-control form-control-sm" placeholder="Tolerance" value="{{ (comp.tolerance or '')|e }}">
+            <input id="edit-datasheet" class="form-control form-control-sm" placeholder="Datasheet URL" value="{{ (comp.datasheet_url or '')|e }}" style="grid-column:1/3;">
+            <input id="edit-mfr" class="form-control form-control-sm" placeholder="Manufacturer" value="{{ (primary_mfr.name if primary_mfr else '')|e }}" style="grid-column:1/3;">
+            <textarea id="edit-description" class="form-control form-control-sm" rows="2" placeholder="Description" style="grid-column:1/3;">{{ (comp.description or '')|e }}</textarea>
+            <textarea id="edit-notes" class="form-control form-control-sm" rows="2" placeholder="Notes" style="grid-column:1/3;">{{ (comp.notes or '')|e }}</textarea>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
+            <button class="btn btn-primary btn-sm" onclick="saveComponentDetails()">Save Details</button>
+            <span id="edit-details-status" class="muted" style="font-size:10px;"></span>
+          </div>
         </div>
       </div>
 
@@ -230,15 +243,19 @@
           </div>
 
           <div>
-            <label class="form-label">AI Repair</label>
+            <label class="form-label">AI Smart Modify</label>
             <textarea id="component-ai-text" class="form-control form-control-sm" rows="3" placeholder="Paste noisy source text..."></textarea>
             <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
-              <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('repair')">Repair</button>
-              <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('add')">Add Missing</button>
-              <button class="btn btn-danger btn-sm" onclick="analyzeComponentText('remove')">Suggest Remove</button>
+              <button class="btn btn-primary btn-sm" onclick="analyzeComponentText()">Analyze + Suggest</button>
+              <button class="btn btn-primary btn-sm" onclick="applyComponentAiPatch()">Apply Suggested Changes</button>
             </div>
             <span id="component-ai-status" class="muted" style="font-size:10px;"></span>
-            <div id="component-ai-preview" style="display:none;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);font-size:10px;"></div>
+            <div id="component-ai-preview" style="display:none;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);font-size:10px;">
+              <div id="component-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
+              <div id="component-ai-assumptions" style="display:none;margin-bottom:6px;color:var(--amber);"></div>
+              <div id="component-ai-suggestions" style="display:none;margin-bottom:6px;color:var(--blue);"></div>
+              <pre id="component-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
+            </div>
           </div>
 
           <div style="display:flex;gap:6px;align-items:center;justify-content:space-between;">
@@ -526,7 +543,46 @@ window.openCropEditor = async function() {
   showCropModal(img.src);  // Pass URL directly
 };
 
-async function analyzeComponentText(action) {
+async function saveComponentDetails() {
+  const status = document.getElementById('edit-details-status');
+  const num = (id) => {
+    const raw = (document.getElementById(id)?.value || '').trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
+  const payload = {
+    value: (document.getElementById('edit-value')?.value || '').trim() || null,
+    unit: (document.getElementById('edit-unit')?.value || '').trim() || null,
+    package: (document.getElementById('edit-package')?.value || '').trim() || null,
+    mpn: (document.getElementById('edit-mpn')?.value || '').trim() || null,
+    digikey_pn: (document.getElementById('edit-digikey')?.value || '').trim() || null,
+    lcsc_pn: (document.getElementById('edit-lcsc')?.value || '').trim() || null,
+    voltage_rating: num('edit-voltage'),
+    current_rating: num('edit-current'),
+    power_rating: num('edit-power'),
+    tolerance: (document.getElementById('edit-tolerance')?.value || '').trim() || null,
+    datasheet_url: (document.getElementById('edit-datasheet')?.value || '').trim() || null,
+    manufacturer_name: (document.getElementById('edit-mfr')?.value || '').trim() || null,
+    description: (document.getElementById('edit-description')?.value || '').trim() || null,
+    notes: (document.getElementById('edit-notes')?.value || '').trim() || null,
+  };
+
+  status.textContent = 'Saving...';
+  const r = await fetch('/api/components/' + COMP_ID, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    status.textContent = 'Save failed';
+    return;
+  }
+  status.textContent = 'Saved';
+  setTimeout(() => location.reload(), 220);
+}
+
+async function analyzeComponentText() {
   const text = document.getElementById('component-ai-text').value.trim();
   const status = document.getElementById('component-ai-status');
   if (!text) {
@@ -542,6 +598,8 @@ async function analyzeComponentText(action) {
     unit: "{{ (comp.unit or '')|e }}",
     package: "{{ (comp.package or '')|e }}",
     voltage_rating: "{{ (comp.voltage_rating or '')|e }}",
+    current_rating: "{{ (comp.current_rating or '')|e }}",
+    power_rating: "{{ (comp.power_rating or '')|e }}",
     tolerance: "{{ (comp.tolerance or '')|e }}",
     description: "{{ (comp.description or '')|e }}",
     notes: "{{ (comp.notes or '')|e }}",
@@ -559,9 +617,15 @@ async function analyzeComponentText(action) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       mode: 'component',
-      action,
+      action: 'smart',
       text,
       existing_data: existing,
+      page_context: {
+        page: 'component_detail',
+        route: location.pathname,
+        component_id: COMP_ID,
+        barcode_id: "{{ comp.barcode_id|e }}",
+      },
     }),
   });
 

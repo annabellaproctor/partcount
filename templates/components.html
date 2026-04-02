@@ -69,11 +69,6 @@
       <div>
         <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">AI Modify</div>
         <div style="display:flex;gap:6px;">
-          <select id="bulk-ai-action" class="form-select form-select-sm" style="width:90px;font-size:11px;">
-            <option value="repair">Repair</option>
-            <option value="add">Add</option>
-            <option value="remove">Remove</option>
-          </select>
           <input id="bulk-ai-text" class="form-control form-control-sm" style="flex:1;font-size:11px;" placeholder="AI instruction...">
           <button class="btn btn-primary btn-sm" onclick="bulkAiModifySelected()" style="font-size:11px;">Go</button>
         </div>
@@ -303,14 +298,18 @@ async function bulkAiModifySelected() {
   const ids = getSelectedIds()
   const status = document.getElementById('batch-status')
   const text = document.getElementById('bulk-ai-text').value.trim()
-  const action = document.getElementById('bulk-ai-action').value
   if (!ids.length) { status.textContent = 'Select rows first'; return }
   if (!text) { status.textContent = 'Enter AI modify instruction'; return }
   status.textContent = 'Running AI modify...'
   const r = await postJson('/api/components/bulk-ai-modify', {
     component_ids: ids,
     text,
-    action,
+    action: 'smart',
+    page_context: {
+      page: 'components_registry',
+      route: location.pathname,
+      selected_count: ids.length,
+    },
   })
   if (!r.ok) {
     status.textContent = 'AI modify failed'

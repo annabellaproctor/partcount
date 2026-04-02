@@ -52,6 +52,7 @@ GEMINI_RENAME_MODEL = os.getenv("GEMINI_RENAME_MODEL", "gemini-3-flash")
 
 COMPONENT_EDITABLE_FIELDS = {
     "name", "value", "unit", "package", "voltage_rating", "tolerance", "notes",
+    "current_rating", "power_rating",
     "datasheet_url", "mpn", "digikey_pn", "lcsc_pn", "description", "short_title",
     "short_title_manual", "type_path", "type_data", "sticker_tag_no", "search_alias",
 }
@@ -309,6 +310,8 @@ COMPONENT_SCHEMA = {
         "unit":           {"type": "string"},
         "package":        {"type": "string"},
         "voltage_rating": {"type": "number"},
+        "current_rating": {"type": "number"},
+        "power_rating":   {"type": "number"},
         "tolerance":      {"type": "string"},
         "description":    {"type": "string"},
         "type":           {"type": "string",
@@ -326,10 +329,16 @@ COMPONENT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
+                    "mpn": {"type": "string"},
+                    "manufacturer_name": {"type": "string"},
                     "type_path": {"type": "string"},
                     "value": {"type": "string"},
                     "unit": {"type": "string"},
+                    "package": {"type": "string"},
+                    "current_rating": {"type": "number"},
+                    "power_rating": {"type": "number"},
                     "quantity": {"type": "integer"},
+                    "stock_quantity": {"type": "integer"},
                     "type_data": {"type": "object"},
                 },
             },
@@ -348,6 +357,8 @@ MERGE_SCHEMA = {
         "unit":           {"type": "string"},
         "package":        {"type": "string"},
         "voltage_rating": {"type": "number"},
+        "current_rating": {"type": "number"},
+        "power_rating":   {"type": "number"},
         "tolerance":      {"type": "string"},
         "description":    {"type": "string"},
         "type":           {"type": "string"},
@@ -494,9 +505,10 @@ class MergeRequest(BaseModel):
 
 class EnrichRequest(BaseModel):
     mode: str = "component"  # component | kit | order
-    action: str = "repair"   # add | repair | remove
+    action: str = "smart"    # smart | add | repair | remove
     text: str
     existing_data: dict | None = None
+    page_context: dict | None = None
 
 
 class RenameWithRulesRequest(BaseModel):
@@ -816,6 +828,7 @@ async def enrich_record(req: EnrichRequest):
         raise HTTPException(400, "Text too short")
 
     existing_json = json.dumps(req.existing_data or {}, ensure_ascii=False)[:6000]
+    context_json = json.dumps(req.page_context or {}, ensure_ascii=False)[:2000]
     available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
 
     existing_obj = req.existing_data or {}
@@ -863,12 +876,17 @@ IMPORTANT:
 - Do not ask follow-up questions, do not ask for confirmation, and do not request more user input.
 - Make best-effort guesses and put uncertain choices in assumptions.
 - Prefer concrete inferred values for technical fields (pin count, package, flash/ram, interface, protocol, dimensions) rather than returning empty patch_fields.
+- If action is "smart", combine repair/add/remove behavior in one pass.
+- Prefer preserving strong identifiers (barcode_id, mpn, supplier part numbers) and improve weak/empty fields around them.
 
 Supported type paths:
 {available_paths}
 
 Existing record:
 {existing_json}
+
+Page context:
+{context_json}
 
 Editable top-level component fields:
 {editable_fields_txt}

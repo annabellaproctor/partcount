@@ -57,6 +57,7 @@
       display: flex;
       flex-direction: column;
       min-height: 100vh;
+      overflow-x: hidden;
     }
     a { color: var(--green2); text-decoration: none; }
     a:hover { color: var(--green); }
@@ -102,6 +103,17 @@
     }
     .brand-logo { width: 20px; height: 20px; display: inline-block; }
     .topbar .brand span { color: var(--text3); }
+    .topbar .menu-ico {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      color: var(--text2);
+      font-size: 11px;
+      margin-right: 6px;
+    }
+    .nav-link.active .menu-ico { color: var(--green); }
     .nav-link {
       color: var(--text3);
       font-size: 11px;
@@ -121,6 +133,11 @@
       display: flex;
       align-items: center;
       gap: 12px;
+    }
+    #topbar-assistant-btn {
+      font-size: 10px;
+      padding: 3px 8px;
+      letter-spacing: 0.8px;
     }
     .ws-dot {
       width: 6px; height: 6px;
@@ -144,9 +161,20 @@
     }
 
     /* ── main ── */
+    .workbench {
+      display: flex;
+      width: 100%;
+      min-height: calc(100vh - 42px);
+      align-items: stretch;
+    }
     .main {
       padding: 20px 20px 176px;
       flex: 1;
+      min-width: 0;
+      transition: padding-right 0.14s ease;
+    }
+    body.assistant-open .main {
+      padding-right: 10px;
     }
 
     .kbd-pulse {
@@ -360,21 +388,21 @@
     }
 
     #ai-assistant-shell {
-      position: fixed;
-      right: 12px;
-      top: 56px;
-      height: min(72vh, 640px);
-      width: 360px;
+      position: sticky;
+      top: 42px;
+      align-self: flex-start;
+      height: calc(100vh - 42px - 94px);
+      width: var(--assistant-width, 380px);
+      min-width: 280px;
+      max-width: 60vw;
       display: none;
       background: var(--bg2);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      z-index: 1250;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      border-left: 1px solid var(--border2);
+      border-right: 0;
+      border-top: 0;
+      border-bottom: 0;
+      z-index: 220;
       overflow: hidden;
-      resize: horizontal;
-      min-width: 260px;
-      max-width: 70vw;
     }
     #ai-assistant-shell.show { display: block; }
     .ai-handle {
@@ -382,9 +410,10 @@
       left: 0;
       top: 0;
       bottom: 0;
-      width: 6px;
+      width: 8px;
       cursor: ew-resize;
-      background: linear-gradient(to right, rgba(61,220,132,0.25), transparent);
+      background: linear-gradient(to right, rgba(61,220,132,0.28), rgba(61,220,132,0.06));
+      border-right: 1px solid rgba(61,220,132,0.32);
     }
     .ai-header {
       display: flex;
@@ -405,25 +434,81 @@
       justify-content: center;
       color: var(--text3);
       font-size: 12px;
+      padding: 12px;
+      text-align: center;
     }
 
-    #ai-assistant-toggle {
-      position: fixed;
-      right: 14px;
-      top: 46%;
-      transform: translateY(-50%);
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      z-index: 1240;
-      border: 1px solid var(--green2);
-      background: rgba(61,220,132,0.06);
-      color: var(--green);
-      border-radius: 4px;
-      padding: 8px 6px;
-      font-size: 10px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
+    .cmd-palette {
+      max-width: 860px;
+      margin: 0 auto;
+      border-color: #2a3530;
+      box-shadow: 0 28px 50px rgba(0, 0, 0, 0.52);
+    }
+    .cmd-input-wrap {
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(61,220,132,0.09), transparent 42%);
+      padding: 10px;
+    }
+    .cmd-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .cmd-row:hover,
+    .cmd-row.active {
+      background: rgba(61,220,132,0.09);
+      border-bottom-color: rgba(61,220,132,0.2);
+    }
+    .cmd-thumb {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border2);
+      border-radius: 3px;
+      object-fit: cover;
+      background: var(--bg3);
+      display: block;
+      flex-shrink: 0;
+    }
+    .cmd-thumb-fallback {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border2);
+      border-radius: 3px;
+      background: var(--bg3);
+      color: var(--text2);
+      font-size: 15px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .cmd-text {
+      min-width: 0;
+      flex: 1;
+    }
+    .cmd-title {
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cmd-subtitle {
+      font-size: 10px;
+      color: var(--text2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+    .cmd-route {
+      font-size: 9px;
+      color: var(--text3);
+      margin-top: 3px;
     }
 
     /* ── todo ── */
@@ -456,6 +541,17 @@
       h2 { font-size: 16px !important; }
       h3 { font-size: 14px !important; }
       #shortcuts-bar { display: none !important; }
+      #ai-assistant-shell {
+        position: fixed;
+        top: 42px;
+        right: 0;
+        width: min(86vw, 420px);
+        max-width: 86vw;
+        height: calc(100vh - 42px - 94px);
+        border-left: 1px solid var(--border2);
+      }
+      .ai-handle { width: 12px; }
+      body.assistant-open .main { padding-right: 20px; }
     }
 
     @media (max-width: 480px) {
@@ -487,19 +583,20 @@
     <span style="color:var(--text);">Bench</span>
     <span>Stock</span>
   </a>
-  <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-  <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}">Components</a>
-  <a href="/registry" class="nav-link {% if '/registry' in request.url.path %}active{% endif %}">Registry</a>
-  <a href="/kits" class="nav-link {% if '/kits' in request.url.path %}active{% endif %}">Kits</a>
-  <a href="/orders" class="nav-link {% if '/orders' in request.url.path %}active{% endif %}">Orders</a>
-  <a href="/boxes" class="nav-link {% if '/boxes' in request.url.path %}active{% endif %}">Boxes</a>
-  <a href="/projects" class="nav-link {% if '/projects' in request.url.path %}active{% endif %}">Projects</a>
-  <a href="/labels/designer" class="nav-link {% if '/labels' in request.url.path %}active{% endif %}">Labels</a>
-  <a href="/scan" class="nav-link {% if '/scan' in request.url.path %}active{% endif %}">Scan</a>
-  <a href="/settings" class="nav-link {% if '/settings' in request.url.path %}active{% endif %}">Settings</a>
+  <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}"><span class="menu-ico">◫</span>Dashboard</a>
+  <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}"><span class="menu-ico">◉</span>Components</a>
+  <a href="/registry" class="nav-link {% if '/registry' in request.url.path %}active{% endif %}"><span class="menu-ico">▤</span>Registry</a>
+  <a href="/kits" class="nav-link {% if '/kits' in request.url.path %}active{% endif %}"><span class="menu-ico">◍</span>Kits</a>
+  <a href="/orders" class="nav-link {% if '/orders' in request.url.path %}active{% endif %}"><span class="menu-ico">▣</span>Orders</a>
+  <a href="/boxes" class="nav-link {% if '/boxes' in request.url.path %}active{% endif %}"><span class="menu-ico">▦</span>Boxes</a>
+  <a href="/projects" class="nav-link {% if '/projects' in request.url.path %}active{% endif %}"><span class="menu-ico">◆</span>Projects</a>
+  <a href="/labels/designer" class="nav-link {% if '/labels' in request.url.path %}active{% endif %}"><span class="menu-ico">▢</span>Labels</a>
+  <a href="/scan" class="nav-link {% if '/scan' in request.url.path %}active{% endif %}"><span class="menu-ico">⌁</span>Scan</a>
+  <a href="/settings" class="nav-link {% if '/settings' in request.url.path %}active{% endif %}"><span class="menu-ico">◌</span>Settings</a>
   <div class="topbar-right">
     <button onclick="openCommandPalette()" class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px;" title="Search / shortcuts (Ctrl/Cmd+K)">⌘K</button>
     <button onclick="openAddPopup()" class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 10px;letter-spacing:1px;" title="Add component (A)">+ ADD</button>
+    <button id="topbar-assistant-btn" onclick="toggleAiAssistant()" class="btn btn-primary btn-sm" title="Toggle assistant side panel">Assistant</button>
     <div class="ws-dot" id="ws-dot" title="WebSocket"></div>
     <div class="profile-badge" title="{{ profile.name if profile else 'AP' }}">
       {{ profile.initials if profile else 'AP' }}
@@ -507,14 +604,24 @@
   </div>
 </div>
 
-<div class="main">
-  {% block content %}{% endblock %}
+<div class="workbench" id="workbench">
+  <div class="main" id="main-shell">
+    {% block content %}{% endblock %}
+  </div>
+  <div id="ai-assistant-shell" aria-label="AI Assistant Placeholder">
+    <div class="ai-handle" title="Drag to resize"></div>
+    <div class="ai-header">
+      <span>AI Assistant</span>
+      <button class="btn btn-primary btn-xs" onclick="toggleAiAssistant()">Close</button>
+    </div>
+    <div class="ai-body">Blank panel placeholder. This panel docks to the right and resizes the workspace.</div>
+  </div>
 </div>
 
 <div id="command-palette" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.86);z-index:1200;padding:36px 18px;">
-  <div class="card" style="max-width:820px;margin:0 auto;">
+  <div class="card cmd-palette">
     <div class="card-header"><span class="dot"></span>Quick Search</div>
-    <div class="p-2" style="border-bottom:1px solid var(--border);">
+    <div class="cmd-input-wrap">
       <input id="command-input" class="form-control" placeholder="Search pages, components, kits, projects, boxes...">
       <div class="muted" style="font-size:10px;margin-top:5px;">Enter: open · Ctrl/Cmd+K: toggle · ?: shortcuts</div>
     </div>
@@ -537,16 +644,6 @@
 </div>
 
 <div id="link-preview" style="display:none;position:fixed;z-index:1400;max-width:340px;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:8px;"></div>
-
-<button id="ai-assistant-toggle" onclick="toggleAiAssistant()">Assistant</button>
-<div id="ai-assistant-shell" aria-label="AI Assistant Placeholder">
-  <div class="ai-handle" title="Drag to resize"></div>
-  <div class="ai-header">
-    <span>AI Assistant</span>
-    <button class="btn btn-primary btn-xs" onclick="toggleAiAssistant()">Close</button>
-  </div>
-  <div class="ai-body">Blank panel placeholder</div>
-</div>
 
 <div class="eventlog-bar">
   <div class="eventlog-label">event log</div>
@@ -606,7 +703,11 @@ function updateShortcutHint() {
 }
 
 function toggleAiAssistant() {
-  document.getElementById('ai-assistant-shell')?.classList.toggle('show');
+  const shell = document.getElementById('ai-assistant-shell');
+  if (!shell) return;
+  const opening = !shell.classList.contains('show');
+  shell.classList.toggle('show', opening);
+  document.body.classList.toggle('assistant-open', opening);
 }
 
 function openLicensesModal() {
@@ -622,34 +723,32 @@ const y = new Date().getFullYear();
 const c = document.getElementById('copyright-text');
 if (c) c.textContent = `© ${y} Annabella Adair-Proctor. All rights reserved.`;
 
-(function initAssistantFloating() {
+(function initAssistantDockedPanel() {
   const shell = document.getElementById('ai-assistant-shell');
   const handle = shell?.querySelector('.ai-handle');
-  const header = shell?.querySelector('.ai-header');
-  if (!shell || !handle || !header) return;
+  if (!shell || !handle) return;
 
   let drag = null;
-  header.addEventListener('mousedown', (e) => {
-    if (e.target.closest('button')) return;
-    drag = {type: 'move', sx: e.clientX, sy: e.clientY, left: shell.offsetLeft, top: shell.offsetTop};
-    e.preventDefault();
-  });
+  const minW = 280;
+  const maxW = () => Math.min(window.innerWidth * 0.65, 760);
+
+  function setAssistantWidth(px) {
+    const width = Math.max(minW, Math.min(maxW(), px));
+    document.documentElement.style.setProperty('--assistant-width', width + 'px');
+  }
+
   handle.addEventListener('mousedown', (e) => {
-    drag = {type: 'resize', sx: e.clientX, w: shell.offsetWidth};
+    drag = {sx: e.clientX, w: shell.offsetWidth};
     e.preventDefault();
   });
   window.addEventListener('mousemove', (e) => {
     if (!drag) return;
-    if (drag.type === 'move') {
-      shell.style.right = 'auto';
-      shell.style.left = Math.max(8, Math.min(window.innerWidth - 220, drag.left + (e.clientX - drag.sx))) + 'px';
-      shell.style.top = Math.max(46, Math.min(window.innerHeight - 120, drag.top + (e.clientY - drag.sy))) + 'px';
-    } else {
-      const w = Math.max(260, Math.min(window.innerWidth * 0.75, drag.w - (e.clientX - drag.sx)));
-      shell.style.width = w + 'px';
-    }
+    const w = drag.w - (e.clientX - drag.sx);
+    setAssistantWidth(w);
   });
   window.addEventListener('mouseup', () => { drag = null; });
+  window.addEventListener('resize', () => setAssistantWidth(shell.offsetWidth));
+  setAssistantWidth(shell.offsetWidth || 380);
 })();
 
 // Show shortcuts bar on desktop
@@ -742,11 +841,20 @@ function renderCommandResults(query) {
   }
 
   _commandSelected = Math.max(0, Math.min(_commandSelected, results.length - 1));
+  const kindIcon = {
+    page: '◫',
+    component: '◉',
+    kit: '◍',
+    project: '◆',
+    box: '▦',
+  };
   box.innerHTML = results.map((r, i) => `
-    <div class="cmd-row" data-idx="${i}" data-route="${r.route}" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;background:${i===_commandSelected ? 'var(--bg3)' : 'transparent'};display:flex;justify-content:space-between;gap:8px;">
-      <div style="min-width:0;">
-        <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.label}</div>
-        <div style="font-size:10px;color:var(--text3);">${r.route}</div>
+    <div class="cmd-row ${i===_commandSelected ? 'active' : ''}" data-idx="${i}" data-route="${r.route}">
+      ${r.image ? `<img class="cmd-thumb" src="${r.image}" alt="" onerror="this.outerHTML='<span class=\\"cmd-thumb-fallback\\">${kindIcon[r.kind] || '◌'}</span>'">` : `<span class="cmd-thumb-fallback">${kindIcon[r.kind] || '◌'}</span>`}
+      <div class="cmd-text">
+        <div class="cmd-title">${r.label}</div>
+        <div class="cmd-subtitle">${r.subtitle || r.kind || 'item'}</div>
+        <div class="cmd-route">${r.route}</div>
       </div>
       <span class="bid" style="font-size:9px;">${r.kind || 'item'}</span>
     </div>

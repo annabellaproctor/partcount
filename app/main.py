@@ -117,16 +117,16 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
     boxes_rows = (await db.execute(select(Box).order_by(Box.slot_index, Box.label).limit(300))).scalars().all()
 
     pages = [
-        {"label": "Dashboard", "route": "/", "kind": "page"},
-        {"label": "Components", "route": "/components", "kind": "page"},
-        {"label": "Registry", "route": "/registry", "kind": "page"},
-        {"label": "Kits", "route": "/kits", "kind": "page"},
-        {"label": "Orders", "route": "/orders", "kind": "page"},
-        {"label": "Boxes", "route": "/boxes", "kind": "page"},
-        {"label": "Projects", "route": "/projects", "kind": "page"},
-        {"label": "Labels", "route": "/labels/designer", "kind": "page"},
-        {"label": "Scan", "route": "/scan", "kind": "page"},
-        {"label": "Settings", "route": "/settings", "kind": "page"},
+        {"label": "Dashboard", "route": "/", "kind": "page", "subtitle": "Overview and insights", "image": ""},
+        {"label": "Components", "route": "/components", "kind": "page", "subtitle": "All component records", "image": ""},
+        {"label": "Registry", "route": "/registry", "kind": "page", "subtitle": "Master catalog", "image": ""},
+        {"label": "Kits", "route": "/kits", "kind": "page", "subtitle": "Grouped parts", "image": ""},
+        {"label": "Orders", "route": "/orders", "kind": "page", "subtitle": "Procurement queue", "image": ""},
+        {"label": "Boxes", "route": "/boxes", "kind": "page", "subtitle": "Storage map", "image": ""},
+        {"label": "Projects", "route": "/projects", "kind": "page", "subtitle": "Build tracking", "image": ""},
+        {"label": "Labels", "route": "/labels/designer", "kind": "page", "subtitle": "Print layouts", "image": ""},
+        {"label": "Scan", "route": "/scan", "kind": "page", "subtitle": "Lookup and barcode flow", "image": ""},
+        {"label": "Settings", "route": "/settings", "kind": "page", "subtitle": "API keys and usage", "image": ""},
     ]
 
     items = pages + [
@@ -134,6 +134,8 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
             "label": f"{c.barcode_id} · {c.name}",
             "route": f"/components/{c.barcode_id}",
             "kind": "component",
+            "subtitle": " ".join(filter(None, [c.value, c.package])) or "Component",
+            "image": c.image_path or "",
             "tokens": " ".join(filter(None, [c.barcode_id, c.name, c.value, c.package, c.search_alias]))
         }
         for c in comps
@@ -142,6 +144,8 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
             "label": f"{k.barcode_id} · {k.name}",
             "route": f"/kits/{k.id}",
             "kind": "kit",
+            "subtitle": (k.description or "Kit"),
+            "image": k.image_path or "",
             "tokens": " ".join(filter(None, [k.barcode_id, k.name, k.description]))
         }
         for k in kits_rows
@@ -150,6 +154,8 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
             "label": p.name,
             "route": f"/projects/{p.id}",
             "kind": "project",
+            "subtitle": (p.description or "Project"),
+            "image": "",
             "tokens": " ".join(filter(None, [p.name, p.description]))
         }
         for p in projects_rows
@@ -158,6 +164,8 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
             "label": f"{b.label} · {b.model or 'Box'}",
             "route": f"/boxes/{b.id}",
             "kind": "box",
+            "subtitle": " ".join(filter(None, [b.model, b.location])) or "Storage box",
+            "image": "",
             "tokens": " ".join(filter(None, [b.label, b.model, b.location]))
         }
         for b in boxes_rows
@@ -446,7 +454,7 @@ async def registry_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 @app.get("/components/{barcode_id}", response_class=HTMLResponse)
 async def component_detail(barcode_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    from app.models.models import Footprint, BinAssignment, Box, BOMItem, Project, ComponentSupplier, Supplier, PurchaseOrderItem, PurchaseOrder, InventoryEvent
+    from app.models.models import Footprint, BinAssignment, Box, BOMItem, Project, ComponentSupplier, Supplier, PurchaseOrderItem, PurchaseOrder, InventoryEvent, Manufacturer
     comp = (await db.execute(select(Component).where(Component.barcode_id == barcode_id))).scalar_one_or_none()
     if not comp:
         raise HTTPException(404)
@@ -483,6 +491,9 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         .limit(60)
     )).scalars().all()
     all_suppliers = (await db.execute(select(Supplier).order_by(Supplier.name))).scalars().all()
+    primary_mfr = None
+    if comp.manufacturer_id:
+        primary_mfr = (await db.execute(select(Manufacturer).where(Manufacturer.id == comp.manufacturer_id))).scalar_one_or_none()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
 
     # Generic component aggregation
@@ -537,6 +548,7 @@ async def component_detail(barcode_id: str, request: Request, db: AsyncSession =
         "bins": bins_with_box, "used_in": bom_projects,
         "component_suppliers": component_suppliers, "purchase_history": ph,
         "all_suppliers": all_suppliers, "profile": profile,
+        "primary_mfr": primary_mfr,
         "generic_stock": generic_stock,
         "generic_parent": generic_parent,
         "generic_children": generic_children,
@@ -632,9 +644,24 @@ async def kit_detail_page(kit_id: str, request: Request, db: AsyncSession = Depe
         .where(KitComponent.kit_id == kit_id)
         .order_by(KitComponent.position)
     )).all()
+    kit_components_context = [
+        {
+            "component_id": r.Component.id,
+            "barcode_id": r.Component.barcode_id,
+            "name": r.Component.name,
+            "mpn": r.Component.mpn,
+            "value": r.Component.value,
+            "unit": r.Component.unit,
+            "package": r.Component.package,
+            "quantity": r.KitComponent.quantity,
+            "type_path": r.Component.type_path,
+        }
+        for r in rows
+    ]
     return templates.TemplateResponse("kit_detail.html", {
         "request": request,
         "profile": profile,
         "kit": kit,
         "rows": rows,
+        "kit_components_context": kit_components_context,
     })

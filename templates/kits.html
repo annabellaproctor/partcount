@@ -71,9 +71,17 @@ async function createKitFromAi() {
   const parsed = await parsedResp.json();
   const components = (parsed.kit_components || []).map(c => ({
     name: c.name,
+    mpn: c.mpn || c.part_number || null,
+    manufacturer_name: c.manufacturer_name || c.manufacturer || null,
     type_path: c.type_path,
     value: c.value,
     unit: c.unit,
+    package: c.package || null,
+    tolerance: c.tolerance || null,
+    voltage_rating: c.voltage_rating || null,
+    current_rating: c.current_rating || null,
+    power_rating: c.power_rating || null,
+    stock_quantity: c.stock_quantity || c.quantity_in_stock || 0,
     quantity: c.quantity || 1,
     type_data: c.type_data || {},
   })).filter(c => c.name);

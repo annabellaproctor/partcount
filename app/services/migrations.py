@@ -382,6 +382,11 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_inventory_events_component_created ON inventory_events (component_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_inventory_events_footprint_created ON inventory_events (footprint_id, created_at DESC)",
     ]),
+
+    (17, "component current and power rating fields", [
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS current_rating FLOAT",
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS power_rating FLOAT",
+    ]),
 ]
 
 
