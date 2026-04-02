@@ -7,468 +7,246 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 
 <div style="max-width:1400px;margin:0 auto;padding:0 12px;">
-  <!-- Breadcrumb -->
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-top:12px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;padding-top:8px;">
     <a href="/components" class="muted" style="font-size:11px;">← Components</a>
     <span class="sep">/</span>
-    <span class="bid" style="font-size:13px;font-weight:600;">{{ comp.barcode_id }}</span>
+    <span class="bid">{{ comp.barcode_id }}</span>
   </div>
 
-  <!-- Top: Title + Stock at-a-glance -->
-  <div style="display:grid;grid-template-columns:1fr 320px;gap:40px;margin-bottom:48px;align-items:start;">
-    <!-- Left: Title & quick identity -->
-    <div>
-      <div style="font-size:32px;font-weight:600;color:var(--text);margin-bottom:8px;line-height:1.2;">{{ comp.name }}</div>
-      {% if comp.value or comp.package %}
-      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">{{ comp.value }}{% if comp.package %} · {{ comp.package }}{% endif %}</div>
-      {% endif %}
-      {% if comp.notes %}
-      <div style="font-size:12px;color:var(--text2);max-width:600px;line-height:1.6;">{{ comp.notes }}</div>
-      {% endif %}
-    </div>
+  {% set total_stock = 0 %}
+  {% for fp in footprints %}
+    {% set total_stock = total_stock + (fp.effective_quantity or 0) %}
+  {% endfor %}
 
-    <!-- Right: Stock at-a-glance -->
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:start;margin-bottom:28px;">
+    <div>
+      <h1 style="margin:0 0 6px 0;font-size:30px;line-height:1.2;color:var(--text);">{{ comp.name }}</h1>
+      <div style="font-size:12px;color:var(--text2);">{{ comp.value or '—' }}{% if comp.package %} · {{ comp.package }}{% endif %}</div>
+    </div>
     <div style="text-align:right;">
-      {% set total_stock = 0 %}
-      {% for fp in footprints %}
-        {% set total_stock = total_stock + (fp.effective_quantity or 0) %}
-      {% endfor %}
-      <div style="font-size:48px;font-weight:700;color:{% if total_stock > 0 %}var(--green){% elif total_stock == 0 %}var(--text3){% else %}var(--red){% endif %};line-height:1;">
-        {{ total_stock }}
-      </div>
-      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">in stock</div>
+      <div style="font-size:44px;font-weight:700;line-height:1;color:{% if total_stock > 0 %}var(--green){% elif total_stock < 0 %}var(--red){% else %}var(--text3){% endif %};">{{ total_stock }}</div>
+      <div class="muted" style="font-size:10px;letter-spacing:1px;text-transform:uppercase;">effective stock</div>
       {% if comp.is_generic and generic_stock is not none %}
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);">
-        All variants: <strong style="color:var(--green);">{{ generic_stock }}</strong>
-      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text2);">Variants total: <strong style="color:var(--green);">{{ generic_stock }}</strong></div>
       {% endif %}
     </div>
   </div>
 
-  <!-- Main grid: Stock actions (left) + Details sidebar (center) + Suppliers (right) -->
-  <div style="display:grid;grid-template-columns:1fr 280px 280px;gap:40px;">
-
-    <!-- LEFT COLUMN: Stock Operations (THE STAR) -->
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;">
     <div>
-      <!-- Stock action card -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:24px;margin-bottom:32px;">
-        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;">
-          <div style="font-size:18px;font-weight:600;color:var(--text);">Update Stock</div>
-          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;">Quick action</div>
-        </div>
-
-        <!-- Footprint selector -->
-        <div style="margin-bottom:16px;">
-          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Source</label>
-          <select id="stock-footprint" class="form-select form-select-sm" style="border:1px solid var(--border);background:var(--bg3);">
-            {% if footprints %}
-              {% for fp in footprints %}
-              <option value="{{ fp.id }}">{{ fp.manufacturer or 'Unspecified' }} / {{ fp.source or 'Manual' }}</option>
-              {% endfor %}
-            {% else %}
-              <option value="">Auto-create manual record</option>
-            {% endif %}
-          </select>
-        </div>
-
-        <!-- Qty input -->
-        <div style="margin-bottom:16px;">
-          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Quantity</label>
-          <input id="stock-qty" type="number" step="1" value="1" class="form-control form-control-sm" style="border:1px solid var(--border);background:var(--bg3);">
-        </div>
-
-        <!-- Note -->
-        <div style="margin-bottom:20px;">
-          <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Note</label>
-          <input id="stock-note" class="form-control form-control-sm" placeholder="location, batch #, ref..." style="border:1px solid var(--border);background:var(--bg3);">
-        </div>
-
-        <!-- Action buttons: Big, simple, visual -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
-          <button class="btn btn-danger btn-sm" onclick="runStockAction('take')" style="font-size:13px;padding:10px;border-radius:4px;">Take</button>
-          <button class="btn btn-primary btn-sm" onclick="runStockAction('put')" style="font-size:13px;padding:10px;border-radius:4px;">Put</button>
-          <button class="btn btn-primary btn-sm" onclick="runStockAction('restock')" style="font-size:13px;padding:10px;border-radius:4px;">Restock</button>
-          <button class="btn btn-primary btn-sm" onclick="runStockAction('calibrate')" style="font-size:13px;padding:10px;border-radius:4px;">Calibrate</button>
-        </div>
-
-        <span id="stock-action-status" class="muted" style="font-size:11px;"></span>
-      </div>
-
-      <!-- Stock breakdown table -->
-      {% if footprints %}
-      <div style="margin-bottom:32px;">
-        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;">Stock by Source</div>
-        <table style="width:100%;font-size:12px;border-collapse:collapse;">
-          <thead>
-            <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left;padding:6px 0;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Mfg / Source</th>
-              <th style="text-align:right;padding:6px 0;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Qty</th>
-              <th style="text-align:right;padding:6px 0;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Adj</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for fp in footprints %}
-            <tr style="border-bottom:1px solid var(--border2);">
-              <td style="padding:8px 0;color:var(--text);">{{ fp.manufacturer or '—' }} / {{ fp.source or '—' }}</td>
-              <td style="text-align:right;padding:8px 0;color:var(--text);">{{ fp.quantity }}</td>
-              <td style="text-align:right;padding:8px 0;color:var(--text2);">{{ fp.sigma_adjustment or 0 }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div style="font-size:12px;color:var(--text3);padding:16px;background:var(--bg3);border-radius:4px;margin-bottom:32px;">
-        No stock records yet. Create one with your first action.
-      </div>
-      {% endif %}
-
-      <!-- Ledger feed -->
-      {% if inventory_events %}
-      <div>
-        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;">Recent Activity</div>
-        <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;background:var(--bg2);">
-          <div style="max-height:300px;overflow-y:auto;">
-            {% for ev in inventory_events[:10] %}
-            <div style="padding:8px 12px;border-bottom:1px solid var(--border2);font-size:11px;">
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
-                <strong style="text-transform:uppercase;color:{% if ev.event_type == 'take' %}var(--red){% elif ev.event_type == 'calibrate' %}var(--blue){% else %}var(--green){% endif %};">{{ ev.event_type }}</strong>
-                <span class="muted" style="font-size:10px;">{{ ev.created_at.strftime('%m-%d %H:%M') if ev.created_at else '' }}</span>
-              </div>
-              <div class="muted" style="font-size:10px;">{{ ev.quantity_input or 0 }}{{ ' → ' + (ev.resulting_effective_quantity or 0)|string if ev.resulting_effective_quantity != None }}</div>
-              {% if ev.notes %}<div class="muted" style="font-size:10px;margin-top:2px;">{{ ev.notes }}</div>{% endif %}
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header"><span class="dot"></span>Stock Actions</div>
+        <div class="p-3">
+          <div style="display:grid;grid-template-columns:minmax(0,220px) 120px minmax(0,1fr);gap:8px;align-items:end;">
+            <div>
+              <label class="form-label">Source</label>
+              <select id="stock-footprint" class="form-select form-select-sm">
+                {% if footprints %}
+                  {% for fp in footprints %}
+                  <option value="{{ fp.id }}">{{ fp.manufacturer or 'Unspecified' }} / {{ fp.source or 'Manual' }}</option>
+                  {% endfor %}
+                {% else %}
+                  <option value="">Auto-create manual record</option>
+                {% endif %}
+              </select>
             </div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-
-    <!-- CENTER COLUMN: Details -->
-    <div>
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;">Info</div>
-
-      <!-- Details grid -->
-      <table style="width:100%;font-size:11px;border-collapse:collapse;">
-        {% macro row(label, val) %}
-        <tr style="border-bottom:1px solid var(--border2);">
-          <td style="color:var(--text3);padding:6px 0;width:100px;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;">{{ label }}</td>
-          <td style="padding:6px 0;color:var(--text);word-break:break-word;">{{ val or '—' }}</td>
-        </tr>
-        {% endmacro %}
-        {{ row("Barcode", comp.barcode_id) }}
-        {{ row("Type", ctype.name if ctype else None) }}
-        {{ row("Value", comp.value) }}
-        {{ row("Package", comp.package) }}
-        {{ row("MPN", comp.mpn) }}
-        {{ row("DigiKey", comp.digikey_pn) }}
-        {{ row("LCSC", comp.lcsc_pn) }}
-      </table>
-
-      <!-- Image section -->
-      <div style="margin-top:20px;">
-        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Photo</div>
-        <div style="position:relative;margin-bottom:8px;">
-          {% if comp.image_path %}
-          <img src="{{ comp.image_path }}" style="width:100%;max-height:200px;object-fit:contain;border:1px solid var(--border);border-radius:4px;background:var(--bg3);" id="comp-img">
-          {% else %}
-          <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;border:1px dashed var(--border);border-radius:4px;background:var(--bg3);" id="comp-img-placeholder">
-            No image
-          </div>
-          {% endif %}
-          <div style="position:absolute;top:6px;right:6px;">
-            <button class="btn btn-sm" style="background:rgba(0,0,0,0.7);color:#fff;padding:4px 8px;border:none;border-radius:3px;font-size:11px;" onclick="toggleImageMenu(event)">⋮</button>
-            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:140px;z-index:10;margin-top:4px;overflow:hidden;">
-              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:12px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openCropEditor()">🔧 Edit</button>
-              <label class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--text);cursor:pointer;margin:0;font-size:12px;transition:background 0.15s;display:block;border-bottom:1px solid var(--border2);" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
-                📤 Upload
-                <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
-              </label>
-              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:12px;transition:background 0.15s;border-bottom:1px solid var(--border2);" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openImageSearch(); toggleImageMenu();">🔍 Search</button>
-              {% if comp.image_path %}<button class="dropdown-item" style="width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:var(--red);cursor:pointer;font-size:12px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="deleteComponentImage(); toggleImageMenu();">🗑️ Delete</button>{% endif %}
+            <div>
+              <label class="form-label">Qty</label>
+              <input id="stock-qty" type="number" step="1" value="1" class="form-control form-control-sm">
+            </div>
+            <div>
+              <label class="form-label">Note</label>
+              <input id="stock-note" class="form-control form-control-sm" placeholder="location, batch, reference...">
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Location -->
-      {% if bins %}
-      <div style="margin-top:16px;">
-        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Location</div>
-        {% for bin in bins %}
-        <div style="font-size:11px;color:var(--text);padding:4px 0;">
-          <span class="bid" style="font-size:10px;">{{ bin.box.label }}</span> Cell {{ bin.cell_id }}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <!-- Label print -->
-      <div style="margin-top:16px;display:flex;flex-direction:column;gap:6px;">
-        <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm" style="font-size:11px;">Print Label</a>
-        <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm" style="font-size:11px;">Print Barcode</a>
-      </div>
-    </div>
-
-    <!-- RIGHT COLUMN: Suppliers -->
-    <div>
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;">Suppliers</div>
-    <div class="card mb-3">
-      <div class="card-header"><span class="dot"></span>Image</div>
-      <div class="p-3 text-center">
-        {% if comp.image_path %}
-        <div style="position:relative;">
-          <img src="{{ comp.image_path }}" style="max-width:100%;max-height:160px;object-fit:contain;" id="comp-img">
-          <!-- Dropdown menu overlay -->
-          <div style="position:absolute;top:8px;right:8px;">
-            <button class="btn btn-sm" style="background:rgba(0,0,0,0.8);color:#fff;padding:6px 10px;border:none;border-radius:4px;font-weight:600;" onclick="toggleImageMenu(event)">⋮</button>
-            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;box-shadow:0 6px 16px rgba(0,0,0,0.4);min-width:170px;z-index:10;margin-top:6px;overflow:hidden;">
-              <button class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openCropEditor()">✂️ Crop & Edit</button>
-              <label class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);border-bottom:1px solid var(--border);cursor:pointer;margin:0;font-size:13px;transition:background 0.15s;display:block;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
-                📤 Upload New
-                <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
-              </label>
-              <button class="dropdown-item" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;color:var(--text);cursor:pointer;font-size:13px;transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'" onclick="openImageSearch(); toggleImageMenu();">🔍 Find Image</button>
-            </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+            <button class="btn btn-danger btn-sm" onclick="runStockAction('take')">Take</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('put')">Put</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('restock')">Restock</button>
+            <button class="btn btn-primary btn-sm" onclick="runStockAction('calibrate')">Calibrate</button>
+            <span id="stock-action-status" class="muted" style="font-size:11px;margin-left:8px;"></span>
           </div>
         </div>
-        {% else %}
-        <div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;margin-bottom:12px;" id="comp-img-placeholder">
-          No image
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          <label class="btn btn-primary btn-sm" style="cursor:pointer;">
-            📤 Upload
-            <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this)">
-          </label>
-          <button class="btn btn-primary btn-sm" onclick="openImageSearch()">🔍 Search Web</button>
-        </div>
-        {% endif %}
       </div>
-    </div>
 
-    <!-- Bin location -->
-    <div class="card mb-3">
-      <div class="card-header"><span class="dot"></span>Location</div>
-      <div class="p-3">
-        {% if bins %}
-        {% for bin in bins %}
-        <div style="font-size:12px;margin-bottom:4px;">
-          <span class="bid">{{ bin.box.label }}</span>
-          <span class="muted" style="margin-left:6px;">Cell {{ bin.cell_id }}</span>
-        </div>
-        {% endfor %}
-        {% else %}
-        <div class="muted" style="font-size:11px;">Not assigned to any bin</div>
-        {% endif %}
-      </div>
-    </div>
-
-    <!-- Label print -->
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>Labels</div>
-      <div class="p-3" style="display:flex;flex-direction:column;gap:6px;">
-        <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">Print Outside Label</a>
-        <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-sm">Print Barcode Label</a>
-      </div>
-    </div>
-  </div>
-
-  <!-- Center: details -->
-  <div class="col-md-5">
-    <div class="card mb-3">
-      <div class="card-header"><span class="dot"></span>Details</div>
-      <div class="p-3">
-
-        {% if comp.is_generic %}
-        <div style="margin-bottom:10px;padding:6px 10px;background:rgba(255,176,0,0.08);border:1px solid var(--amber);border-radius:3px;display:flex;align-items:center;gap:8px;">
-          <span style="font-size:9px;letter-spacing:0.5px;text-transform:uppercase;background:var(--amber);color:#000;padding:2px 6px;border-radius:2px;">GENERIC</span>
-          <span style="font-size:11px;color:var(--text2);">Physical definition — groups all brand-specific variants</span>
-        </div>
-        {% elif comp.parent_id and generic_parent %}
-        <div style="margin-bottom:10px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;font-size:11px;">
-          Brand-specific variant of
-          <a href="/components/{{ generic_parent.barcode_id }}" style="color:var(--amber);">{{ generic_parent.name }}</a>
-          <span style="color:var(--text3);">({{ generic_parent.barcode_id }})</span>
-        </div>
-        {% endif %}
-
-        <table style="width:100%;font-size:12px;border-collapse:collapse;">
-          {% macro row(label, val) %}
-          <tr>
-            <td style="color:var(--text3);padding:4px 0;width:120px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;">{{ label }}</td>
-            <td style="padding:4px 0;color:var(--text);">{{ val or '—' }}</td>
-          </tr>
-          {% endmacro %}
-          {{ row("Barcode ID", comp.barcode_id) }}
-          {{ row("Name", comp.name) }}
-          {{ row("Value", comp.value) }}
-          {{ row("Unit", comp.unit) }}
-          {{ row("Package", comp.package) }}
-          {{ row("Tolerance", comp.tolerance) }}
-          {{ row("Voltage Rating", comp.voltage_rating) }}
-          {{ row("Type", ctype.name if ctype else None) }}
-          {{ row("Type Path", comp.type_path) }}
-          {{ row("MPN", comp.mpn) }}
-          {{ row("DigiKey PN", comp.digikey_pn) }}
-          {{ row("LCSC PN", comp.lcsc_pn) }}
-          {{ row("Sticker Tag", ('#' ~ comp.sticker_tag_no) if comp.sticker_tag_no else None) }}
-          {{ row("Search Aliases", comp.search_alias) }}
-          {% if comp.datasheet_url %}
-          <tr>
-            <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Datasheet</td>
-            <td><a href="{{ comp.datasheet_url }}" target="_blank" style="font-size:11px;">↗ Open</a></td>
-          </tr>
-          {% endif %}
-          <tr>
-            <td style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Created</td>
-            <td style="font-size:11px;color:var(--text2);">{{ comp.created_at.strftime('%Y-%m-%d') }}</td>
-          </tr>
-        </table>
-        {% if archetype_details %}
-        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);">
-          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Archetype Details</div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header"><span class="dot"></span>Stock By Source</div>
+        <div class="p-3" style="padding-top:8px;">
+          {% if footprints %}
           <table style="width:100%;font-size:12px;border-collapse:collapse;">
-            {% for item in archetype_details %}
-            <tr>
-              <td style="color:var(--text3);padding:3px 0;width:160px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;">{{ item.label }}</td>
-              <td style="padding:3px 0;color:var(--text);">{{ item.value }}</td>
-            </tr>
+            <thead>
+              <tr style="border-bottom:1px solid var(--border);">
+                <th style="text-align:left;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;padding:5px 0;">Source</th>
+                <th style="text-align:right;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;padding:5px 0;">Raw</th>
+                <th style="text-align:right;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;padding:5px 0;">Sigma</th>
+                <th style="text-align:right;color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;padding:5px 0;">Eff</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fp in footprints %}
+              <tr style="border-bottom:1px solid var(--border2);">
+                <td style="padding:7px 0;">{{ fp.manufacturer or '—' }} / {{ fp.source or '—' }}</td>
+                <td style="padding:7px 0;text-align:right;color:var(--text2);">{{ fp.quantity or 0 }}</td>
+                <td style="padding:7px 0;text-align:right;color:var(--text2);">{{ fp.sigma_adjustment or 0 }}</td>
+                <td style="padding:7px 0;text-align:right;color:{% if (fp.effective_quantity or 0) < 0 %}var(--red){% elif (fp.effective_quantity or 0) > 0 %}var(--green){% else %}var(--text3){% endif %};">{{ fp.effective_quantity or 0 }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="muted" style="font-size:11px;">No stock records yet.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="dot"></span>Recent Inventory Events</div>
+        <div class="p-0">
+          {% if inventory_events %}
+          <div style="max-height:260px;overflow:auto;">
+            {% for ev in inventory_events[:14] %}
+            <div style="padding:8px 10px;border-bottom:1px solid var(--border2);font-size:11px;display:flex;justify-content:space-between;gap:10px;">
+              <div>
+                <strong style="text-transform:uppercase;color:{% if ev.event_type == 'take' %}var(--red){% elif ev.event_type == 'calibrate' %}var(--blue){% else %}var(--green){% endif %};">{{ ev.event_type }}</strong>
+                <span class="muted">in={{ ev.quantity_input or 0 }} · eff={{ ev.resulting_effective_quantity or 0 }}</span>
+                {% if ev.notes %}<div class="muted" style="font-size:10px;">{{ ev.notes }}</div>{% endif %}
+              </div>
+              <div class="muted" style="font-size:10px;white-space:nowrap;">{{ ev.created_at.strftime('%Y-%m-%d %H:%M') if ev.created_at else '' }}</div>
+            </div>
             {% endfor %}
+          </div>
+          {% else %}
+          <div class="p-3 muted" style="font-size:11px;">No inventory events yet.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header"><span class="dot"></span>Component Info</div>
+        <div class="p-3">
+          <table style="width:100%;font-size:11px;border-collapse:collapse;">
+            <tr><td class="muted" style="padding:4px 0;">Barcode</td><td style="padding:4px 0;">{{ comp.barcode_id }}</td></tr>
+            <tr><td class="muted" style="padding:4px 0;">Type</td><td style="padding:4px 0;">{{ ctype.name if ctype else '—' }}</td></tr>
+            <tr><td class="muted" style="padding:4px 0;">Package</td><td style="padding:4px 0;">{{ comp.package or '—' }}</td></tr>
+            <tr><td class="muted" style="padding:4px 0;">MPN</td><td style="padding:4px 0;">{{ comp.mpn or '—' }}</td></tr>
+            <tr><td class="muted" style="padding:4px 0;">DigiKey</td><td style="padding:4px 0;">{{ comp.digikey_pn or '—' }}</td></tr>
+            <tr><td class="muted" style="padding:4px 0;">LCSC</td><td style="padding:4px 0;">{{ comp.lcsc_pn or '—' }}</td></tr>
           </table>
         </div>
-        {% endif %}
-        {% if comp.notes %}
-        <div style="margin-top:10px;padding:8px;background:var(--bg3);border-radius:2px;font-size:11px;color:var(--text2);">{{ comp.notes }}</div>
-        {% endif %}
-
-        <div style="margin-top:10px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;">
-          <div style="font-size:10px;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Canonical Name</div>
-          <div class="muted" style="font-size:10px;margin-bottom:6px;">Saved title becomes the main component name. Previous names are kept in searchable aliases.</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input id="label-title-input" class="form-control form-control-sm" style="max-width:280px;" value="{{ (comp.short_title or '')|e }}" placeholder="Auto-generated short title">
-      {% for cs in component_suppliers %}
-      <div style="padding:8px 0;border-bottom:1px solid var(--border2);font-size:11px;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-          <strong style="color:var(--text);">{{ cs.supplier.name }}</strong>
-          {% if cs.unit_price %}<span style="color:var(--amber);">${{ "%.2f"|format(cs.unit_price) }}</span>{% endif %}
-        </div>
-        {% if cs.sku %}<div class="muted">{{ cs.sku }}</div>{% endif %}
-        {% if cs.mpn %}<div class="muted">{{ cs.mpn }}</div>{% endif %}
-        {% if cs.url %}<a href="{{ cs.url }}" target="_blank" style="font-size:10px;">↗ View</a>{% endif %}
-      </div>
-      {% endfor %}
-
-      <!-- Add supplier -->
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-        <button class="btn btn-primary btn-sm w-100" onclick="toggleSupplierForm()" style="font-size:11px;">+ Add Supplier</button>
-        <form id="supplier-form" style="display:none;margin-top:8px;" hx-post="/api/suppliers/link" hx-swap="none" hx-on::after-request="location.reload()" enctype="multipart/form-data">
-          <input type="hidden" name="component_id" value="{{ comp.id }}">
-          <select name="supplier_id" class="form-select form-select-sm" style="margin-bottom:6px;font-size:11px;">
-            <option value="">— supplier —</option>
-            {% for s in all_suppliers %}
-            <option value="{{ s.id }}">{{ s.name }}</option>
-            {% endfor %}
-          </select>
-          <input name="sku" class="form-control form-control-sm" placeholder="SKU" style="margin-bottom:6px;font-size:11px;">
-          <input name="url" class="form-control form-control-sm" placeholder="URL" style="margin-bottom:6px;font-size:11px;">
-          <button type="submit" class="btn btn-primary btn-sm w-100" style="font-size:11px;">Link</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- Bottom: Advanced features (collapsible) -->
-  <div style="margin-top:64px;padding-top:32px;border-top:1px solid var(--border);">
-    <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:24px;display:flex;align-items:center;gap:8px;">
-      <span>Advanced</span>
-      <span style="font-size:11px;color:var(--text3);">Metadata, AI tools, Design</span>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:32px;">
-      <!-- Naming & Tags -->
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Naming</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          <div style="display:flex;gap:6px;align-items:center;">
-            <input id="label-title-input" class="form-control form-control-sm" style="flex:1;font-size:11px;" value="{{ (comp.short_title or '')|e }}" placeholder="Short title">
-            <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;">
-              <input id="label-title-auto" type="checkbox" {% if not comp.short_title_manual %}checked{% endif %}>
-              Auto
-            </label>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="saveLabelTitle()" style="font-size:11px;">Save Title</button>
-          <span id="label-title-status" class="muted" style="font-size:10px;"></span>
-        </div>
       </div>
 
-      <!-- Markings -->
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Marking</div>
-        <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. red gold -brown" value="{{ (comp.image_query or comp.value or comp.name or '')|e }}" style="margin-bottom:8px;font-size:11px;">
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-primary btn-sm" onclick="generateMarkingsSvg()" style="flex:1;font-size:11px;">Generate</button>
-          <button class="btn btn-primary btn-sm" onclick="copyMarkingsSvg()" style="flex:1;font-size:11px;">Copy</button>
-        </div>
-        <div id="markings-preview" style="margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;display:none;"></div>
-      </div>
-
-      <!-- AI Repair -->
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">AI Repair</div>
-        <textarea id="component-ai-text" class="form-control form-control-sm" rows="3" placeholder="Paste text to parse..." style="margin-bottom:8px;font-size:11px;"></textarea>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('repair')" style="font-size:11px;">Repair</button>
-          <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('add')" style="font-size:11px;">Add</button>
-        </div>
-        <div id="component-ai-preview" style="display:none;margin-top:8px;padding:6px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;font-size:10px;"></div>
-        <span id="component-ai-status" class="muted" style="font-size:10px;"></span>
-      </div>
-
-      <!-- Cache & Variants -->
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Refresh</div>
-        <button class="btn btn-primary btn-sm w-100" onclick="touchComponent('{{ comp.id }}')" style="font-size:11px;">Update Pricing Cache</button>
-        <span id="touch-status" class="muted" style="font-size:10px;display:block;margin-top:6px;"></span>
-        {% if comp.is_generic and generic_children %}
-        <div style="margin-top:12px;">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">Variants</div>
-          <div style="font-size:11px;max-height:120px;overflow-y:auto;">
-            {% for child in generic_children %}
-            <a href="/components/{{ child.barcode_id }}" style="display:block;color:var(--text);padding:2px 0;">{{ child.name }}</a>
-            {% endfor %}
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header"><span class="dot"></span>Image</div>
+        <div class="p-3 text-center">
+          {% if comp.image_path %}
+          <img src="{{ comp.image_path }}" id="comp-img" style="max-width:100%;max-height:170px;object-fit:contain;border:1px solid var(--border);border-radius:3px;background:var(--bg3);">
+          {% else %}
+          <div id="comp-img-placeholder" style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;border:1px dashed var(--border);border-radius:3px;">No image</div>
+          {% endif %}
+          <div style="position:relative;margin-top:8px;display:inline-block;">
+            <button class="btn btn-primary btn-sm" onclick="toggleImageMenu(event)">Image Menu</button>
+            <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,0.35);min-width:150px;z-index:10;margin-top:4px;overflow:hidden;text-align:left;">
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 10px;border:none;background:transparent;color:var(--text);font-size:12px;" onclick="openCropEditor()">Edit / Crop</button>
+              <label class="dropdown-item" style="display:block;padding:8px 10px;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);cursor:pointer;font-size:12px;">
+                Upload
+                <input type="file" accept="image/*" style="display:none" onchange="uploadImage(this); toggleImageMenu();">
+              </label>
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 10px;border:none;background:transparent;color:var(--text);font-size:12px;border-bottom:1px solid var(--border2);" onclick="openImageSearch(); toggleImageMenu();">Find Online</button>
+              {% if comp.image_path %}
+              <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 10px;border:none;background:transparent;color:var(--red);font-size:12px;" onclick="deleteComponentImage(); toggleImageMenu();">Delete</button>
+              {% endif %}
+            </div>
           </div>
         </div>
-        {% endif %}
       </div>
 
-      <!-- Projects -->
-      {% if used_in %}
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Used In</div>
-        <div style="font-size:11px;max-height:120px;overflow-y:auto;">
-          {% for proj in used_in %}
-          <a href="/projects/{{ proj.id }}" style="display:block;color:var(--text);padding:3px 0;">{{ proj.name }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-      <!-- Purchase History -->
-      {% if purchase_history %}
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Purchase History</div>
-        <div style="font-size:10px;max-height:120px;overflow-y:auto;">
-          {% for item in purchase_history[:8] %}
-          <div style="padding:4px 0;border-bottom:1px solid var(--border2);">
-            <div style="color:var(--text);">{{ item.order.supplier.name if item.order.supplier else '—' }}</div>
-            <div class="muted">{{ item.quantity_received }} of {{ item.quantity_ordered }}</div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header"><span class="dot"></span>Suppliers</div>
+        <div class="p-3">
+          {% for cs in component_suppliers %}
+          <div style="padding:7px 0;border-bottom:1px solid var(--border2);font-size:11px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+              <strong style="color:var(--text);">{{ cs.supplier.name }}</strong>
+              {% if cs.unit_price %}<span style="color:var(--amber);">${{ "%.2f"|format(cs.unit_price) }}</span>{% endif %}
+            </div>
+            {% if cs.sku %}<div class="muted">{{ cs.sku }}</div>{% endif %}
+            {% if cs.url %}<a href="{{ cs.url }}" target="_blank" style="font-size:10px;">↗ View</a>{% endif %}
           </div>
           {% endfor %}
+          <div style="margin-top:10px;">
+            <button class="btn btn-primary btn-sm w-100" onclick="toggleSupplierForm()">+ Add Supplier</button>
+            <form id="supplier-form" style="display:none;margin-top:8px;" hx-post="/api/suppliers/link" hx-swap="none" hx-on::after-request="location.reload()" enctype="multipart/form-data">
+              <input type="hidden" name="component_id" value="{{ comp.id }}">
+              <select name="supplier_id" class="form-select form-select-sm" style="margin-bottom:6px;">
+                <option value="">— supplier —</option>
+                {% for s in all_suppliers %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+              <input name="sku" class="form-control form-control-sm" placeholder="SKU" style="margin-bottom:6px;">
+              <input name="url" class="form-control form-control-sm" placeholder="URL" style="margin-bottom:6px;">
+              <button type="submit" class="btn btn-primary btn-sm w-100">Link</button>
+            </form>
+          </div>
         </div>
       </div>
-      {% endif %}
+
+      <div class="card">
+        <div class="card-header"><span class="dot"></span>Advanced</div>
+        <div class="p-3" style="display:grid;gap:8px;">
+          <div>
+            <label class="form-label">Display Name</label>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="label-title-input" class="form-control form-control-sm" value="{{ (comp.short_title or '')|e }}" placeholder="Short title">
+              <label style="font-size:11px;display:flex;align-items:center;gap:4px;"><input id="label-title-auto" type="checkbox" {% if not comp.short_title_manual %}checked{% endif %}>Auto</label>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+              <button class="btn btn-primary btn-sm" onclick="saveLabelTitle()">Save Name</button>
+              <span id="label-title-status" class="muted" style="font-size:10px;"></span>
+            </div>
+          </div>
+
+          <div>
+            <label class="form-label">Sticker Tag</label>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="sticker-tag-select" class="form-select form-select-sm"></select>
+              <button class="btn btn-primary btn-sm" onclick="saveStickerTag()">Save</button>
+            </div>
+            <span id="sticker-tag-status" class="muted" style="font-size:10px;"></span>
+          </div>
+
+          <div>
+            <label class="form-label">Marking Builder</label>
+            <input id="markings-text" class="form-control form-control-sm" placeholder="e.g. _silver -red 10k" value="{{ (comp.image_query or comp.value or comp.name or '')|e }}">
+            <div style="display:flex;gap:6px;margin-top:6px;">
+              <button class="btn btn-primary btn-sm" onclick="generateMarkingsSvg()">Generate</button>
+              <button class="btn btn-primary btn-sm" onclick="copyMarkingsSvg()">Copy</button>
+              <button class="btn btn-primary btn-sm" onclick="applyMarkingsAsImage()">Use As Image</button>
+            </div>
+            <span id="markings-status" class="muted" style="font-size:10px;"></span>
+            <div id="markings-preview" style="display:none;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);"></div>
+          </div>
+
+          <div>
+            <label class="form-label">AI Repair</label>
+            <textarea id="component-ai-text" class="form-control form-control-sm" rows="3" placeholder="Paste noisy source text..."></textarea>
+            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('repair')">Repair</button>
+              <button class="btn btn-primary btn-sm" onclick="analyzeComponentText('add')">Add Missing</button>
+              <button class="btn btn-danger btn-sm" onclick="analyzeComponentText('remove')">Suggest Remove</button>
+            </div>
+            <span id="component-ai-status" class="muted" style="font-size:10px;"></span>
+            <div id="component-ai-preview" style="display:none;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);font-size:10px;"></div>
+          </div>
+
+          <div style="display:flex;gap:6px;align-items:center;justify-content:space-between;">
+            <button class="btn btn-primary btn-sm" onclick="touchComponent('{{ comp.id }}')">Refresh Pricing Cache</button>
+            <span id="touch-status" class="muted" style="font-size:10px;"></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

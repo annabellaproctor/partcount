@@ -7,9 +7,9 @@ const CACHE_NAME = `labinv-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/static/logo.svg',
+  '/static/app-icon.svg',
   '/static/manifest.json',
-  '/static/css/',
-  '/offline.html',
+  '/offline',
 ];
 
 // Install event - cache essential assets

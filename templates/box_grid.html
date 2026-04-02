@@ -159,6 +159,14 @@
   overflow: hidden;
   position: relative;
   min-width: 0;
+  --sticker-overlay: transparent;
+}
+.grid-cell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--sticker-overlay);
+  pointer-events: none;
 }
 .grid-cell.empty { background: var(--bg3); }
 .grid-cell.empty:hover { border-color: var(--green2); background: var(--bg4); }
@@ -393,6 +401,7 @@ async function confirmAssign() {
     el.dataset.image = _pendingComp.image || '';
     el.dataset.stickerTagNo = _pendingComp.stickerTagNo || '';
     el.innerHTML = appliedHtmlForComp(_pendingComp);
+    applyStickerOverlay(el, _pendingComp.stickerTagNo || null);
   }
   setStatus('Assigned ' + ok + ' cell(s)');
   clearPending();
@@ -497,6 +506,8 @@ async function dropCell(e) {
     target.classList.toggle('empty', !srcFilled);
     target.draggable = srcFilled;
     Object.assign(target.dataset, srcData);
+    applyStickerOverlay(dragSrcEl, dragSrcEl.dataset.stickerTagNo || null);
+    applyStickerOverlay(target, target.dataset.stickerTagNo || null);
 
     setStatus('Moved ' + (srcData.barcode||fromCell) + ' → ' + toCell);
   }
@@ -619,6 +630,7 @@ async function setStickerTag(tagNo) {
     const chipColor = STICKER_TAGS[tagNo] || '#555';
     const chip = _stickerModalCell.querySelector('.sticker-chip');
     if (chip) chip.style.background = chipColor;
+    applyStickerOverlay(_stickerModalCell, tagNo);
     setStatus('Updated sticker tag for ' + _stickerModalCell.dataset.cell);
     closeStickerModal();
   }
@@ -637,6 +649,7 @@ async function clearStickerTag() {
     _stickerModalCell.dataset.stickerTagNo = '';
     const chip = _stickerModalCell.querySelector('.sticker-chip');
     if (chip) chip.style.background = '#555';
+    applyStickerOverlay(_stickerModalCell, null);
     setStatus('Cleared sticker tag for ' + _stickerModalCell.dataset.cell);
     closeStickerModal();
   }
@@ -647,6 +660,13 @@ function setStatus(msg) {
   if(s) { s.textContent = msg; setTimeout(()=>s.textContent='', 3000); }
 }
 
+function applyStickerOverlay(cellEl, tagNo) {
+  if (!cellEl) return;
+  const n = Number(tagNo || 0);
+  const color = n && STICKER_TAGS[n] ? STICKER_TAGS[n] : null;
+  cellEl.style.setProperty('--sticker-overlay', color ? (color + '20') : 'transparent');
+}
+
 setEditMode(false);
 
 // Initialize sticker chip colors
@@ -654,6 +674,7 @@ document.querySelectorAll('.sticker-chip').forEach(chip => {
   const tagNo = chip.getAttribute('data-tag-no');
   const color = (tagNo && STICKER_TAGS[tagNo]) ? STICKER_TAGS[tagNo] : '#555';
   chip.style.background = color;
+  applyStickerOverlay(chip.closest('.grid-cell'), tagNo);
 });
 
 // Close sticker modal on backdrop click

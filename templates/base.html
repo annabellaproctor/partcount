@@ -7,13 +7,19 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="LAB::INV">
-  <meta name="description" content="Real-time component inventory management system">
+  <meta name="description" content="{% block meta_description %}Real-time component inventory management system{% endblock %}">
+  <meta name="author" content="Annabella Adair-Proctor">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{% block og_title %}LAB Inventory Tracker{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Track components, stock, boxes, kits, and projects in one fast workspace.{% endblock %}">
+  <meta property="og:image" content="/static/app-icon.svg">
+  <meta name="twitter:card" content="summary">
   
   <title>{% block title %}LAB::INV{% endblock %}</title>
   
   <!-- Icons & PWA -->
-  <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-  <link rel="apple-touch-icon" href="/static/favicon-192.png">
+  <link rel="icon" type="image/svg+xml" href="/static/app-icon.svg">
+  <link rel="apple-touch-icon" href="/static/app-icon.svg">
   <link rel="manifest" href="/static/manifest.json">
   
   <!-- Fonts -->
@@ -85,12 +91,16 @@
     }
     .topbar .brand {
       color: var(--green);
-      font-weight: bold;
-      font-size: 14px;
-      letter-spacing: 3px;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 1px;
       margin-right: 24px;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+    .brand-logo { width: 20px; height: 20px; display: inline-block; }
     .topbar .brand span { color: var(--text3); }
     .nav-link {
       color: var(--text3);
@@ -314,6 +324,14 @@
     .log-line.stock  { color: var(--amber); }
     .log-line.error  { color: var(--red); }
     .log-line.info   { color: var(--blue); }
+    .copyright-foot {
+      position: absolute;
+      right: 12px;
+      bottom: 6px;
+      font-size: 9px;
+      color: var(--text3);
+      letter-spacing: 0.4px;
+    }
 
     /* ── todo ── */
     .todo-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
@@ -371,7 +389,11 @@
 <body>
 
 <div class="topbar">
-  <div class="brand">LAB<span>::</span>INV</div>
+  <a href="/" class="brand" aria-label="Home" style="text-decoration:none;">
+    <img src="/static/app-icon.svg" alt="Logo" class="brand-logo">
+    <span style="color:var(--text);">Annabella</span>
+    <span>Inventory</span>
+  </a>
   <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
   <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}">Components</a>
   <a href="/registry" class="nav-link {% if '/registry' in request.url.path %}active{% endif %}">Registry</a>
@@ -421,19 +443,22 @@
   </div>
 </div>
 
+<div id="link-preview" style="display:none;position:fixed;z-index:1400;max-width:340px;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:8px;"></div>
+
 <div class="eventlog-bar">
   <div class="eventlog-label">event log</div>
   <div id="event-log"></div>
+  <div class="copyright-foot">© Annabella Adair-Proctor</div>
 </div>
 
 <!-- Keyboard shortcuts footer (hidden on mobile, shown on desktop) -->
-<div id="shortcuts-bar" style="background:var(--bg2);border-top:1px solid var(--border);padding:6px 16px;height:28px;display:none;align-items:center;gap:24px;font-size:10px;color:var(--text3);overflow-x:auto;white-space:nowrap;@media (min-width:1024px) { display:flex; }">
+<div id="shortcuts-bar" style="background:var(--bg2);border-top:1px solid var(--border);padding:6px 16px;height:28px;display:none;align-items:center;gap:24px;font-size:10px;color:var(--text3);overflow-x:auto;white-space:nowrap;">
   <span style="color:var(--text2);">⌨ Shortcuts:</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">Ctrl K</kbd> search</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">?</kbd> help</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">A</kbd> add</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">↑↓←→</kbd> navigate</span>
-  <span style="margin-left:auto;color:var(--text3);" id="shortcuts-info"></span>
+  <span style="margin-left:auto;color:var(--text3);" id="shortcuts-info">© Annabella Adair-Proctor</span>
 </div>
 
 <script>
@@ -460,8 +485,8 @@ function addLog(msg, cls='') {
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
-ws.onopen = () => { wsDot.classList.add('on'); addLog('ws connected', 'info'); };
-ws.onclose = () => { wsDot.classList.remove('on'); addLog('ws disconnected', 'error'); };
+ws.onopen = () => { wsDot.classList.add('on'); };
+ws.onclose = () => { wsDot.classList.remove('on'); };
 ws.onmessage = (e) => {
   const msg = JSON.parse(e.data);
   if (msg.event === 'scan') {
@@ -641,6 +666,100 @@ document.addEventListener('DOMContentLoaded', () => {
         el.click();
       }
     });
+  });
+
+  // Hover/focus tooltip previews for internal entity links.
+  const previewEl = document.getElementById('link-preview');
+  let previewAbort = null;
+
+  function hidePreview() {
+    if (previewEl) previewEl.style.display = 'none';
+  }
+
+  function movePreview(x, y) {
+    if (!previewEl || previewEl.style.display !== 'block') return;
+    const pad = 12;
+    const maxX = window.innerWidth - previewEl.offsetWidth - pad;
+    const maxY = window.innerHeight - previewEl.offsetHeight - pad;
+    previewEl.style.left = Math.max(pad, Math.min(x + 14, maxX)) + 'px';
+    previewEl.style.top = Math.max(pad, Math.min(y + 14, maxY)) + 'px';
+  }
+
+  async function showPreviewForLink(link, evt) {
+    if (!previewEl || window.innerWidth < 900) return;
+    const href = (link.getAttribute('href') || '').trim();
+    if (!href.startsWith('/')) return;
+    if (!(/^\/components\//.test(href) || /^\/kits\//.test(href) || /^\/projects\//.test(href) || /^\/boxes\//.test(href))) return;
+
+    if (previewAbort) previewAbort.abort();
+    previewAbort = new AbortController();
+    previewEl.style.display = 'block';
+    previewEl.innerHTML = '<div class="muted" style="font-size:11px;">Loading preview...</div>';
+    movePreview(evt.clientX || 0, evt.clientY || 0);
+
+    try {
+      const r = await fetch('/api/link-preview?path=' + encodeURIComponent(href), {signal: previewAbort.signal});
+      if (!r.ok) throw new Error('preview failed');
+      const d = await r.json();
+      previewEl.innerHTML = `
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          ${d.image ? `<img src="${d.image}" alt="" style="width:40px;height:40px;object-fit:contain;border:1px solid var(--border);border-radius:3px;background:var(--bg3);">` : ''}
+          <div style="min-width:0;">
+            <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.title || ''}</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:2px;">${d.subtitle || ''}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:4px;">${d.meta || ''}</div>
+          </div>
+        </div>
+      `;
+      movePreview(evt.clientX || 0, evt.clientY || 0);
+    } catch (_) {
+      hidePreview();
+    }
+  }
+
+  document.body.addEventListener('mouseover', (e) => {
+    const link = e.target.closest('a');
+    if (!link) return;
+    showPreviewForLink(link, e);
+  });
+  document.body.addEventListener('mousemove', (e) => movePreview(e.clientX, e.clientY));
+  document.body.addEventListener('mouseout', (e) => {
+    if (e.target.closest('a')) hidePreview();
+  });
+  document.body.addEventListener('focusin', (e) => {
+    const link = e.target.closest && e.target.closest('a');
+    if (!link) return;
+    const rect = link.getBoundingClientRect();
+    showPreviewForLink(link, {clientX: rect.left, clientY: rect.bottom});
+  });
+  document.body.addEventListener('focusout', (e) => {
+    if (e.target.closest && e.target.closest('a')) hidePreview();
+  });
+
+  // Arrow-key focus navigation across visible controls when not typing.
+  document.addEventListener('keydown', (e) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const tag = (document.activeElement?.tagName || '').toUpperCase();
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    const paletteOpen = document.getElementById('command-palette')?.style.display === 'block';
+    const modalOpen = document.getElementById('shortcuts-modal')?.style.display === 'block';
+    if (paletteOpen || modalOpen) return;
+
+    const nodes = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
+      .filter(el => !el.disabled && el.tabIndex > -1)
+      .filter(el => {
+        const st = window.getComputedStyle(el);
+        return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
+      });
+    if (!nodes.length) return;
+    const idx = Math.max(0, nodes.indexOf(document.activeElement));
+    const nextIdx = (e.key === 'ArrowUp' || e.key === 'ArrowLeft')
+      ? Math.max(0, idx - 1)
+      : Math.min(nodes.length - 1, idx + 1);
+    if (nextIdx !== idx) {
+      e.preventDefault();
+      nodes[nextIdx].focus({preventScroll: false});
+    }
   });
 });
 </script>

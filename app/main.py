@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -130,7 +130,7 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
     ] + [
         {
             "label": f"{b.label} · {b.model or 'Box'}",
-            "route": "/boxes",
+            "route": f"/boxes/{b.id}",
             "kind": "box",
             "tokens": " ".join(filter(None, [b.label, b.model, b.location]))
         }
@@ -138,6 +138,91 @@ async def search_index(db: AsyncSession = Depends(get_db), limit: int = 200):
     ]
 
     return {"items": items}
+
+
+@app.get("/api/link-preview")
+async def link_preview(path: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Return compact preview data for internal links used by hover/focus tooltips."""
+    p = (path or "").strip()
+    if not p.startswith("/"):
+        p = "/" + p
+
+    if p.startswith("/components/"):
+        barcode = p.split("/components/", 1)[1].split("?", 1)[0].strip()
+        if not barcode:
+            raise HTTPException(404, "Not found")
+        row = await db.execute(
+            select(
+                Component,
+                ComponentType,
+                func.coalesce(func.sum(Footprint.quantity + func.coalesce(Footprint.sigma_adjustment, 0)), 0).label("effective_stock"),
+            )
+            .join(ComponentType, ComponentType.id == Component.type_id, isouter=True)
+            .join(Footprint, Footprint.component_id == Component.id, isouter=True)
+            .where(Component.barcode_id == barcode)
+            .group_by(Component.id, ComponentType.id)
+        )
+        data = row.first()
+        if not data:
+            raise HTTPException(404, "Not found")
+        comp, ctype, stock = data
+        return {
+            "kind": "component",
+            "title": f"{comp.barcode_id} · {comp.name}",
+            "subtitle": " ".join(filter(None, [comp.value, comp.unit, comp.package])),
+            "meta": f"Type: {ctype.name if ctype else '—'} · Stock: {int(stock or 0)}",
+            "image": comp.image_path or "",
+            "route": f"/components/{comp.barcode_id}",
+        }
+
+    if p.startswith("/kits/"):
+        kit_id = p.split("/kits/", 1)[1].split("?", 1)[0].strip()
+        row = await db.execute(select(Kit).where(Kit.id == kit_id))
+        kit = row.scalar_one_or_none()
+        if not kit:
+            raise HTTPException(404, "Not found")
+        comp_count = (await db.execute(select(func.count()).select_from(KitComponent).where(KitComponent.kit_id == kit.id))).scalar() or 0
+        return {
+            "kind": "kit",
+            "title": f"{kit.barcode_id} · {kit.name}",
+            "subtitle": (kit.description or "")[:140],
+            "meta": f"Components: {comp_count}",
+            "image": kit.image_path or "",
+            "route": f"/kits/{kit.id}",
+        }
+
+    if p.startswith("/projects/"):
+        proj_id = p.split("/projects/", 1)[1].split("?", 1)[0].strip()
+        row = await db.execute(select(Project).where(Project.id == proj_id))
+        proj = row.scalar_one_or_none()
+        if not proj:
+            raise HTTPException(404, "Not found")
+        bom_count = (await db.execute(select(func.count()).select_from(BOMItem).where(BOMItem.project_id == proj.id))).scalar() or 0
+        return {
+            "kind": "project",
+            "title": proj.name,
+            "subtitle": (proj.description or "")[:140],
+            "meta": f"Status: {proj.status or '—'} · BOM items: {bom_count}",
+            "image": "",
+            "route": f"/projects/{proj.id}",
+        }
+
+    if p.startswith("/boxes/"):
+        box_id = p.split("/boxes/", 1)[1].split("?", 1)[0].strip()
+        row = await db.execute(select(Box).where(Box.id == box_id))
+        box = row.scalar_one_or_none()
+        if not box:
+            raise HTTPException(404, "Not found")
+        return {
+            "kind": "box",
+            "title": box.label,
+            "subtitle": box.model or "Storage box",
+            "meta": f"Cells: {box.cell_count or 0} · Location: {box.location or '—'}",
+            "image": "",
+            "route": f"/boxes/{box.id}",
+        }
+
+    raise HTTPException(404, "Unsupported route")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: AsyncSession = Depends(get_db)):
@@ -158,6 +243,11 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
         "profile": profile,
         "projects_active": projects_active,
     })
+
+
+@app.get("/offline", response_class=HTMLResponse)
+async def offline_page(request: Request):
+    return templates.TemplateResponse("offline.html", {"request": request})
 
 
 

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Annabella Inventory icon">
+  <rect width="512" height="512" rx="112" fill="#3ddc84"/>
+
+  <!-- Solid white PCB silhouette with transparent traces cut out -->
+  <g fill="#ffffff">
+    <rect x="104" y="112" width="304" height="288" rx="42"/>
+    <circle cx="168" cy="176" r="26"/>
+    <circle cx="344" cy="176" r="26"/>
+    <circle cx="168" cy="336" r="26"/>
+    <circle cx="344" cy="336" r="26"/>
+  </g>
+
+  <!-- Transparency cut-lines (pcb traces) -->
+  <g fill="#3ddc84">
+    <rect x="182" y="168" width="148" height="16" rx="8"/>
+    <rect x="182" y="328" width="148" height="16" rx="8"/>
+    <rect x="248" y="184" width="16" height="144" rx="8"/>
+    <rect x="120" y="248" width="96" height="16" rx="8"/>
+    <rect x="296" y="248" width="96" height="16" rx="8"/>
+  </g>
+</svg>

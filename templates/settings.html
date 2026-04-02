@@ -108,10 +108,12 @@ async function refreshUsage() {
     const stats = await r.json();
     
     let html = '';
+    let geminiMeta = null;
     for (const [key, data] of Object.entries(stats)) {
       const pct = data.percentage_used;
       const color = pct === null ? 'var(--text3)' : (pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--amber)' : 'var(--green)');
       const limitText = data.limit ? `${data.total_calls} / ${data.limit}` : `${data.total_calls}`;
+      if (key === 'gemini') geminiMeta = data;
       
       html += `
         <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border2);">
@@ -130,6 +132,25 @@ async function refreshUsage() {
           ${data.avg_response_ms ? `<div style="font-size:9px;color:var(--text3);">Avg: ${data.avg_response_ms}ms</div>` : ''}
         </div>
       `;
+    }
+
+    if (geminiMeta) {
+      const quietMins = geminiMeta.quiet_window_minutes || 11;
+      const nextAt = geminiMeta.next_refresh_at ? new Date(geminiMeta.next_refresh_at) : null;
+      const checkedKey = geminiMeta.last_call_at ? `gemini_checked_${geminiMeta.last_call_at}` : null;
+      const alreadyChecked = checkedKey ? localStorage.getItem(checkedKey) === '1' : false;
+
+      if (geminiMeta.refresh_ready && checkedKey && !alreadyChecked) {
+        localStorage.setItem(checkedKey, '1');
+        html += `<div style="margin-top:6px;font-size:10px;color:var(--blue);">Gemini quiet window reached (${quietMins}m). Stats are now eligible for delayed sync.</div>`;
+      } else if (nextAt) {
+        const ms = Math.max(0, nextAt.getTime() - Date.now());
+        const mins = Math.ceil(ms / 60000);
+        html += `<div style="margin-top:6px;font-size:10px;color:var(--text3);">Gemini delayed sync window: ${mins}m</div>`;
+        if (ms > 0 && ms < 12 * 60 * 1000 && checkedKey && !alreadyChecked) {
+          setTimeout(() => refreshUsage(), ms + 1500);
+        }
+      }
     }
     
     container.innerHTML = html || '<div style="color:var(--text3);font-size:11px;">No API usage yet</div>';
