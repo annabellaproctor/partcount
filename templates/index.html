@@ -24,19 +24,10 @@
 <!-- Box minimap -->
 {% if boxes %}
 <div class="card mb-3">
-  <div class="card-header"><span class="dot"></span>Ledge Map — left to right by slot</div>
+  <div class="card-header"><span class="dot"></span>Box Minimap (relative size + occupancy)</div>
   <div class="p-3">
-    <div class="box-map" id="box-map">
-      {% for box in boxes %}
-      {% set cell_count = box.cell_count or 144 %}
-      {% set size_class = 'box-144' if cell_count >= 144 else ('box-96' if cell_count >= 96 else ('box-48' if cell_count >= 48 else 'box-24')) %}
-      <a href="/boxes" class="box-tile {{ size_class }}" title="{{ box.label }} · {{ box.model }} · {{ cell_count }} cells">
-        <div class="bt-label">{{ box.label }}</div>
-        <div class="bt-model">{{ box.model or '—' }}</div>
-        <div class="bt-bar"><div class="bt-fill" style="width: 0%"></div></div>
-      </a>
-      {% endfor %}
-    </div>
+    <div id="dashboard-box-minimap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
+    <div class="muted" style="font-size:10px;margin-top:8px;">Occupied cells use sticker color when present, otherwise white. Empty cells are dark gray.</div>
   </div>
 </div>
 {% endif %}
@@ -52,7 +43,7 @@
         <tbody>
           {% for comp in recent %}
           <tr>
-            <td><span class="bid">{{ comp.barcode_id }}</span></td>
+            <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
             <td>{{ comp.name }}</td>
             <td>{{ comp.value or '—' }}</td>
             <td class="muted">{{ comp.package or '—' }}</td>
@@ -88,6 +79,43 @@
 <script>
 document.addEventListener('inv:scan', (e) => {
   document.getElementById('last-scan-val').textContent = e.detail.barcode_id;
+});
+
+const DASH_TAGS = {
+  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
+  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
+  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
+  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+};
+
+function renderDashboardMini(boxes) {
+  const root = document.getElementById('dashboard-box-minimap');
+  if (!root) return;
+  root.innerHTML = boxes.map(b => {
+    const cols = Math.max(3, Math.min(12, b.cols || 6));
+    const cells = (b.cells || []).map(c => {
+      const color = c.occupied ? (c.sticker_tag_no && DASH_TAGS[c.sticker_tag_no] ? DASH_TAGS[c.sticker_tag_no] : '#f4f7f8') : '#2f3438';
+      return `<div style="aspect-ratio:1;background:${color};border-radius:1px;"></div>`;
+    }).join('');
+    return `
+      <a href="/boxes/${b.id}" class="box-tile" style="padding:8px;text-decoration:none;">
+        <div class="bt-label">${b.label}</div>
+        <div class="bt-model">${b.model || '—'} · ${b.occupancy_pct}% used</div>
+        <div style="margin-top:6px;display:grid;grid-template-columns:repeat(${cols},1fr);gap:1px;background:#141414;border:1px solid var(--border2);border-radius:3px;padding:2px;">
+          ${cells}
+        </div>
+      </a>
+    `;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const r = await fetch('/api/boxes/minimap');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderDashboardMini(Array.isArray(data) ? data : []);
+  } catch (_) {}
 });
 </script>
 {% endblock %}

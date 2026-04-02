@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from contextlib import asynccontextmanager
 import asyncio, os, json
+from pathlib import Path
 
 from app.models.database import get_db
 from app.models.models import Component, ComponentType, Box, Footprint, Project, Profile, APIKey, TodoItem, BOMItem, Kit, KitComponent, PurchaseOrder, PurchaseOrderItem, Supplier, InventoryEvent
@@ -14,6 +15,13 @@ from app.services.ws_manager import manager
 from app.schemas.type_hierarchy import get_fields_for_type, flatten_type_paths
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
+
+
+def _resolve_existing_path(candidates: list[str], fallback: str) -> str:
+    for c in candidates:
+        if c and Path(c).exists():
+            return c
+    return fallback
 
 
 @asynccontextmanager
@@ -25,7 +33,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Lab Inventory", lifespan=lifespan)
+app = FastAPI(title="BenchStock", lifespan=lifespan)
 
 app.include_router(components.router)
 app.include_router(boxes.router)
@@ -41,10 +49,28 @@ app.include_router(ai_parse.router)
 app.include_router(usage_stats.router)
 app.include_router(kits.router)
 
-app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
-app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")
+ROOT = Path(__file__).resolve().parents[1]
+STATIC_DIR = _resolve_existing_path(
+    [
+        os.getenv("STATIC_DIR", ""),
+        str(ROOT / "static"),
+        "/app/app/static",
+    ],
+    str(ROOT / "static"),
+)
+TEMPLATES_DIR = _resolve_existing_path(
+    [
+        os.getenv("TEMPLATES_DIR", ""),
+        str(ROOT.parent / "templates"),
+        "/app/templates",
+    ],
+    str(ROOT.parent / "templates"),
+)
 
-templates = Jinja2Templates(directory="/app/templates")
+app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 @app.websocket("/ws")

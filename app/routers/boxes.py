@@ -3,14 +3,81 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.database import get_db
 from app.models.models import Box, BinAssignment, Component
+import re
 
 router = APIRouter(prefix="/api/boxes", tags=["boxes"])
+
+
+def _grid_cols(cell_count: int) -> int:
+    cc = cell_count or 144
+    if cc >= 144:
+        return 12
+    if cc >= 96:
+        return 10
+    if cc >= 48:
+        return 6
+    return 4
+
+
+def _cell_index(cell_id: str, cols: int) -> int | None:
+    m = re.match(r"^R(\d+)C(\d+)$", cell_id or "")
+    if not m:
+        return None
+    r = int(m.group(1))
+    c = int(m.group(2))
+    return r * cols + c
 
 
 @router.get("/")
 async def list_boxes(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Box).order_by(Box.label))
     return result.scalars().all()
+
+
+@router.get("/minimap")
+async def boxes_minimap(db: AsyncSession = Depends(get_db)):
+    """Compact per-box occupancy map for scan/search/dashboard minimap cards."""
+    boxes = (await db.execute(select(Box).order_by(Box.slot_index, Box.label))).scalars().all()
+    out = []
+    for box in boxes:
+        cell_count = int(box.cell_count or 144)
+        cols = _grid_cols(cell_count)
+        cells = [{"occupied": False, "sticker_tag_no": None} for _ in range(cell_count)]
+
+        assigned = (
+            await db.execute(
+                select(BinAssignment, Component)
+                .join(Component, Component.id == BinAssignment.component_id, isouter=True)
+                .where(BinAssignment.box_id == box.id, BinAssignment.active == True)
+            )
+        ).fetchall()
+
+        for row in assigned:
+            idx = _cell_index(row.BinAssignment.cell_id, cols)
+            if idx is None or idx < 0 or idx >= cell_count:
+                continue
+            cells[idx] = {
+                "occupied": True,
+                "sticker_tag_no": row.Component.sticker_tag_no if row.Component else None,
+            }
+
+        taken = sum(1 for c in cells if c["occupied"])
+        out.append(
+            {
+                "id": box.id,
+                "label": box.label,
+                "model": box.model,
+                "location": box.location,
+                "cell_count": cell_count,
+                "cols": cols,
+                "rows": (cell_count + cols - 1) // cols,
+                "occupied_count": taken,
+                "occupancy_pct": round((taken / cell_count) * 100, 1) if cell_count else 0,
+                "cells": cells,
+            }
+        )
+
+    return out
 
 
 @router.post("/")

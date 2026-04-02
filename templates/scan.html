@@ -93,6 +93,18 @@
 .tag-proj { background: rgba(240,165,0,0.1); color: var(--amber); border: 1px solid rgba(240,165,0,0.2); }
 .tag-bin { background: rgba(200,200,200,0.1); color: var(--text2); border: 1px solid var(--border2); }
 
+.box-mini-wrap { margin-top: 6px; }
+.box-mini-grid {
+  display: grid;
+  gap: 1px;
+  background: #141414;
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px;
+  width: 100%;
+}
+.box-mini-cell { aspect-ratio: 1; border-radius: 1px; }
+
 /* Order cards */
 .order-card {
   background: var(--bg2);
@@ -136,6 +148,15 @@ let _mode = 'scan';
 let _orderSource = 'auto';
 let _searchTimer, _orderTimer;
 let _lastSearchTime = 0;
+let _boxMiniMapCache = [];
+
+const STICKER_TAGS = {
+  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
+  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
+  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
+  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+};
+const EMPTY_CELL_COLOR = '#2f3438';
 
 // ── Mode ───────────────────────────────────────────────────────────────────
 
@@ -248,11 +269,13 @@ async function runSearch(q) {
   el.innerHTML = '<div style="color:var(--text3);font-size:11px;grid-column:1/-1;">Searching…</div>';
 
   try {
-    const [comps, boxes, projs] = await Promise.all([
+    const [comps, boxes, projs, mini] = await Promise.all([
       fetch('/api/components/?q=' + encodeURIComponent(q)).then(r=>r.json()).catch(()=>[]),
       fetch('/api/boxes/').then(r=>r.json()).catch(()=>[]),
       fetch('/api/projects/').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/boxes/minimap').then(r=>r.json()).catch(()=>[]),
     ]);
+    _boxMiniMapCache = Array.isArray(mini) ? mini : [];
 
     const ql = q.toLowerCase();
     const matchedBoxes = (Array.isArray(boxes)?boxes:[]).filter(b =>
@@ -283,15 +306,17 @@ async function runSearch(q) {
 
     // Boxes
     matchedBoxes.forEach(b => {
+      const mm = _boxMiniMapCache.find(x => x.id === b.id);
       cards.push(renderSearchCard({
         type: 'box',
         id: b.label,
         name: b.label + ' — ' + (b.model||''),
-        sub: (b.location||'') + ' · ' + (b.cell_count||'') + ' cells',
+        sub: (b.location||'') + ' · ' + (b.cell_count||'') + ' cells' + (mm ? (' · ' + mm.occupancy_pct + '% used') : ''),
         tag: 'BOX',
         tagCls: 'tag-box',
         href: '/boxes/' + b.id,
         img: '',
+        boxMini: mm || null,
       }));
     });
 
@@ -323,6 +348,7 @@ function renderSearchCard(d) {
   const imgEl = d.img
     ? '<img src="' + d.img + '" onerror="this.parentElement.innerHTML=\'<div class=result-card-img-ph>◈</div>\'">'
     : '<div class="result-card-img-ph">◈</div>';
+  const mini = (d.type === 'box' && d.boxMini) ? renderBoxMiniGrid(d.boxMini) : '';
   return '<a href="' + d.href + '" class="result-card" style="text-decoration:none;">' +
     '<div class="result-card-header">' +
     imgEl +
@@ -331,7 +357,22 @@ function renderSearchCard(d) {
     '<div class="result-card-sub">' + escHtml(d.sub) + '</div>' +
     '</div></div>' +
     '<div class="result-card-tags"><span class="tag ' + d.tagCls + '">' + d.tag + '</span></div>' +
+    mini +
     '</a>';
+}
+
+function renderBoxMiniGrid(map) {
+  const cols = Math.max(3, Math.min(12, Number(map.cols || 6)));
+  const cells = Array.isArray(map.cells) ? map.cells : [];
+  const shown = cells.slice(0, Math.min(cells.length, 192));
+  const html = shown.map(c => {
+    let color = EMPTY_CELL_COLOR;
+    if (c && c.occupied) {
+      color = c.sticker_tag_no && STICKER_TAGS[c.sticker_tag_no] ? STICKER_TAGS[c.sticker_tag_no] : '#f5f7f9';
+    }
+    return '<div class="box-mini-cell" style="background:' + color + ';"></div>';
+  }).join('');
+  return '<div class="box-mini-wrap"><div class="box-mini-grid" style="grid-template-columns:repeat(' + cols + ',1fr);">' + html + '</div></div>';
 }
 
 // ── ORDER ──────────────────────────────────────────────────────────────────

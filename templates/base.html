@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#3ddc84">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="LAB::INV">
+  <meta name="apple-mobile-web-app-title" content="BenchStock">
   <meta name="description" content="{% block meta_description %}Real-time component inventory management system{% endblock %}">
   <meta name="author" content="Annabella Adair-Proctor">
   <meta property="og:type" content="website">
@@ -15,7 +15,7 @@
   <meta property="og:image" content="/static/app-icon.svg">
   <meta name="twitter:card" content="summary">
   
-  <title>{% block title %}LAB::INV{% endblock %}</title>
+  <title>{% block title %}BenchStock{% endblock %}</title>
   
   <!-- Icons & PWA -->
   <link rel="icon" type="image/svg+xml" href="/static/app-icon.svg">
@@ -145,8 +145,18 @@
 
     /* ── main ── */
     .main {
-      padding: 20px 20px 140px;
+      padding: 20px 20px 176px;
       flex: 1;
+    }
+
+    .kbd-pulse {
+      outline: 2px solid var(--green) !important;
+      box-shadow: 0 0 0 2px rgba(61,220,132,0.12), 0 0 10px rgba(61,220,132,0.35) !important;
+      animation: kbdPulse 0.9s ease-in-out infinite;
+    }
+    @keyframes kbdPulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(61,220,132,0.08), 0 0 4px rgba(61,220,132,0.15); }
+      50% { box-shadow: 0 0 0 2px rgba(61,220,132,0.25), 0 0 14px rgba(61,220,132,0.5); }
     }
 
     /* ── cards ── */
@@ -301,7 +311,7 @@
     /* ── event log ── */
     .eventlog-bar {
       position: fixed;
-      bottom: 0; left: 0; right: 0;
+      bottom: 28px; left: 0; right: 0;
       background: var(--bg2);
       border-top: 1px solid var(--border);
       padding: 6px 16px 8px;
@@ -324,6 +334,22 @@
     .log-line.stock  { color: var(--amber); }
     .log-line.error  { color: var(--red); }
     .log-line.info   { color: var(--blue); }
+    .copyright-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 28px;
+      background: #07160f;
+      border-top: 1px solid #0f2e20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 210;
+      font-size: 10px;
+      color: var(--text3);
+    }
     .copyright-foot {
       position: absolute;
       right: 12px;
@@ -331,6 +357,73 @@
       font-size: 9px;
       color: var(--text3);
       letter-spacing: 0.4px;
+    }
+
+    #ai-assistant-shell {
+      position: fixed;
+      right: 12px;
+      top: 56px;
+      height: min(72vh, 640px);
+      width: 360px;
+      display: none;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      z-index: 1250;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      resize: horizontal;
+      min-width: 260px;
+      max-width: 70vw;
+    }
+    #ai-assistant-shell.show { display: block; }
+    .ai-handle {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      cursor: ew-resize;
+      background: linear-gradient(to right, rgba(61,220,132,0.25), transparent);
+    }
+    .ai-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text2);
+    }
+    .ai-body {
+      height: calc(100% - 38px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text3);
+      font-size: 12px;
+    }
+
+    #ai-assistant-toggle {
+      position: fixed;
+      right: 14px;
+      top: 46%;
+      transform: translateY(-50%);
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      z-index: 1240;
+      border: 1px solid var(--green2);
+      background: rgba(61,220,132,0.06);
+      color: var(--green);
+      border-radius: 4px;
+      padding: 8px 6px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
     }
 
     /* ── todo ── */
@@ -391,8 +484,8 @@
 <div class="topbar">
   <a href="/" class="brand" aria-label="Home" style="text-decoration:none;">
     <img src="/static/app-icon.svg" alt="Logo" class="brand-logo">
-    <span style="color:var(--text);">Annabella</span>
-    <span>Inventory</span>
+    <span style="color:var(--text);">Bench</span>
+    <span>Stock</span>
   </a>
   <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
   <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}">Components</a>
@@ -445,10 +538,42 @@
 
 <div id="link-preview" style="display:none;position:fixed;z-index:1400;max-width:340px;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:8px;"></div>
 
+<button id="ai-assistant-toggle" onclick="toggleAiAssistant()">Assistant</button>
+<div id="ai-assistant-shell" aria-label="AI Assistant Placeholder">
+  <div class="ai-handle" title="Drag to resize"></div>
+  <div class="ai-header">
+    <span>AI Assistant</span>
+    <button class="btn btn-primary btn-xs" onclick="toggleAiAssistant()">Close</button>
+  </div>
+  <div class="ai-body">Blank panel placeholder</div>
+</div>
+
 <div class="eventlog-bar">
   <div class="eventlog-label">event log</div>
   <div id="event-log"></div>
-  <div class="copyright-foot">© Annabella Adair-Proctor</div>
+</div>
+
+<div class="copyright-bar">
+  <span id="copyright-text"></span>
+  <button class="btn btn-primary btn-xs" onclick="openLicensesModal()">Open Source & Data Attributions</button>
+</div>
+
+<div id="licenses-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.86);z-index:1300;padding:24px 16px;">
+  <div class="card" style="max-width:760px;margin:0 auto;max-height:84vh;overflow:auto;">
+    <div class="card-header"><span class="dot"></span>Open Source Licenses & Data Attribution</div>
+    <div class="p-3" style="font-size:12px;line-height:1.7;">
+      <div><strong>Data Attribution</strong></div>
+      <div>Mouser Electronics: Product information and media where available via Mouser APIs/services.</div>
+      <div>DigiKey: Product information and media where available via DigiKey APIs/services.</div>
+      <div>LCSC: Product catalog and media where available via configured LCSC sources.</div>
+      <div>Wikimedia Commons: Open image sources where selected.</div>
+      <div>Google Gemini, Brave Search, Tavily: AI/search assistance where configured.</div>
+      <div style="margin-top:10px;"><strong>Frameworks/Libraries</strong></div>
+      <div>FastAPI, SQLAlchemy, HTMX, Bootstrap, Cropper.js, and other project dependencies in requirements/package manifests.</div>
+      <div class="muted" style="font-size:11px;margin-top:10px;">Review license terms for each dependency and API provider before public distribution.</div>
+      <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="closeLicensesModal()">Close</button></div>
+    </div>
+  </div>
 </div>
 
 <!-- Keyboard shortcuts footer (hidden on mobile, shown on desktop) -->
@@ -458,13 +583,74 @@
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">?</kbd> help</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">A</kbd> add</span>
   <span><kbd style="background:var(--bg);border:1px solid var(--border);padding:2px 5px;border-radius:2px;font-size:9px;">↑↓←→</kbd> navigate</span>
-  <span style="margin-left:auto;color:var(--text3);" id="shortcuts-info">© Annabella Adair-Proctor</span>
+  <span style="margin-left:auto;color:var(--text3);" id="shortcuts-info"></span>
 </div>
 
 <script>
 const log = document.getElementById('event-log');
 const wsDot = document.getElementById('ws-dot');
 const shortcutsBar = document.getElementById('shortcuts-bar');
+const shortcutsInfo = document.getElementById('shortcuts-info');
+
+function updateShortcutHint() {
+  if (!shortcutsInfo) return;
+  const path = location.pathname;
+  const focused = document.activeElement;
+  const focusLabel = focused ? (focused.getAttribute('aria-label') || focused.textContent || focused.id || '').trim().slice(0, 32) : '';
+  let hint = 'Arrows navigate · Enter activate · Ctrl/Cmd+K search';
+  if (path.startsWith('/scan')) hint = 'Scan: Enter run · Shift+Enter force refresh · Arrows navigate cards';
+  if (path.startsWith('/boxes/')) hint = 'Box grid: Arrows navigate cells · Enter open/select · Right click tag';
+  if (path.startsWith('/components')) hint = 'Components: / filter · Arrows navigate rows · Space toggle check';
+  if (focusLabel) hint += ' · Focus: ' + focusLabel;
+  shortcutsInfo.textContent = hint;
+}
+
+function toggleAiAssistant() {
+  document.getElementById('ai-assistant-shell')?.classList.toggle('show');
+}
+
+function openLicensesModal() {
+  const m = document.getElementById('licenses-modal');
+  if (m) m.style.display = 'block';
+}
+function closeLicensesModal() {
+  const m = document.getElementById('licenses-modal');
+  if (m) m.style.display = 'none';
+}
+
+const y = new Date().getFullYear();
+const c = document.getElementById('copyright-text');
+if (c) c.textContent = `© ${y} Annabella Adair-Proctor. All rights reserved.`;
+
+(function initAssistantFloating() {
+  const shell = document.getElementById('ai-assistant-shell');
+  const handle = shell?.querySelector('.ai-handle');
+  const header = shell?.querySelector('.ai-header');
+  if (!shell || !handle || !header) return;
+
+  let drag = null;
+  header.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;
+    drag = {type: 'move', sx: e.clientX, sy: e.clientY, left: shell.offsetLeft, top: shell.offsetTop};
+    e.preventDefault();
+  });
+  handle.addEventListener('mousedown', (e) => {
+    drag = {type: 'resize', sx: e.clientX, w: shell.offsetWidth};
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    if (drag.type === 'move') {
+      shell.style.right = 'auto';
+      shell.style.left = Math.max(8, Math.min(window.innerWidth - 220, drag.left + (e.clientX - drag.sx))) + 'px';
+      shell.style.top = Math.max(46, Math.min(window.innerHeight - 120, drag.top + (e.clientY - drag.sy))) + 'px';
+    } else {
+      const w = Math.max(260, Math.min(window.innerWidth * 0.75, drag.w - (e.clientX - drag.sx)));
+      shell.style.width = w + 'px';
+    }
+  });
+  window.addEventListener('mouseup', () => { drag = null; });
+})();
 
 // Show shortcuts bar on desktop
 if (window.innerWidth >= 1024) {
@@ -472,7 +658,10 @@ if (window.innerWidth >= 1024) {
 }
 window.addEventListener('resize', () => {
   shortcutsBar.style.display = window.innerWidth >= 1024 ? 'flex' : 'none';
+  updateShortcutHint();
 });
+document.addEventListener('focusin', updateShortcutHint);
+updateShortcutHint();
 
 function addLog(msg, cls='') {
   const ts = new Date().toTimeString().slice(0,8);
@@ -613,6 +802,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (commandOpen) { closeCommandPalette(); return; }
     if (shortcutsOpen) { closeShortcutsModal(); return; }
+    if (document.getElementById('licenses-modal')?.style.display === 'block') { closeLicensesModal(); return; }
+    if (document.getElementById('ai-assistant-shell')?.classList.contains('show')) { toggleAiAssistant(); return; }
   }
 
   if (commandOpen) {
@@ -736,30 +927,116 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.closest && e.target.closest('a')) hidePreview();
   });
 
-  // Arrow-key focus navigation across visible controls when not typing.
-  document.addEventListener('keydown', (e) => {
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  // Spatial keyboard navigation (viewport-relative, not DOM-order).
+  function isTypingContext() {
     const tag = (document.activeElement?.tagName || '').toUpperCase();
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
-    const paletteOpen = document.getElementById('command-palette')?.style.display === 'block';
-    const modalOpen = document.getElementById('shortcuts-modal')?.style.display === 'block';
-    if (paletteOpen || modalOpen) return;
+    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
+  }
 
-    const nodes = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
+  function visibleFocusables() {
+    return Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
       .filter(el => !el.disabled && el.tabIndex > -1)
       .filter(el => {
         const st = window.getComputedStyle(el);
-        return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
+        if (st.display === 'none' || st.visibility === 'hidden') return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
       });
-    if (!nodes.length) return;
-    const idx = Math.max(0, nodes.indexOf(document.activeElement));
-    const nextIdx = (e.key === 'ArrowUp' || e.key === 'ArrowLeft')
-      ? Math.max(0, idx - 1)
-      : Math.min(nodes.length - 1, idx + 1);
-    if (nextIdx !== idx) {
-      e.preventDefault();
-      nodes[nextIdx].focus({preventScroll: false});
+  }
+
+  function pulseFocus(el) {
+    document.querySelectorAll('.kbd-pulse').forEach(n => n.classList.remove('kbd-pulse'));
+    if (!el) return;
+    el.classList.add('kbd-pulse');
+    setTimeout(() => el.classList.remove('kbd-pulse'), 1200);
+  }
+
+  function nearestByDirection(currentEl, direction) {
+    const nodes = visibleFocusables();
+    if (!nodes.length) return null;
+    if (!currentEl || !nodes.includes(currentEl)) return nodes[0];
+    const cr = currentEl.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2;
+    const cy = cr.top + cr.height / 2;
+
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const n of nodes) {
+      if (n === currentEl) continue;
+      const r = n.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      const dx = x - cx;
+      const dy = y - cy;
+
+      if (direction === 'left' && dx >= -2) continue;
+      if (direction === 'right' && dx <= 2) continue;
+      if (direction === 'up' && dy >= -2) continue;
+      if (direction === 'down' && dy <= 2) continue;
+
+      const primary = (direction === 'left' || direction === 'right') ? Math.abs(dx) : Math.abs(dy);
+      const secondary = (direction === 'left' || direction === 'right') ? Math.abs(dy) : Math.abs(dx);
+      const score = primary + secondary * 2.25;
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
     }
+    return best;
+  }
+
+  function jumpSection(direction) {
+    const sections = Array.from(document.querySelectorAll('.card, section, .mode-panel, h1, h2, h3'))
+      .filter(el => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+    if (!sections.length) return;
+    const currentY = document.activeElement?.getBoundingClientRect?.().top ?? (window.innerHeight / 2);
+    let candidate = null;
+    let best = Number.POSITIVE_INFINITY;
+    for (const s of sections) {
+      const y = s.getBoundingClientRect().top;
+      const delta = y - currentY;
+      if (direction === 'up' && delta >= -6) continue;
+      if (direction === 'down' && delta <= 6) continue;
+      const ad = Math.abs(delta);
+      if (ad < best) {
+        best = ad;
+        candidate = s;
+      }
+    }
+    if (!candidate) return;
+    const child = candidate.querySelector('a[href], button, input, select, textarea, [tabindex]');
+    const target = child || candidate;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '0');
+    target.focus({preventScroll: false});
+    pulseFocus(target);
+    updateShortcutHint();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const paletteOpen = document.getElementById('command-palette')?.style.display === 'block';
+    const modalOpen = document.getElementById('shortcuts-modal')?.style.display === 'block';
+    const licOpen = document.getElementById('licenses-modal')?.style.display === 'block';
+    if (paletteOpen || modalOpen || licOpen) return;
+    if (isTypingContext()) return;
+
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
+      e.preventDefault();
+      jumpSection(e.key === 'ArrowUp' ? 'up' : 'down');
+      return;
+    }
+
+    const map = {ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down'};
+    const next = nearestByDirection(document.activeElement, map[e.key]);
+    if (!next) return;
+    e.preventDefault();
+    next.focus({preventScroll: false});
+    pulseFocus(next);
+    updateShortcutHint();
   });
 });
 </script>
