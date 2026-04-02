@@ -4,17 +4,20 @@ Smart model selection: Automatically picks best available model based on quota.
 Falls back to alternatives when primary model quota is exhausted.
 https://ai.google.dev/pricing
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-import os, json, logging, re
+from pydantic import BaseModel, Field
+import os, json, logging, re, uuid
 from datetime import datetime, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import httpx
 from google import genai
 from google.genai import types
 from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
 from app.models.database import get_db
+from app.services.ai_context import build_workspace_snapshot, extract_text_from_upload, get_ai_sources, upsert_ai_source, serialize_ai_source, AI_SOURCE_DIR
 from app.services.api_usage import track_api_call
 
 log = logging.getLogger("ai_parse")
@@ -23,6 +26,11 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10"))
 GEMINI_MAX_WORKERS = int(os.getenv("GEMINI_MAX_WORKERS", "2"))
+AI_PROVIDER = os.getenv("AI_PROVIDER", "auto").strip().lower()
+AI_OPENAI_BASE_URL = os.getenv("AI_OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL", "")).strip().rstrip("/")
+AI_OPENAI_API_KEY = os.getenv("AI_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
+AI_OPENAI_MODEL = os.getenv("AI_OPENAI_MODEL", "gpt-4o-mini").strip()
+AI_ASSISTANT_TIMEOUT_SECONDS = float(os.getenv("AI_ASSISTANT_TIMEOUT_SECONDS", "30"))
 
 # Initialize client
 client = None
@@ -205,6 +213,79 @@ def _normalize_suggested_add_fields(existing: dict, patch_fields: dict, suggeste
         seen.add(key)
         dedup.append(row)
     return dedup[:30]
+
+
+def _strip_json_fences(text: str) -> str:
+    blob = (text or "").strip()
+    if blob.startswith("```"):
+        blob = re.sub(r"^```(?:json)?\s*", "", blob, flags=re.IGNORECASE)
+        blob = re.sub(r"\s*```$", "", blob)
+    return blob.strip()
+
+
+async def _call_openai_compatible(prompt: str, schema: dict, model: str | None = None) -> dict:
+    if not AI_OPENAI_BASE_URL:
+        raise HTTPException(503, "OpenAI-compatible AI provider is not configured")
+
+    model_name = model or AI_OPENAI_MODEL
+    schema_text = json.dumps(schema, ensure_ascii=False)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a data-aware assistant for an electronics inventory app. "
+                "Return only strict JSON matching the requested schema. "
+                "Do not wrap the response in markdown fences. "
+                f"Schema: {schema_text}"
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Content-Type": "application/json"}
+    if AI_OPENAI_API_KEY:
+        headers["Authorization"] = f"Bearer {AI_OPENAI_API_KEY}"
+
+    async with httpx.AsyncClient(timeout=AI_ASSISTANT_TIMEOUT_SECONDS) as client:
+        try:
+            r = await client.post(f"{AI_OPENAI_BASE_URL}/chat/completions", json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+        except Exception:
+            payload.pop("response_format", None)
+            r = await client.post(f"{AI_OPENAI_BASE_URL}/chat/completions", json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+
+    content = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+    content = _strip_json_fences(content)
+    if not content:
+        raise ValueError("OpenAI-compatible provider returned empty content")
+    return json.loads(content)
+
+
+async def _call_data_aware_ai(prompt: str, schema: dict, *, preferred_model: str | None = None, allow_openai: bool = True) -> dict:
+    if AI_PROVIDER == "gemini" or (AI_PROVIDER == "auto" and client):
+        return await _gemini(prompt, schema, preferred_model=preferred_model)
+
+    if allow_openai and (AI_PROVIDER in {"openai", "openai-compatible", "auto"}):
+        if AI_OPENAI_BASE_URL:
+            return await _call_openai_compatible(prompt, schema, model=preferred_model)
+
+    return {
+        "reply": "AI provider is not configured. Add GEMINI_API_KEY or AI_OPENAI_BASE_URL to enable model-backed responses.",
+        "confidence": 0.0,
+        "actions": [],
+        "queries": [],
+        "migration_sql": [],
+        "cleanup_steps": [],
+        "source": "local_fallback",
+    }
 
 
 def _gemini_call_sync(prompt: str, schema: dict, model: str):
@@ -496,6 +577,9 @@ async def _gemini(
 
 class ParseRequest(BaseModel):
     text: str
+    source_ids: list[str] | None = None
+    page_context: dict | None = None
+    context_query: str | None = None
 
 
 class MergeRequest(BaseModel):
@@ -509,12 +593,41 @@ class EnrichRequest(BaseModel):
     text: str
     existing_data: dict | None = None
     page_context: dict | None = None
+    source_ids: list[str] | None = None
+    context_query: str | None = None
 
 
 class RenameWithRulesRequest(BaseModel):
     component_data: dict
     rules: str
     model: str | None = None
+
+
+class AssistantRequest(BaseModel):
+    message: str
+    page_context: dict | None = None
+    source_ids: list[str] | None = None
+    context_query: str | None = None
+    mode: str = "general"
+    model: str | None = None
+
+
+class ReferenceTextRequest(BaseModel):
+    title: str | None = None
+    text: str
+    source_kind: str = "paste"
+    mime_type: str | None = None
+    page_context: dict | None = None
+
+
+class AssistantActionResponse(BaseModel):
+    reply: str
+    confidence: float = 0.0
+    actions: list[dict] = Field(default_factory=list)
+    queries: list[dict] = Field(default_factory=list)
+    cleanup_steps: list[dict] = Field(default_factory=list)
+    migration_sql: list[str] = Field(default_factory=list)
+    source_ids_used: list[str] = Field(default_factory=list)
 
 
 async def generate_component_title_with_rules(component_data: dict, rules: str, model: str | None = None) -> dict:
@@ -568,6 +681,9 @@ class OrderParseRequest(BaseModel):
     text: str
     html: str | None = None
     source_urls: list[str] | None = None
+    source_ids: list[str] | None = None
+    page_context: dict | None = None
+    context_query: str | None = None
 
 
 def _normalize_order_parse_result(raw) -> dict:
@@ -756,12 +872,21 @@ def _build_suggested_add_fields(existing: dict, patch_fields: dict) -> list[dict
 
 
 @router.post("/parse")
-async def parse_component(req: ParseRequest):
+async def parse_component(req: ParseRequest, db: AsyncSession = Depends(get_db)):
     """Extract structured component data from any text."""
     if not req.text or len(req.text.strip()) < 5:
         raise HTTPException(400, "Text too short")
 
     available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
+    context_bundle = None
+    if req.source_ids or req.page_context or req.context_query:
+        context_bundle = await build_workspace_snapshot(
+            db,
+            message=req.context_query or req.text,
+            page_context=req.page_context or {},
+            source_ids=req.source_ids,
+        )
+    context_json = json.dumps(context_bundle or {}, ensure_ascii=False)[:6000]
 
     prompt = f"""You are an electronics component database assistant.
 Extract structured component information from the following text.
@@ -784,6 +909,9 @@ KIT DETECTION RULES:
 
 SUPPORTED TYPE PATHS (pick the closest exact path):
 {available_paths}
+
+Workspace context and reference sources:
+{context_json}
 
 Text:
 {req.text[:16000]}"""
@@ -822,13 +950,22 @@ Text:
 
 
 @router.post("/enrich-record")
-async def enrich_record(req: EnrichRequest):
+async def enrich_record(req: EnrichRequest, db: AsyncSession = Depends(get_db)):
     """Suggest add/repair/remove field changes for component/kit/order from noisy pasted text."""
     if not req.text or len(req.text.strip()) < 10:
         raise HTTPException(400, "Text too short")
 
     existing_json = json.dumps(req.existing_data or {}, ensure_ascii=False)[:6000]
-    context_json = json.dumps(req.page_context or {}, ensure_ascii=False)[:2000]
+    context_bundle = await build_workspace_snapshot(
+        db,
+        message=req.context_query or req.text,
+        page_context=req.page_context or {},
+        source_ids=req.source_ids,
+    )
+    context_json = json.dumps({
+        "page_context": req.page_context or {},
+        "workspace": context_bundle,
+    }, ensure_ascii=False)[:6000]
     available_paths = "\n".join(f"- {p}" for p in flatten_type_paths())
 
     existing_obj = req.existing_data or {}
@@ -950,7 +1087,7 @@ Noisy text:
 
 
 @router.post("/parse-order")
-async def parse_order_text(req: OrderParseRequest):
+async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(get_db)):
     """Extract order-centric line items from noisy page text (components + kits)."""
     if not req.text or len(req.text.strip()) < 10:
         raise HTTPException(400, "Text too short")
@@ -987,6 +1124,13 @@ async def parse_order_text(req: OrderParseRequest):
     if not urls:
         urls = _extract_urls((req.text or "") + "\n" + (req.html or ""))
     urls_txt = "\n".join(f"- {u}" for u in urls[:20])
+    context_bundle = await build_workspace_snapshot(
+        db,
+        message=req.context_query or req.text,
+        page_context=req.page_context or {},
+        source_ids=req.source_ids,
+    )
+    context_json = json.dumps(context_bundle, ensure_ascii=False)[:6000]
 
     prompt = f"""Extract order line-items from noisy copy-pasted website text.
 Rules:
@@ -1002,6 +1146,9 @@ Each item must include: name, quantity, unit_price (optional), line_total (optio
 
 Links extracted from paste:
 {urls_txt or '- none'}
+
+Workspace context and reference sources:
+{context_json}
 
 Rich/HTML snippet:
 {html_snippet or '[none]'}
@@ -1061,6 +1208,146 @@ J=connector, K=relay, LED=led, M=module, S=sensor, Y=crystal, F=fuse, SW=switch.
 Component: {req.text[:500]}"""
 
     return await _gemini(prompt, CLASSIFY_SCHEMA)
+
+
+@router.get("/sources")
+async def list_ai_sources(limit: int = 20, db: AsyncSession = Depends(get_db)):
+    sources = await get_ai_sources(db, limit=max(1, min(limit, 50)))
+    return {"sources": sources}
+
+
+@router.post("/references/text")
+async def add_ai_reference(req: ReferenceTextRequest, db: AsyncSession = Depends(get_db)):
+    text = (req.text or "").strip()
+    if len(text) < 8:
+        raise HTTPException(400, "Reference text too short")
+
+    title = (req.title or "").strip() or f"{req.source_kind} reference"
+    source = await upsert_ai_source(
+        db,
+        source_kind=(req.source_kind or "paste").strip() or "paste",
+        title=title,
+        raw_text=text,
+        extracted_text=text,
+        mime_type=req.mime_type,
+        metadata={"page_context": req.page_context or {}},
+    )
+    return {"source": source}
+
+
+@router.post("/references/upload")
+async def add_ai_reference_upload(
+    file: UploadFile = File(...),
+    source_kind: str = Form("upload"),
+    title: str = Form(None),
+    page_context: str = Form("{}"),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await file.read()
+    extracted = extract_text_from_upload(file.filename, file.content_type, payload)
+    if not extracted:
+        extracted = ""
+
+    safe_title = (title or file.filename or "uploaded reference").strip()
+    storage_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex}_{re.sub(r'[^A-Za-z0-9_.-]+', '_', file.filename or 'upload')}"
+    storage_path = AI_SOURCE_DIR / storage_name
+    try:
+        storage_path.write_bytes(payload)
+    except Exception:
+        storage_path = None
+
+    try:
+        parsed_context = json.loads(page_context) if page_context else {}
+    except Exception:
+        parsed_context = {}
+
+    source = await upsert_ai_source(
+        db,
+        source_kind=(source_kind or "upload").strip() or "upload",
+        title=safe_title,
+        raw_text=extracted or "",
+        extracted_text=extracted or "",
+        mime_type=file.content_type,
+        storage_path=str(storage_path) if storage_path else None,
+        metadata={"filename": file.filename, "page_context": parsed_context},
+    )
+    source["extracted_chars"] = len(extracted or "")
+    source["stored_bytes"] = len(payload)
+    return {"source": source}
+
+
+@router.post("/context-pack")
+async def build_context_pack(
+    message: str = Form(""),
+    source_ids: str = Form("[]"),
+    page_context: str = Form("{}"),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        parsed_ids = json.loads(source_ids) if source_ids else []
+    except Exception:
+        parsed_ids = []
+    try:
+        parsed_context = json.loads(page_context) if page_context else {}
+    except Exception:
+        parsed_context = {}
+    pack = await build_workspace_snapshot(db, message=message, page_context=parsed_context, source_ids=parsed_ids)
+    return pack
+
+
+@router.post("/assistant")
+async def ai_assistant(req: AssistantRequest, db: AsyncSession = Depends(get_db)):
+    if not req.message or len(req.message.strip()) < 3:
+        raise HTTPException(400, "Message too short")
+
+    workspace = await build_workspace_snapshot(
+        db,
+        message=req.context_query or req.message,
+        page_context=req.page_context or {},
+        source_ids=req.source_ids,
+    )
+    prompt = f"""You are the lab inventory assistant.
+You have access to current workspace context, recent reference sources, and a compact snapshot of the database.
+Use the context to answer concretely.
+
+User request:
+{req.message[:12000]}
+
+Workspace snapshot:
+{json.dumps(workspace, ensure_ascii=False)[:12000]}
+
+Return strict JSON with keys:
+- reply: concise answer for the user
+- confidence: 0.0 to 1.0
+- actions: list of suggested actions or follow-ups
+- queries: list of read-only search/query suggestions if more data is needed
+- cleanup_steps: list of cleanup or normalization steps
+- migration_sql: list of migration statements if schema changes are relevant
+- source_ids_used: list of attachment/source ids used in the answer
+
+If the request asks for data cleanup, schema cleanup, or migration work, prefer actionable steps and safe SQL snippets.
+If the request is ambiguous, explain what current data you could verify and what remains uncertain.
+"""
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "reply": {"type": "string"},
+            "confidence": {"type": "number"},
+            "actions": {"type": "array", "items": {"type": "object"}},
+            "queries": {"type": "array", "items": {"type": "object"}},
+            "cleanup_steps": {"type": "array", "items": {"type": "object"}},
+            "migration_sql": {"type": "array", "items": {"type": "string"}},
+            "source_ids_used": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["reply", "confidence", "actions", "queries", "cleanup_steps", "migration_sql", "source_ids_used"],
+    }
+
+    result = await _call_data_aware_ai(prompt, schema, preferred_model=req.model)
+    result.setdefault("source", "ai_assistant")
+    result.setdefault("workspace", workspace)
+    result.setdefault("source_ids_used", req.source_ids or [])
+    return result
 
 
 @router.get("/failed-requests")

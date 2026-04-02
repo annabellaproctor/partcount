@@ -585,6 +585,9 @@ async function saveComponentDetails() {
 async function analyzeComponentText() {
   const text = document.getElementById('component-ai-text').value.trim();
   const status = document.getElementById('component-ai-status');
+  const sourceIds = (() => {
+    try { return JSON.parse(document.getElementById('component-ai-text')?.dataset.aiSourceIds || '[]'); } catch (_) { return []; }
+  })();
   if (!text) {
     status.textContent = 'Paste text first';
     return;
@@ -620,12 +623,15 @@ async function analyzeComponentText() {
       action: 'smart',
       text,
       existing_data: existing,
+      source_ids: sourceIds,
       page_context: {
         page: 'component_detail',
         route: location.pathname,
         component_id: COMP_ID,
         barcode_id: "{{ comp.barcode_id|e }}",
+        selection: (window.getSelection?.().toString() || '').slice(0, 300),
       },
+      context_query: text.slice(0, 220),
     }),
   });
 

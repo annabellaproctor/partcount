@@ -131,7 +131,14 @@ MOUSER_API_KEY=your_key_here
 3. Add to `.env`:
 ```
 GEMINI_API_KEY=AIza...your_key_here
+AI_PROVIDER=auto
+AI_OPENAI_BASE_URL=
+AI_OPENAI_API_KEY=
+AI_OPENAI_MODEL=gpt-4o-mini
+AI_SOURCE_DIR=/tmp/lab-inventory-tracker/ai-sources
 ```
+
+If Gemini is unavailable, the assistant can use any OpenAI-compatible endpoint instead. Long pastes and uploaded PDFs/text files are stored as reference sources and then passed to the AI as compact context rather than raw prompt text.
 
 **Rate limit**: Not tracked (high free tier limits)
 

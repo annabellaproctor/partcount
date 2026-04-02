@@ -387,6 +387,35 @@ MIGRATIONS = [
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS current_rating FLOAT",
         "ALTER TABLE components ADD COLUMN IF NOT EXISTS power_rating FLOAT",
     ]),
+
+    (18, "ai sources and compacted context cache", [
+        """CREATE TABLE IF NOT EXISTS ai_sources (
+            id VARCHAR PRIMARY KEY,
+            source_kind VARCHAR NOT NULL DEFAULT 'paste',
+            title VARCHAR NOT NULL,
+            mime_type VARCHAR,
+            source_hash VARCHAR UNIQUE,
+            storage_path VARCHAR,
+            raw_text TEXT,
+            extracted_text TEXT,
+            summary TEXT,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ai_sources_source_kind ON ai_sources (source_kind)",
+        """CREATE TABLE IF NOT EXISTS ai_context_cache (
+            id VARCHAR PRIMARY KEY,
+            cache_key VARCHAR NOT NULL UNIQUE,
+            scope VARCHAR NOT NULL,
+            context_json TEXT NOT NULL,
+            summary TEXT,
+            hits INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ai_context_cache_scope ON ai_context_cache (scope)",
+    ]),
 ]
 
 

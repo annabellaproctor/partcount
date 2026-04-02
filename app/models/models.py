@@ -322,6 +322,34 @@ class SystemSetting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AISource(Base):
+    __tablename__ = "ai_sources"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    source_kind = Column(String, nullable=False, default="paste")
+    title = Column(String, nullable=False)
+    mime_type = Column(String)
+    source_hash = Column(String, unique=True, index=True)
+    storage_path = Column(String)
+    raw_text = Column(Text)
+    extracted_text = Column(Text)
+    summary = Column(Text)
+    metadata_json = Column("metadata", JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AIContextCache(Base):
+    __tablename__ = "ai_context_cache"
+    id = Column(String, primary_key=True, default=gen_uuid)
+    cache_key = Column(String, unique=True, nullable=False, index=True)
+    scope = Column(String, nullable=False)
+    context_json = Column(Text, nullable=False)
+    summary = Column(Text)
+    hits = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class APIUsage(Base):
     """Track API usage for rate limit monitoring."""
     __tablename__ = "api_usage"

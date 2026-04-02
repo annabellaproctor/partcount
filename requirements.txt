@@ -14,3 +14,4 @@ python-dotenv==1.0.1
 websockets>=13.0
 numpy==1.26.4
 google-genai
+pypdf>=4.2.0

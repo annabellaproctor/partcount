@@ -69,6 +69,9 @@ let _kitAiData = null;
 async function analyzeKitText() {
   const text = document.getElementById('kit-ai-text').value.trim();
   const status = document.getElementById('kit-ai-status');
+  const sourceIds = (() => {
+    try { return JSON.parse(document.getElementById('kit-ai-text')?.dataset.aiSourceIds || '[]'); } catch (_) { return []; }
+  })();
   if (!text) {
     status.textContent = 'Paste text first';
     return;
@@ -91,12 +94,15 @@ async function analyzeKitText() {
       action: 'smart',
       text,
       existing_data: existing,
+      source_ids: sourceIds,
       page_context: {
         page: 'kit_detail',
         route: location.pathname,
         kit_id: "{{ kit.id }}",
         kit_barcode: "{{ kit.barcode_id }}",
+        selection: (window.getSelection?.().toString() || '').slice(0, 300),
       },
+      context_query: text.slice(0, 220),
     }),
   });
 

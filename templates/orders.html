@@ -252,6 +252,9 @@ async function parseOrderText() {
   const plain = document.getElementById('order-ai-text').value.trim();
   const text = [richText, plain].filter(Boolean).join('\n\n');
   const status = document.getElementById('order-ai-status');
+  const sourceIds = (() => {
+    try { return JSON.parse(document.getElementById('order-ai-text')?.dataset.aiSourceIds || '[]'); } catch (_) { return []; }
+  })();
   if (!text) {
     status.textContent = 'Paste text first';
     return;
@@ -280,7 +283,18 @@ async function parseOrderText() {
   const r = await fetch('/api/ai/parse-order', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text, html: richHtml, source_urls: urls}),
+    body: JSON.stringify({
+      text,
+      html: richHtml,
+      source_urls: urls,
+      source_ids: sourceIds,
+      page_context: {
+        page: 'orders',
+        route: location.pathname,
+        selection: (window.getSelection?.().toString() || '').slice(0, 300),
+      },
+      context_query: text.slice(0, 220),
+    }),
   });
   if (!r.ok) {
     status.textContent = 'Parse failed';

@@ -438,12 +438,101 @@
     .ai-body {
       height: calc(100% - 38px);
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
       color: var(--text3);
       font-size: 12px;
       padding: 12px;
+      overflow: auto;
+    }
+    .ai-panel-copy {
+      font-size: 12px;
+      color: var(--text2);
+      line-height: 1.5;
+    }
+    .ai-source-toolbar,
+    .ai-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ai-source-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 130px;
+      overflow: auto;
+    }
+    .ai-source-chip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg3);
+      font-size: 10px;
+      color: var(--text2);
+    }
+    .ai-source-chip .name {
+      color: var(--text);
+      font-size: 11px;
+      min-width: 0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ai-source-chip .meta {
+      font-size: 9px;
+      color: var(--text3);
+      white-space: nowrap;
+    }
+    .ai-source-chip .remove {
+      border: none;
+      background: transparent;
+      color: var(--text3);
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 12px;
+    }
+    #ai-assistant-input {
+      min-height: 112px;
+      resize: vertical;
+      font-size: 12px;
+    }
+    .ai-dropzone {
+      border: 1px dashed var(--border2);
+      background: linear-gradient(180deg, rgba(61,220,132,0.06), transparent 100%);
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 10px;
+      color: var(--text3);
       text-align: center;
+      transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+    }
+    .ai-dropzone.drag-over {
+      border-color: rgba(61,220,132,0.7);
+      background: rgba(61,220,132,0.14);
+      color: var(--text2);
+    }
+    .ai-status {
+      font-size: 10px;
+      min-height: 14px;
+    }
+    .ai-response {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg3);
+      padding: 8px;
+      font-size: 11px;
+      color: var(--text2);
+      line-height: 1.5;
+      overflow: auto;
+      max-height: 250px;
+      white-space: pre-wrap;
     }
 
     .cmd-palette {
@@ -622,7 +711,23 @@
       <span>AI Assistant</span>
       <button class="btn btn-primary btn-xs" onclick="toggleAiAssistant()">Close</button>
     </div>
-    <div class="ai-body">Blank panel placeholder. This panel docks to the right and resizes the workspace.</div>
+    <div class="ai-body">
+      <div class="ai-panel-copy">Ask for inventory queries, cleanup plans, migration drafts, or document summaries. Drop files or paste a long document and it becomes a reference source instead of bloating the prompt.</div>
+      <div class="ai-source-toolbar">
+        <button class="btn btn-primary btn-xs" type="button" id="ai-attach-btn">Attach files</button>
+        <button class="btn btn-primary btn-xs" type="button" id="ai-clear-sources-btn">Clear refs</button>
+        <input id="ai-file-input" type="file" multiple accept=".txt,.md,.csv,.tsv,.json,.log,.html,.htm,.pdf" hidden>
+      </div>
+      <div id="ai-source-list" class="ai-source-list"></div>
+      <textarea id="ai-assistant-input" class="form-control" rows="6" placeholder="Ask the assistant. Long pastes will be saved as reference sources automatically."></textarea>
+      <div id="ai-dropzone" class="ai-dropzone">Drop files here or paste a long document to create a reference source.</div>
+      <div class="ai-actions">
+        <button class="btn btn-primary btn-sm" type="button" id="ai-run-btn">Run</button>
+        <button class="btn btn-primary btn-sm" type="button" id="ai-snapshot-btn">Snapshot</button>
+      </div>
+      <div id="ai-assistant-status" class="ai-status muted"></div>
+      <div id="ai-assistant-response" class="ai-response"></div>
+    </div>
   </div>
 </div>
 
@@ -718,6 +823,7 @@ function toggleAiAssistant() {
   const opening = !shell.classList.contains('show');
   shell.classList.toggle('show', opening);
   document.body.classList.toggle('assistant-open', opening);
+  if (opening) setTimeout(() => document.getElementById('ai-assistant-input')?.focus(), 50);
 }
 
 function openLicensesModal() {
@@ -760,6 +866,282 @@ if (c) c.textContent = `© ${y} Annabella Adair-Proctor. All rights reserved.`;
   window.addEventListener('resize', () => setAssistantWidth(shell.offsetWidth));
   setAssistantWidth(shell.offsetWidth || 380);
 })();
+
+const AI_CAPTURE_TEXTAREA_IDS = ['ai-assistant-input', 'ai-paste-input', 'component-ai-text', 'kit-ai-input', 'kit-ai-text', 'order-ai-text'];
+let _aiSources = [];
+
+function aiPageContext(extra = {}) {
+  const parts = location.pathname.split('/').filter(Boolean);
+  const context = {
+    path: location.pathname,
+    search: location.search,
+    title: document.title,
+    selection: (window.getSelection?.().toString() || '').slice(0, 500),
+    active_id: document.activeElement?.id || '',
+  };
+  if (parts[0] === 'components' && parts[1]) context.component_id = parts[1];
+  if (parts[0] === 'kits' && parts[1]) context.kit_id = parts[1];
+  if (parts[0] === 'projects' && parts[1]) context.project_id = parts[1];
+  if (parts[0] === 'boxes' && parts[1]) context.box_id = parts[1];
+  return {...context, ...extra};
+}
+
+function aiSetStatus(message, isError = false) {
+  const status = document.getElementById('ai-assistant-status');
+  if (!status) return;
+  status.style.color = isError ? 'var(--red)' : 'var(--text3)';
+  status.textContent = message || '';
+}
+
+function aiRenderSources() {
+  const list = document.getElementById('ai-source-list');
+  if (!list) return;
+  if (!_aiSources.length) {
+    list.innerHTML = '<div class="muted" style="font-size:10px;">No reference sources attached.</div>';
+    return;
+  }
+  list.innerHTML = _aiSources.map(source => `
+    <div class="ai-source-chip" data-source-id="${source.id}">
+      <div class="name" title="${source.title || ''}">${source.title || source.id}</div>
+      <div class="meta">${source.source_kind || 'source'}</div>
+      <button class="remove" type="button" aria-label="Remove source">×</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('.ai-source-chip').forEach(chip => {
+    chip.querySelector('.remove')?.addEventListener('click', () => {
+      const id = chip.getAttribute('data-source-id');
+      _aiSources = _aiSources.filter(src => src.id !== id);
+      aiRenderSources();
+    });
+  });
+}
+
+function aiAttachSourceToField(field, source, replaceText = true) {
+  if (!field || !source?.id) return;
+  const ids = new Set();
+  try {
+    JSON.parse(field.dataset.aiSourceIds || '[]').forEach(id => ids.add(id));
+  } catch (_) {}
+  ids.add(source.id);
+  field.dataset.aiSourceIds = JSON.stringify(Array.from(ids));
+  if (replaceText) {
+    const tag = `[[source:${(source.title || source.id).slice(0, 64)}]]`;
+    field.value = field.value && field.value.trim() ? `${tag}\n${field.value.trim()}` : tag;
+  }
+}
+
+async function aiCaptureTextReference(text, title, sourceKind = 'paste', field = null, pageContext = {}) {
+  const payload = {
+    title,
+    text,
+    source_kind: sourceKind,
+    mime_type: 'text/plain',
+    page_context: pageContext,
+  };
+  const r = await fetch('/api/ai/references/text', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error('Failed to save reference');
+  const data = await r.json();
+  if (data?.source) {
+    _aiSources.unshift(data.source);
+    _aiSources = _aiSources.slice(0, 12);
+    aiRenderSources();
+    if (field) aiAttachSourceToField(field, data.source, true);
+  }
+  return data?.source || null;
+}
+
+async function aiCaptureFileReference(file, field = null) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('source_kind', 'upload');
+  form.append('title', file.name || 'uploaded reference');
+  form.append('page_context', JSON.stringify(aiPageContext()));
+  const r = await fetch('/api/ai/references/upload', {method: 'POST', body: form});
+  if (!r.ok) throw new Error('Failed to upload reference');
+  const data = await r.json();
+  if (data?.source) {
+    _aiSources.unshift(data.source);
+    _aiSources = _aiSources.slice(0, 12);
+    aiRenderSources();
+    if (field) aiAttachSourceToField(field, data.source, true);
+  }
+  return data?.source || null;
+}
+
+function aiBindCaptureField(field) {
+  if (!field || field.dataset.aiBound === '1') return;
+  field.dataset.aiBound = '1';
+
+  field.addEventListener('paste', async (event) => {
+    const text = event.clipboardData?.getData('text/plain') || '';
+    if (!text || text.length < 1600) return;
+    event.preventDefault();
+    try {
+      aiSetStatus('Saving pasted source…');
+      await aiCaptureTextReference(text, `Paste ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`, 'paste', field, aiPageContext());
+      aiSetStatus('Captured paste as reference source.');
+    } catch (err) {
+      aiSetStatus(err.message || 'Failed to capture paste', true);
+    }
+  });
+
+  field.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    document.getElementById('ai-dropzone')?.classList.add('drag-over');
+  });
+  field.addEventListener('dragleave', () => {
+    document.getElementById('ai-dropzone')?.classList.remove('drag-over');
+  });
+  field.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    document.getElementById('ai-dropzone')?.classList.remove('drag-over');
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (!files.length) return;
+    try {
+      aiSetStatus(`Saving ${files.length} reference source(s)…`);
+      for (const file of files) {
+        await aiCaptureFileReference(file, field);
+      }
+      aiSetStatus('Captured dropped file(s) as reference source(s).');
+    } catch (err) {
+      aiSetStatus(err.message || 'Failed to capture dropped file', true);
+    }
+  });
+}
+
+async function aiRunAssistant(mode = 'general') {
+  const input = document.getElementById('ai-assistant-input');
+  const output = document.getElementById('ai-assistant-response');
+  const message = (input?.value || '').trim();
+  const sourceIds = _aiSources.map(src => src.id);
+  if (!message && !sourceIds.length) {
+    aiSetStatus('Add a question or attach a source first.', true);
+    return;
+  }
+
+  aiSetStatus('Thinking…');
+  if (output) output.textContent = '';
+  try {
+    const r = await fetch('/api/ai/assistant', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        message: message || 'Summarize the attached reference sources.',
+        mode,
+        source_ids: sourceIds,
+        page_context: aiPageContext(),
+        context_query: message,
+      }),
+    });
+    if (!r.ok) throw new Error(`Assistant request failed (${r.status})`);
+    const data = await r.json();
+    const lines = [];
+    lines.push(data.reply || 'No reply returned.');
+    if (Array.isArray(data.actions) && data.actions.length) {
+      lines.push('');
+      lines.push('Actions:');
+      data.actions.forEach((item, index) => lines.push(`- ${item.label || item.action || item.name || `Action ${index + 1}`}`));
+    }
+    if (Array.isArray(data.queries) && data.queries.length) {
+      lines.push('');
+      lines.push('Queries:');
+      data.queries.forEach((item, index) => lines.push(`- ${item.label || item.query || item.name || `Query ${index + 1}`}`));
+    }
+    if (Array.isArray(data.migration_sql) && data.migration_sql.length) {
+      lines.push('');
+      lines.push('Migration SQL:');
+      data.migration_sql.forEach(sql => lines.push(sql));
+    }
+    if (Array.isArray(data.cleanup_steps) && data.cleanup_steps.length) {
+      lines.push('');
+      lines.push('Cleanup:');
+      data.cleanup_steps.forEach((item, index) => lines.push(`- ${item.label || item.step || item.name || `Cleanup ${index + 1}`}`));
+    }
+    if (output) output.textContent = lines.join('\n');
+    aiSetStatus(`Done · confidence ${(Number(data.confidence || 0) * 100).toFixed(0)}%`);
+  } catch (err) {
+    aiSetStatus(err.message || 'Assistant failed', true);
+    if (output) output.textContent = err.message || 'Assistant failed';
+  }
+}
+
+async function aiRequestSnapshot() {
+  const output = document.getElementById('ai-assistant-response');
+  aiSetStatus('Building snapshot…');
+  try {
+    const r = await fetch('/api/ai/context-pack', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({
+        message: document.getElementById('ai-assistant-input')?.value?.trim() || '',
+        source_ids: JSON.stringify(_aiSources.map(src => src.id)),
+        page_context: JSON.stringify(aiPageContext()),
+      }),
+    });
+    if (!r.ok) throw new Error(`Snapshot failed (${r.status})`);
+    const data = await r.json();
+    if (output) output.textContent = JSON.stringify(data, null, 2);
+    aiSetStatus(data.cached ? 'Snapshot loaded from cache.' : 'Snapshot created.');
+  } catch (err) {
+    aiSetStatus(err.message || 'Snapshot failed', true);
+  }
+}
+
+document.getElementById('ai-attach-btn')?.addEventListener('click', () => document.getElementById('ai-file-input')?.click());
+document.getElementById('ai-clear-sources-btn')?.addEventListener('click', () => {
+  _aiSources = [];
+  aiRenderSources();
+  document.querySelectorAll(AI_CAPTURE_TEXTAREA_IDS.map(id => `#${id}`).join(', ')).forEach(field => {
+    if (field?.dataset) field.dataset.aiSourceIds = '[]';
+  });
+  aiSetStatus('Reference sources cleared.');
+});
+document.getElementById('ai-run-btn')?.addEventListener('click', () => aiRunAssistant('general'));
+document.getElementById('ai-snapshot-btn')?.addEventListener('click', () => aiRequestSnapshot());
+document.getElementById('ai-file-input')?.addEventListener('change', async (event) => {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+  aiSetStatus(`Uploading ${files.length} file(s)…`);
+  try {
+    for (const file of files) {
+      await aiCaptureFileReference(file, document.getElementById('ai-assistant-input'));
+    }
+    aiSetStatus('Uploaded file reference source(s).');
+  } catch (err) {
+    aiSetStatus(err.message || 'Upload failed', true);
+  } finally {
+    event.target.value = '';
+  }
+});
+document.getElementById('ai-dropzone')?.addEventListener('dragover', (event) => {
+  event.preventDefault();
+  event.currentTarget.classList.add('drag-over');
+});
+document.getElementById('ai-dropzone')?.addEventListener('dragleave', (event) => {
+  event.currentTarget.classList.remove('drag-over');
+});
+document.getElementById('ai-dropzone')?.addEventListener('drop', async (event) => {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  aiSetStatus(`Dropping ${files.length} file(s)…`);
+  try {
+    for (const file of files) {
+      await aiCaptureFileReference(file, document.getElementById('ai-assistant-input'));
+    }
+    aiSetStatus('Dropped files captured as references.');
+  } catch (err) {
+    aiSetStatus(err.message || 'Drop failed', true);
+  }
+});
+
+AI_CAPTURE_TEXTAREA_IDS.forEach(id => aiBindCaptureField(document.getElementById(id)));
+aiRenderSources();
 
 // Show shortcuts bar on desktop
 if (window.innerWidth >= 1024) {
@@ -1045,21 +1427,44 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.closest && e.target.closest('a')) hidePreview();
   });
 
-  // Spatial keyboard navigation (viewport-relative, not DOM-order).
+  // Hierarchy-aware keyboard navigation: prefer staying inside the current
+  // table row / cell / panel before falling back to broader viewport search.
+  const NAV_FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]';
+  const NAV_SCOPE_SELECTOR = [
+    'table', 'tbody', 'thead', 'tfoot', 'tr', 'td', 'th',
+    'section', 'article', 'aside', 'main', 'fieldset',
+    '.card', '.mode-panel', '.panel', '.list-group', '.list-group-item',
+    '[role="table"]', '[role="grid"]', '[role="row"]', '[role="gridcell"]',
+    '[data-nav-scope]'
+  ].join(', ');
+
   function isTypingContext() {
-    const tag = (document.activeElement?.tagName || '').toUpperCase();
-    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
+    const active = document.activeElement;
+    if (!active) return false;
+    const tag = (active.tagName || '').toUpperCase();
+    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || active.isContentEditable;
   }
 
-  function visibleFocusables() {
-    return Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
-      .filter(el => !el.disabled && el.tabIndex > -1)
-      .filter(el => {
-        const st = window.getComputedStyle(el);
-        if (st.display === 'none' || st.visibility === 'hidden') return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      });
+  function isVisibleNavNode(el) {
+    if (!el || el.disabled || el.tabIndex < 0) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function visibleFocusables(root = document) {
+    return Array.from(root.querySelectorAll(NAV_FOCUSABLE_SELECTOR)).filter(isVisibleNavNode);
+  }
+
+  function navScopeChain(el) {
+    const chain = [];
+    let node = el?.parentElement;
+    while (node) {
+      if (node.matches?.(NAV_SCOPE_SELECTOR)) chain.unshift(node);
+      node = node.parentElement;
+    }
+    return chain;
   }
 
   function pulseFocus(el) {
@@ -1069,36 +1474,118 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => el.classList.remove('kbd-pulse'), 1200);
   }
 
+  function isDialogVisible(el) {
+    if (!el) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function isModalContextOpen() {
+    const active = document.activeElement;
+    if (active?.closest?.('#command-palette, #shortcuts-modal, #licenses-modal, [role="dialog"], [aria-modal="true"], .modal, .overlay, .popup')) {
+      return true;
+    }
+    return Array.from(document.querySelectorAll('#command-palette, #shortcuts-modal, #licenses-modal, [role="dialog"], [aria-modal="true"], .modal, .overlay, .popup'))
+      .some(isDialogVisible);
+  }
+
+  function directionalDistance(currentEl, candidate, direction) {
+    const cr = currentEl.getBoundingClientRect();
+    const nr = candidate.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2;
+    const cy = cr.top + cr.height / 2;
+    const nx = nr.left + nr.width / 2;
+    const ny = nr.top + nr.height / 2;
+    const dx = nx - cx;
+    const dy = ny - cy;
+
+    if (direction === 'left' && dx >= -2) return null;
+    if (direction === 'right' && dx <= 2) return null;
+    if (direction === 'up' && dy >= -2) return null;
+    if (direction === 'down' && dy <= 2) return null;
+
+    const primary = (direction === 'left' || direction === 'right') ? Math.abs(dx) : Math.abs(dy);
+    const secondary = (direction === 'left' || direction === 'right') ? Math.abs(dy) : Math.abs(dx);
+    return {dx, dy, primary, secondary};
+  }
+
+  function scoreCandidate(currentEl, candidate, direction, scope, nodes, currentIndex) {
+    const delta = directionalDistance(currentEl, candidate, direction);
+    if (!delta) return null;
+
+    const candidateIndex = nodes.indexOf(candidate);
+    const sameRow = scope.matches?.('tr, [role="row"]');
+    const sameCell = scope.matches?.('td, th, [role="gridcell"]');
+    const linearScope = sameRow || sameCell || scope.matches?.('.list-group, .list-group-item, fieldset');
+
+    let score = delta.primary + delta.secondary * 2.25;
+    if (linearScope) {
+      score += Math.abs(candidateIndex - currentIndex) * 6;
+    } else {
+      score += Math.abs(candidateIndex - currentIndex) * 1.5;
+    }
+    if (sameRow && (direction === 'left' || direction === 'right')) {
+      score -= 12;
+    }
+    if (sameCell) {
+      score -= 4;
+    }
+    return score;
+  }
+
+  function bestWithinScope(currentEl, direction, scope) {
+    const nodes = visibleFocusables(scope);
+    if (!nodes.length || !nodes.includes(currentEl)) return null;
+
+    const currentIndex = nodes.indexOf(currentEl);
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const candidate of nodes) {
+      if (candidate === currentEl) continue;
+      const score = scoreCandidate(currentEl, candidate, direction, scope, nodes, currentIndex);
+      if (score === null) continue;
+      if (score < bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
   function nearestByDirection(currentEl, direction) {
     const nodes = visibleFocusables();
     if (!nodes.length) return null;
     if (!currentEl || !nodes.includes(currentEl)) return nodes[0];
-    const cr = currentEl.getBoundingClientRect();
-    const cx = cr.left + cr.width / 2;
-    const cy = cr.top + cr.height / 2;
 
+    const scopeChain = navScopeChain(currentEl);
+    for (let i = scopeChain.length - 1; i >= 0; i--) {
+      const candidate = bestWithinScope(currentEl, direction, scopeChain[i]);
+      if (candidate) return candidate;
+    }
+
+    const currentScopes = navScopeChain(currentEl);
     let best = null;
     let bestScore = Number.POSITIVE_INFINITY;
 
-    for (const n of nodes) {
-      if (n === currentEl) continue;
-      const r = n.getBoundingClientRect();
-      const x = r.left + r.width / 2;
-      const y = r.top + r.height / 2;
-      const dx = x - cx;
-      const dy = y - cy;
+    for (const candidate of nodes) {
+      if (candidate === currentEl) continue;
+      const delta = directionalDistance(currentEl, candidate, direction);
+      if (!delta) continue;
 
-      if (direction === 'left' && dx >= -2) continue;
-      if (direction === 'right' && dx <= 2) continue;
-      if (direction === 'up' && dy >= -2) continue;
-      if (direction === 'down' && dy <= 2) continue;
+      const candidateScopes = navScopeChain(candidate);
+      let commonScopeDepth = 0;
+      while (commonScopeDepth < currentScopes.length && commonScopeDepth < candidateScopes.length && currentScopes[commonScopeDepth] === candidateScopes[commonScopeDepth]) {
+        commonScopeDepth++;
+      }
 
-      const primary = (direction === 'left' || direction === 'right') ? Math.abs(dx) : Math.abs(dy);
-      const secondary = (direction === 'left' || direction === 'right') ? Math.abs(dy) : Math.abs(dx);
-      const score = primary + secondary * 2.25;
+      const domBias = Math.abs(nodes.indexOf(candidate) - nodes.indexOf(currentEl)) * 0.5;
+      const score = delta.primary + delta.secondary * 2.25 + domBias - commonScopeDepth * 40;
       if (score < bestScore) {
         bestScore = score;
-        best = n;
+        best = candidate;
       }
     }
     return best;
@@ -1136,10 +1623,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.addEventListener('keydown', (e) => {
     if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-    const paletteOpen = document.getElementById('command-palette')?.style.display === 'block';
-    const modalOpen = document.getElementById('shortcuts-modal')?.style.display === 'block';
-    const licOpen = document.getElementById('licenses-modal')?.style.display === 'block';
-    if (paletteOpen || modalOpen || licOpen) return;
+    if (isModalContextOpen()) return;
     if (isTypingContext()) return;
 
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
@@ -1574,6 +2058,9 @@ function resetAddForm() {
   const form = document.getElementById('add-comp-form');
   if(form) form.reset();
   clearPreview();
+  document.querySelectorAll('#ai-paste-input, #component-ai-text, #kit-ai-input, #kit-ai-text, #order-ai-text, #ai-assistant-input').forEach(field => {
+    if (field?.dataset) field.dataset.aiSourceIds = '[]';
+  });
   const res = document.getElementById('lookup-results');
   if(res) res.style.display='none';
   const wrap = document.getElementById('type-fields-wrap');
@@ -1585,12 +2072,15 @@ async function runAIParse() {
   const txt = document.getElementById('ai-paste-input')?.value?.trim();
   const status = document.getElementById('ai-parse-status');
   if (!txt || txt.length < 5) { if(status) status.textContent = 'Paste some text first'; return; }
+  const sourceIds = (() => {
+    try { return JSON.parse(document.getElementById('ai-paste-input')?.dataset.aiSourceIds || '[]'); } catch (_) { return []; }
+  })();
   if(status) status.textContent = 'Parsing…';
   try {
     const r = await fetch('/api/ai/parse', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text: txt}),
+      body: JSON.stringify({text: txt, source_ids: sourceIds, page_context: aiPageContext(), context_query: txt.slice(0, 220)}),
     });
     if (!r.ok) { if(status) status.textContent = 'Parse failed'; return; }
     const d = await r.json();

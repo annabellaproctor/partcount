@@ -52,6 +52,9 @@ async function deleteKit(id, name) {
 async function createKitFromAi() {
   const input = document.getElementById('kit-ai-input').value.trim();
   const status = document.getElementById('kit-ai-status');
+  const sourceIds = (() => {
+    try { return JSON.parse(document.getElementById('kit-ai-input')?.dataset.aiSourceIds || '[]'); } catch (_) { return []; }
+  })();
   if (!input) {
     status.textContent = 'Paste text first';
     return;
@@ -61,7 +64,16 @@ async function createKitFromAi() {
   const parsedResp = await fetch('/api/ai/parse', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ text: input }),
+    body: JSON.stringify({
+      text: input,
+      source_ids: sourceIds,
+      page_context: {
+        page: 'kits',
+        route: location.pathname,
+        selection: (window.getSelection?.().toString() || '').slice(0, 300),
+      },
+      context_query: input.slice(0, 220),
+    }),
   });
   if (!parsedResp.ok) {
     status.textContent = 'Parse failed';
