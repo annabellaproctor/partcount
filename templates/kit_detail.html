@@ -181,7 +181,9 @@ async function applyKitAiPatch() {
     status.textContent = 'Apply failed';
     return;
   }
-  status.textContent = 'Applied';
+  const data = await r.json();
+  const renamed = Number(data.auto_renamed || 0);
+  status.textContent = renamed > 0 ? `Applied · auto-renamed ${renamed} component(s)` : 'Applied';
   setTimeout(() => location.reload(), 300);
 }
 </script>

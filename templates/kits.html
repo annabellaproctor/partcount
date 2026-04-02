@@ -105,7 +105,9 @@ async function createKitFromAi() {
     status.textContent = 'Create failed';
     return;
   }
-  status.textContent = 'Kit created';
+  const created = await createResp.json();
+  const renamed = Number(created.auto_renamed || 0);
+  status.textContent = renamed > 0 ? `Kit created · auto-renamed ${renamed} component(s)` : 'Kit created';
   setTimeout(() => location.reload(), 300);
 }
 </script>

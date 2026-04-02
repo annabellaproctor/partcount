@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
 from app.models.database import get_db
 from app.models.models import Component, ComponentType, Footprint, Kit, KitComponent, Manufacturer
 from app.services.barcode_svc import next_barcode_id
+from app.services.short_title import generate_short_title
 
 import re
 
@@ -166,6 +168,76 @@ async def _apply_kit_stock_influence(db: AsyncSession, comp: Component, item: Ki
     fp.quantity = int(fp.quantity or 0) + qty
 
 
+def _human_auto_name(comp: Component) -> str:
+    t = (comp.type_path or "").lower()
+    value = (comp.value or "").strip()
+    unit = (comp.unit or "").strip()
+    pkg = (comp.package or "").strip()
+    tol = (comp.tolerance or "").strip()
+
+    if "resistor" in t:
+        parts = ["Resistor"]
+        if value:
+            parts.append(f"{value}{unit or 'Ohm'}")
+        if tol:
+            parts.append(tol)
+        if comp.power_rating is not None:
+            parts.append(f"{comp.power_rating:g}W")
+        if pkg:
+            parts.append(pkg)
+        return " ".join(parts).strip()
+
+    if "capacitor" in t:
+        parts = ["Capacitor"]
+        if value:
+            parts.append(f"{value}{unit or 'F'}")
+        if comp.voltage_rating is not None:
+            parts.append(f"{comp.voltage_rating:g}V")
+        if pkg:
+            parts.append(pkg)
+        return " ".join(parts).strip()
+
+    if "inductor" in t:
+        parts = ["Inductor"]
+        if value:
+            parts.append(f"{value}{unit or 'H'}")
+        if comp.current_rating is not None:
+            parts.append(f"{comp.current_rating:g}A")
+        if pkg:
+            parts.append(pkg)
+        return " ".join(parts).strip()
+
+    if comp.mpn and (not comp.name or _MPN_STYLE_RE.match((comp.name or "").strip())):
+        return comp.mpn.strip()
+
+    return (comp.name or "").strip() or "Component"
+
+
+def _auto_rename_component(comp: Component) -> bool:
+    if bool(getattr(comp, "short_title_manual", False)):
+        return False
+    new_name = _human_auto_name(comp)
+    changed = False
+    if new_name and new_name != (comp.name or ""):
+        comp.name = new_name
+        changed = True
+
+    short_title = generate_short_title(
+        name=comp.name,
+        value=comp.value,
+        unit=comp.unit,
+        package=comp.package,
+        type_path=comp.type_path,
+    )
+    if short_title and short_title != (comp.short_title or ""):
+        comp.short_title = short_title
+        changed = True
+
+    if changed:
+        comp.updated_at = datetime.utcnow()
+    return changed
+
+
 async def _next_kit_barcode(db: AsyncSession) -> str:
     rows = (await db.execute(select(Kit.barcode_id))).scalars().all()
     max_num = 0
@@ -176,7 +248,7 @@ async def _next_kit_barcode(db: AsyncSession) -> str:
     return f"K{max_num + 1:03d}"
 
 
-async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreate) -> Component:
+async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreate) -> tuple[Component, bool]:
     if item.component_id:
         comp = (await db.execute(select(Component).where(Component.id == item.component_id))).scalar_one_or_none()
         if not comp:
@@ -186,7 +258,7 @@ async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreat
         token_mpn, _, token_value, token_unit = _extract_token_hints(item)
         _apply_component_defaults(comp, item, token_mpn, token_value, token_unit)
         await _apply_kit_stock_influence(db, comp, item)
-        return comp
+        return comp, _auto_rename_component(comp)
 
     token_mpn, token_name, token_value, token_unit = _extract_token_hints(item)
 
@@ -197,7 +269,7 @@ async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreat
                 comp.manufacturer_id = await _resolve_manufacturer(db, item.manufacturer_name)
             _apply_component_defaults(comp, item, token_mpn, token_value, token_unit)
             await _apply_kit_stock_influence(db, comp, item)
-            return comp
+            return comp, _auto_rename_component(comp)
 
     id_candidates = [x for x in [item.mpn, token_mpn, item.digikey_pn, item.lcsc_pn] if x]
     if id_candidates:
@@ -214,7 +286,7 @@ async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreat
                     comp.manufacturer_id = await _resolve_manufacturer(db, item.manufacturer_name)
                 _apply_component_defaults(comp, item, token_mpn, token_value, token_unit)
                 await _apply_kit_stock_influence(db, comp, item)
-                return comp
+                return comp, _auto_rename_component(comp)
 
     if not item.name:
         raise HTTPException(400, "Each kit component needs component_id or name")
@@ -255,7 +327,7 @@ async def _resolve_or_create_component(db: AsyncSession, item: KitComponentCreat
     db.add(comp)
     await db.flush()
     await _apply_kit_stock_influence(db, comp, item)
-    return comp
+    return comp, _auto_rename_component(comp)
 
 
 @router.post("/")
@@ -276,8 +348,11 @@ async def create_kit(kit_data: KitCreate, db: AsyncSession = Depends(get_db)):
 
     # Merge duplicate component IDs in a single payload so UNIQUE(kit_id, component_id) is respected.
     merged_rows: dict[str, dict] = {}
+    auto_renamed = 0
     for idx, item in enumerate(kit_data.components):
-        comp = await _resolve_or_create_component(db, item)
+        comp, renamed = await _resolve_or_create_component(db, item)
+        if renamed:
+            auto_renamed += 1
         if comp.id in merged_rows:
             merged_rows[comp.id]["quantity"] += item.quantity
             continue
@@ -299,6 +374,7 @@ async def create_kit(kit_data: KitCreate, db: AsyncSession = Depends(get_db)):
         "name": kit.name,
         "description": kit.description,
         "component_count": len(merged_rows),
+        "auto_renamed": auto_renamed,
     }
 
 
@@ -395,9 +471,12 @@ async def patch_kit(kit_id: str, req: KitPatch, db: AsyncSession = Depends(get_d
         await db.flush()
 
         merged_rows: dict[str, dict] = {}
+        auto_renamed = 0
         for idx, item in enumerate(components):
             parsed = KitComponentCreate(**item) if isinstance(item, dict) else item
-            comp = await _resolve_or_create_component(db, parsed)
+            comp, renamed = await _resolve_or_create_component(db, parsed)
+            if renamed:
+                auto_renamed += 1
             if comp.id in merged_rows:
                 merged_rows[comp.id]["quantity"] += parsed.quantity
                 continue
@@ -414,4 +493,5 @@ async def patch_kit(kit_id: str, req: KitPatch, db: AsyncSession = Depends(get_d
         "id": kit.id,
         "barcode_id": kit.barcode_id,
         "updated": True,
+        "auto_renamed": auto_renamed if replace_components and components is not None else 0,
     }
