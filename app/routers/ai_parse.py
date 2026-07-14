@@ -238,6 +238,34 @@ def _is_local_openai_endpoint(base_url: str) -> bool:
     return any(x in b for x in ["localhost", "127.0.0.1", "host.docker.internal", "172.17.0.1"]) or b.startswith("http://ollama")
 
 
+def _local_endpoint_variants(base_urls: list[str]) -> list[str]:
+    """Expand local endpoints so Linux host-network and Docker bridge cases both work."""
+    out: list[str] = []
+
+    def add(url: str):
+        u = (url or "").strip().rstrip("/")
+        if u and u not in out:
+            out.append(u)
+
+    for u in base_urls:
+        add(u)
+        lu = u.lower()
+        if "host.docker.internal" in lu:
+            add(re.sub(r"host\.docker\.internal", "localhost", u, flags=re.IGNORECASE))
+            add(re.sub(r"host\.docker\.internal", "127.0.0.1", u, flags=re.IGNORECASE))
+            add(re.sub(r"host\.docker\.internal", "172.17.0.1", u, flags=re.IGNORECASE))
+        elif "localhost" in lu:
+            add(re.sub(r"localhost", "127.0.0.1", u, flags=re.IGNORECASE))
+            add(re.sub(r"localhost", "host.docker.internal", u, flags=re.IGNORECASE))
+            add(re.sub(r"localhost", "172.17.0.1", u, flags=re.IGNORECASE))
+        elif "127.0.0.1" in lu:
+            add(re.sub(r"127\.0\.0\.1", "localhost", u, flags=re.IGNORECASE))
+            add(re.sub(r"127\.0\.0\.1", "host.docker.internal", u, flags=re.IGNORECASE))
+            add(re.sub(r"127\.0\.0\.1", "172.17.0.1", u, flags=re.IGNORECASE))
+
+    return out
+
+
 def _provider_health_entry(provider_id: str) -> dict:
     return _provider_health.setdefault(provider_id, {"failures": 0, "cooldown_until": None, "last_error": "", "last_ok": None})
 
@@ -611,6 +639,9 @@ async def _call_provider(
         )
         if not base_urls:
             raise HTTPException(503, "OpenAI-compatible provider has no base URL configured")
+
+        if any(_is_local_openai_endpoint(u) for u in base_urls):
+            base_urls = _local_endpoint_variants(base_urls)
 
         last_exc: Exception | None = None
         for url in base_urls:
