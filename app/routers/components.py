@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -20,6 +22,8 @@ import io
 from sqlalchemy import or_
 
 IMAGE_DIR = os.getenv("IMAGE_DIR", "/app/images")
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/components", tags=["components"])
 
 
@@ -664,7 +668,11 @@ async def delete_component_image(barcode_id: str, db: AsyncSession = Depends(get
 async def scan_component(barcode_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Component, BinAssignment)
-        .join(BinAssignment, BinAssignment.component_id == Component.id, isouter=True)
+        .join(
+            BinAssignment,
+            (BinAssignment.component_id == Component.id) & (BinAssignment.active == True),
+            isouter=True,
+        )
         .where(Component.barcode_id == barcode_id)
     )
     row = result.first()

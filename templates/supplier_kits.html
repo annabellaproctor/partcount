@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Supplier Kits :: LAB::INV{% endblock %}
+{% block content %}
+<div style="max-width:1200px;margin:0 auto;padding:0 12px;">
+
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;margin-top:12px;">
+    <a href="/components" class="muted" style="font-size:11px;">← Components</a>
+    <span class="sep">/</span>
+    <div class="page-title" style="margin:0;">Supplier Kits</div>
+    <span style="color:var(--text3);font-size:11px;">{{ kits|length }} total</span>
+  </div>
+
+  <div class="card mb-5">
+    <div class="card-header"><span class="dot"></span>All Supplier Kits</div>
+    {% if kits %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Supplier</th>
+          <th>SKU</th>
+          <th style="text-align:right;">Items</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for kit in kits %}
+        <tr>
+          <td><span class="bid">{{ kit.barcode_id }}</span></td>
+          <td><a href="/supplier-kits/{{ kit.id }}" style="color:var(--text);">{{ kit.name }}</a></td>
+          <td class="muted">{{ kit.supplier or '—' }}</td>
+          <td class="muted" style="font-size:10px;">{{ kit.supplier_sku or '—' }}</td>
+          <td style="text-align:right;color:var(--text2);">{{ counts.get(kit.id, 0) }}</td>
+          <td>
+            {% if kit.received_at %}
+            <span style="color:var(--green);font-size:11px;">✓ Received {{ kit.received_at.strftime('%Y-%m-%d') }}</span>
+            {% else %}
+            <span style="color:var(--text3);font-size:11px;">Pending</span>
+            {% endif %}
+          </td>
+          <td class="muted" style="font-size:10px;">{{ kit.created_at.strftime('%Y-%m-%d') if kit.created_at else '—' }}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-danger btn-xs" onclick="deleteKit('{{ kit.id }}', '{{ kit.name|e }}')">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 muted" style="font-size:11px;">
+      No supplier kits yet. Go to the <a href="/components">Components</a> page and use the Supplier Kits card to create one from an Amazon listing.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteKit(id, name) {
+  if (!confirm(`Delete supplier kit "${name}"? This cannot be undone.`)) return;
+  const r = await fetch('/api/supplier-kits/' + id, { method: 'DELETE' });
+  if (r.ok) location.reload();
+  else alert('Delete failed: ' + await r.text());
+}
+</script>
+{% endblock %}
