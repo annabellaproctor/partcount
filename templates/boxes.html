@@ -2,7 +2,7 @@
 {% block title %}Boxes :: LAB::INV{% endblock %}
 {% block content %}
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-  <h2 class="text-slate-800 text-[13px] font-bold" style="color: var(--text); letter-spacing: 0.2px; text-transform: uppercase; margin:0;">Boxes</h2>
+  <h2 style="color: var(--text); font-size: 14px; font-weight: 700; margin:0;">Boxes</h2>
   <button onclick="openBoxForm()" class="btn btn-primary btn-sm">+ Register Box</button>
 </div>
 
@@ -51,7 +51,7 @@
 <!-- Ledge minimap — drag to reorder -->
 {% if boxes %}
 <section class="mb-4 p-3 bg-light-section rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
-  <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2.5" style="letter-spacing: 1px; color: var(--text2);">Ledge Layout — drag to reorder · click to open grid</h2>
+  <h2 style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); margin-bottom: 8px;">Ledge Layout — drag to reorder · click to open grid</h2>
   <div>
     <div id="ledge-map" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
       {% for box in boxes %}
@@ -91,7 +91,7 @@
 
 <!-- Box table -->
 <div>
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Box Registry</h2>
+  <h2 style="color: var(--text); font-size: 12px; font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 10px;">Box Registry</h2>
   <table class="table">
     <thead><tr>
       <th>Label</th><th>Model</th><th>Cells</th><th>Used</th><th>Slot</th><th>Location</th><th></th>
