@@ -443,6 +443,229 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_external_catalog_items_last_seen ON external_catalog_items (last_seen DESC)",
         "CREATE INDEX IF NOT EXISTS idx_external_catalog_items_mpn ON external_catalog_items (mpn)",
     ]),
+    # ------------------------------------------------------------------
+    # v20-v24 were applied directly to the production database on 2026-05-08
+    # and their source was never committed (see CHANGES.md). Reconstructed
+    # here from the live schema so a fresh deploy reproduces production.
+    # Every statement is idempotent: on the existing database these are no-ops.
+    # ------------------------------------------------------------------
+    (20, "chat sessions and messages for persistent assistant history", [
+        """CREATE TABLE IF NOT EXISTS chat_sessions (
+            id VARCHAR PRIMARY KEY,
+            title VARCHAR DEFAULT 'New conversation'::character varying NOT NULL,
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS chat_messages (
+            id VARCHAR PRIMARY KEY,
+            session_id VARCHAR NOT NULL,
+            role VARCHAR NOT NULL,
+            content TEXT DEFAULT ''::text NOT NULL,
+            steps_json TEXT,
+            created_at TIMESTAMP DEFAULT now()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions USING btree (updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages USING btree (session_id, created_at)",
+    ]),
+    (21, "unique partial index: one active assignment per box cell", [
+        # A grid cell holds exactly one component. Two active rows for the same
+        # cell made the grid show one and silently ignore the other. Soft-deleted
+        # rows (active = FALSE) are excluded so history is preserved.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_bin_assignments_active_cell "
+        "ON bin_assignments (box_id, cell_id) WHERE active = TRUE",
+    ]),
+    (22, "multi-dimensional component taxonomy: specs, MPNs, stock lots, location hierarchy, parametric kits/BOMs", [
+        """CREATE TABLE IF NOT EXISTS component_taxonomy (
+            id VARCHAR PRIMARY KEY,
+            path TEXT NOT NULL,
+            name VARCHAR NOT NULL,
+            parent_id VARCHAR,
+            spec_schema JSONB,
+            level INTEGER,
+            label_format TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS parametric_specs (
+            id VARCHAR PRIMARY KEY,
+            barcode_id TEXT NOT NULL,
+            component_type_id VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            description TEXT,
+            notes TEXT,
+            image_path VARCHAR,
+            search_alias TEXT,
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now(),
+            specs JSONB
+        )""",
+        """CREATE TABLE IF NOT EXISTS manufacturer_parts (
+            id VARCHAR PRIMARY KEY,
+            mpn TEXT NOT NULL,
+            manufacturer_id VARCHAR NOT NULL,
+            parametric_spec_id VARCHAR,
+            digikey_pn VARCHAR,
+            mouser_pn VARCHAR,
+            lcsc_pn VARCHAR,
+            datasheet_url VARCHAR,
+            lifecycle_status VARCHAR DEFAULT 'active'::character varying,
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS stock_lots (
+            id VARCHAR PRIMARY KEY,
+            manufacturer_part_id VARCHAR NOT NULL,
+            quantity INTEGER DEFAULT 0 NOT NULL,
+            sigma_adjustment INTEGER DEFAULT 0 NOT NULL,
+            effective_quantity INTEGER,
+            acquired_date TIMESTAMP,
+            purchase_order_id VARCHAR,
+            unit_cost FLOAT,
+            lot_code VARCHAR,
+            packaging_type VARCHAR,
+            tape_color VARCHAR,
+            stripe_color VARCHAR,
+            low_stock_threshold INTEGER DEFAULT 10,
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS container_types (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            grid_rows INTEGER NOT NULL,
+            grid_cols INTEGER NOT NULL,
+            cell_volume_mm3 FLOAT,
+            allow_multi_spec BOOLEAN DEFAULT false NOT NULL,
+            allow_value_range_pct FLOAT,
+            require_same_package BOOLEAN DEFAULT true NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS containers (
+            id VARCHAR PRIMARY KEY,
+            label VARCHAR NOT NULL,
+            container_type_id VARCHAR NOT NULL,
+            fixture_id VARCHAR NOT NULL,
+            slot_index INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS zones (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            description TEXT,
+            sort_order INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS fixtures (
+            id VARCHAR PRIMARY KEY,
+            zone_id VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            description TEXT,
+            sort_order INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS bom_lines (
+            id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL,
+            ref_des TEXT,
+            position INTEGER DEFAULT 0,
+            quantity INTEGER DEFAULT 1 NOT NULL,
+            notes TEXT,
+            parametric_spec_id VARCHAR,
+            component_type_id VARCHAR,
+            value_min FLOAT,
+            value_max FLOAT,
+            tolerance_max VARCHAR,
+            voltage_min FLOAT,
+            package VARCHAR,
+            param_constraints JSONB,
+            created_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS bom_allocations (
+            id VARCHAR PRIMARY KEY,
+            bom_line_id VARCHAR NOT NULL,
+            stock_lot_id VARCHAR NOT NULL,
+            quantity_allocated INTEGER DEFAULT 0 NOT NULL,
+            created_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS todo_items (
+            id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL,
+            text VARCHAR NOT NULL,
+            done BOOLEAN,
+            priority INTEGER,
+            created_at TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS manufacturers2 (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            url VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT now()
+        )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS component_taxonomy_path_key ON component_taxonomy USING btree (path)",
+        "CREATE INDEX IF NOT EXISTS idx_component_taxonomy_path ON component_taxonomy USING btree (path)",
+        "CREATE INDEX IF NOT EXISTS idx_component_taxonomy_parent ON component_taxonomy USING btree (parent_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS parametric_specs_barcode_id_key ON parametric_specs USING btree (barcode_id)",
+        "CREATE INDEX IF NOT EXISTS idx_parametric_specs_specs_gin ON parametric_specs USING gin (specs)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS manufacturer_parts_manufacturer_id_mpn_key ON manufacturer_parts USING btree (manufacturer_id, mpn)",
+        "CREATE INDEX IF NOT EXISTS idx_manufacturer_parts_spec ON manufacturer_parts USING btree (parametric_spec_id)",
+        "CREATE INDEX IF NOT EXISTS idx_stock_lots_mfr_part ON stock_lots USING btree (manufacturer_part_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS container_types_name_key ON container_types USING btree (name)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS containers_label_key ON containers USING btree (label)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS containers_fixture_id_slot_index_key ON containers USING btree (fixture_id, slot_index)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS zones_name_key ON zones USING btree (name)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS fixtures_zone_id_name_key ON fixtures USING btree (zone_id, name)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS bom_allocations_bom_line_id_stock_lot_id_key ON bom_allocations USING btree (bom_line_id, stock_lot_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS manufacturers2_name_key ON manufacturers2 USING btree (name)",
+    ]),
+    (23, "supplier kits: bulk assortment kits purchased from suppliers", [
+        """CREATE TABLE IF NOT EXISTS supplier_kits (
+            id VARCHAR PRIMARY KEY,
+            barcode_id VARCHAR NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            notes TEXT,
+            supplier TEXT,
+            supplier_sku TEXT,
+            supplier_url TEXT,
+            image_path TEXT,
+            purchase_order_id TEXT,
+            received_at TIMESTAMP,
+            received_by TEXT,
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS supplier_kit_items (
+            id VARCHAR PRIMARY KEY,
+            kit_id VARCHAR NOT NULL,
+            position INTEGER DEFAULT 0,
+            description TEXT NOT NULL,
+            quantity INTEGER DEFAULT 1 NOT NULL,
+            barcode_id VARCHAR,
+            auto_matched BOOLEAN DEFAULT false NOT NULL,
+            match_confidence FLOAT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT now(),
+            component_id TEXT
+        )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS supplier_kits_barcode_id_key ON supplier_kits USING btree (barcode_id)",
+        "CREATE INDEX IF NOT EXISTS idx_supplier_kit_items_kit ON supplier_kit_items USING btree (kit_id)",
+    ]),
+    (24, "parametric_specs: consolidate scattered columns into specs JSONB, add label_format to taxonomy", [
+        "ALTER TABLE parametric_specs ADD COLUMN IF NOT EXISTS specs JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE component_taxonomy ADD COLUMN IF NOT EXISTS label_format VARCHAR",
+    ]),
+    (25, "filing crate boxes: box_type, dividers, and per-divider bag assignment", [
+        # Non-grid storage archetype. A filing crate indexes static bags behind
+        # colour-coded dividers instead of addressing them by row/column.
+        "ALTER TABLE boxes ADD COLUMN IF NOT EXISTS box_type VARCHAR DEFAULT 'grid'",
+        "ALTER TABLE boxes ADD COLUMN IF NOT EXISTS box_metadata JSONB DEFAULT '{}'::jsonb",
+        "UPDATE boxes SET box_type = 'grid' WHERE box_type IS NULL",
+        # A divider holds MANY bags, so position cannot live in cell_id: the v21
+        # partial unique index on (box_id, cell_id) would reject the second bag
+        # filed behind any divider. Filing rows therefore leave cell_id NULL --
+        # Postgres treats NULLs as distinct in a unique index -- and carry their
+        # location here instead. Ordering within a divider is derived at read
+        # time from the component's shelf key, never stored.
+        "ALTER TABLE bin_assignments ADD COLUMN IF NOT EXISTS divider_id VARCHAR",
+        "ALTER TABLE bin_assignments ALTER COLUMN cell_id DROP NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_bin_assignments_divider "
+        "ON bin_assignments (box_id, divider_id) WHERE active = TRUE",
+    ]),
 ]
 
 

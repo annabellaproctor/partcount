@@ -224,6 +224,8 @@ class Box(Base):
     location = Column(String)
     slot_index = Column(Integer, default=0)
     notes = Column(Text)
+    box_type = Column(String, default="grid")
+    box_metadata = Column(JSON, default=dict)
     bins = relationship("BinAssignment", back_populates="box")
 
 
@@ -231,7 +233,11 @@ class BinAssignment(Base):
     __tablename__ = "bin_assignments"
     id = Column(String, primary_key=True, default=gen_uuid)
     box_id = Column(String, ForeignKey("boxes.id"), nullable=False)
-    cell_id = Column(String, nullable=False)
+    # Grid boxes address bags by cell (R3C7); filing crates leave cell_id NULL
+    # and file behind a divider instead. NULL also keeps many bags per divider
+    # from tripping uq_bin_assignments_active_cell.
+    cell_id = Column(String)
+    divider_id = Column(String)
     component_id = Column(String, ForeignKey("components.id"), nullable=False)
     footprint_id = Column(String, ForeignKey("footprints.id"))
     active = Column(Boolean, default=True)
