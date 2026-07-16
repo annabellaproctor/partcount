@@ -1,19 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Settings :: LAB::INV{% endblock %}
 {% block content %}
-<div class="page-title">Settings</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+  <h2 class="text-slate-800 text-[13px] font-bold" style="color: var(--text); letter-spacing: 0.2px; text-transform: uppercase; margin:0;">Settings</h2>
+</div>
 
-<div class="row g-3">
+<div class="row g-4">
   <div class="col-md-4">
-    <div class="card mb-3">
-      <div class="card-header"><span class="dot"></span>Profile</div>
-      <div class="p-3">
+    <div class="mb-4">
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Profile</h2>
+      <div class="p-0">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
           <div style="width:44px;height:44px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:var(--green);">
             {{ profile.initials if profile else 'AP' }}
           </div>
           <div>
-            <div style="font-size:13px;color:var(--text);">{{ profile.name if profile else '—' }}</div>
+            <div style="font-size:13px;color:var(--text);font-weight:600;">{{ profile.name if profile else '—' }}</div>
             <div style="font-size:11px;color:var(--text3);">{{ profile.email if profile else '—' }}</div>
           </div>
         </div>
@@ -23,28 +25,28 @@
     </div>
 
     <!-- API Usage Monitor -->
-    <div class="card">
-      <div class="card-header">
-        <span class="dot"></span>API Usage (30 days)
-        <button class="btn btn-sm btn-primary" style="margin-left:auto;float:right;font-size:10px;padding:2px 8px;" onclick="refreshUsage()">↻</button>
-      </div>
-      <div class="p-3" id="usage-stats">
+    <div>
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px; display:flex; align-items:center; justify-content:space-between;">
+        API Usage (30 days)
+        <button class="btn btn-sm btn-primary" style="font-size:10px;padding:2px 8px;" onclick="refreshUsage()">↻</button>
+      </h2>
+      <div class="p-0" id="usage-stats">
         <div style="text-align:center;color:var(--text3);font-size:11px;padding:20px;">Loading...</div>
       </div>
     </div>
   </div>
 
   <div class="col-md-8">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>API Keys</div>
-      <div class="p-3">
+    <div>
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">API Keys</h2>
+      <div class="p-0">
         <form hx-post="/api/keys/" hx-target="#keys-table-body" hx-swap="afterbegin" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
           <div class="input-group" style="max-width:400px;">
-            <input name="label" class="form-control" placeholder="Key label — e.g. gmail-integration" required>
+            <input name="label" class="form-control" placeholder="Key label — e.g. gmail-integration" required style="font-size:11.5px;">
             <button type="submit" class="btn btn-primary">GENERATE</button>
           </div>
         </form>
-        <table class="table">
+        <table class="table" style="font-size:11.5px;">
           <thead><tr>
             <th>Label</th><th>Key Preview</th><th>Last Used</th><th>Status</th><th></th>
           </tr></thead>
@@ -58,7 +60,7 @@
                 {% if key.active %}
                 <span class="status-badge status-active">active</span>
                 {% else %}
-                <span class="status-badge" style="background:rgba(85,85,85,0.2);color:var(--text3);border:1px solid var(--border2);">revoked</span>
+                <span class="status-badge" style="background:rgba(85,85,85,0.08);color:var(--text3);border:1px solid var(--border);">revoked</span>
                 {% endif %}
               </td>
               <td>
@@ -67,7 +69,7 @@
                   hx-delete="/api/keys/{{ key.id }}"
                   hx-target="#key-{{ key.id }}"
                   hx-swap="outerHTML"
-                  hx-confirm="Revoke this key?">REVOKE</button>
+                  hx-confirm="Revoke this key?" style="padding:1px 4px;font-size:9px;">REVOKE</button>
                 {% endif %}
               </td>
             </tr>
@@ -80,9 +82,9 @@
       </div>
     </div>
 
-    <div class="card mt-3">
-      <div class="card-header"><span class="dot"></span>AI Providers Runtime</div>
-      <div class="p-3">
+    <div class="mt-4">
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">AI Providers Runtime</h2>
+      <div class="p-0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <label class="muted" style="font-size:10px;letter-spacing:1px;text-transform:uppercase;">Strategy</label>
           <select id="ai-strategy" class="form-select" style="max-width:220px;" onchange="onAiStrategyChanged()">
@@ -124,19 +126,19 @@
       </div>
     </div>
 
-    <div class="card mt-3">
-      <div class="card-header"><span class="dot"></span>Archetype Field Explorer</div>
-      <div class="p-3">
+    <div class="mt-4">
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Archetype Field Explorer</h2>
+      <div class="p-0">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-          <select id="archetype-path" class="form-select" style="max-width:420px;" onchange="loadArchetypeFields()">
+          <select id="archetype-path" class="form-select" style="max-width:420px;font-size:11px;" onchange="loadArchetypeFields()">
             <option value="">Select type path...</option>
           </select>
           <button class="btn btn-primary btn-sm" onclick="loadArchetypeFields()">Load Fields</button>
         </div>
         <div id="archetype-status" class="muted" style="font-size:11px;margin-bottom:6px;"></div>
-        <pre id="archetype-fields" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:3px;min-height:130px;white-space:pre-wrap;">Select a type path to inspect fields/required/defaults...</pre>
+        <pre id="archetype-fields" style="font-size:11px;background:rgba(255,255,255,0.7);border:1px solid var(--border);padding:10px;border-radius:4px;min-height:130px;white-space:pre-wrap;color:var(--text);">Select a type path to inspect fields/required/defaults...</pre>
         <div style="font-size:10px;color:var(--text3);margin:8px 0 6px;letter-spacing:1px;text-transform:uppercase;">Hierarchy Tree</div>
-        <pre id="archetype-tree" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:3px;max-height:280px;overflow:auto;white-space:pre-wrap;">Loading hierarchy...</pre>
+        <pre id="archetype-tree" style="font-size:11px;background:rgba(255,255,255,0.7);border:1px solid var(--border);padding:10px;border-radius:4px;max-height:280px;overflow:auto;white-space:pre-wrap;color:var(--text);">Loading hierarchy...</pre>
       </div>
     </div>
   </div>

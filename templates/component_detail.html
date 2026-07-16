@@ -278,9 +278,9 @@
     
     <!-- Source priority tabs -->
     <div style="display:flex;gap:4px;margin-bottom:12px;font-size:10px;">
-      <button class="btn btn-sm" style="background:var(--green);color:#000;flex:1;">Free (Wikimedia)</button>
-      <button class="btn btn-sm" style="background:var(--amber);color:#000;flex:1;">Unlimited (Mouser/DK)</button>
-      <button class="btn btn-sm" style="background:var(--red);color:#fff;flex:1;">Limited (Brave/Tavily)</button>
+      <button class="btn btn-sm" style="background:rgba(16,185,129,0.08);color:#10b981;border:1px solid rgba(16,185,129,0.2);flex:1;cursor:default;">Free (Wikimedia)</button>
+      <button class="btn btn-sm" style="background:rgba(245,158,11,0.08);color:#d97706;border:1px solid rgba(245,158,11,0.2);flex:1;cursor:default;">Unlimited (Mouser/DK)</button>
+      <button class="btn btn-sm" style="background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2);flex:1;cursor:default;">Limited (Brave/Tavily)</button>
     </div>
     <div style="font-size:9px;color:var(--text3);margin-bottom:12px;padding:6px;background:var(--bg3);border-radius:2px;">
       🟢 Free: Wikimedia Commons (unlimited) · 🟡 Unlimited: Mouser, DigiKey APIs · 🔴 Limited: Brave (1000/mo), Tavily (1000/mo)
@@ -725,10 +725,10 @@ async function saveLabelTitle() {
 }
 
 const STICKER_TAGS = {
-  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
-  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
-  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
-  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+  1: '#1e293b', 2: '#334155', 3: '#475569', 4: '#3b82f6', 5: '#60a5fa',
+  6: '#0d9488', 7: '#14b8a6', 8: '#10b981', 9: '#34d399', 10: '#f59e0b',
+  11: '#fbbf24', 12: '#ea580c', 13: '#f97316', 14: '#f87171', 15: '#ef4444',
+  16: '#ec4899', 17: '#f43f5e', 18: '#8b5cf6', 19: '#a78bfa', 20: '#64748b',
 };
 // Curated display order for easier adjacent distinction while keeping sticker numbers.
 const STICKER_TAG_DISPLAY_ORDER = [1, 11, 3, 12, 8, 17, 19, 13, 7, 15, 2, 10, 18, 5, 14, 9, 16, 4, 20, 6];
@@ -744,7 +744,7 @@ function initStickerTagSelector() {
     opt.value = String(n);
     opt.textContent = `#${n}  ${hex}`;
     opt.style.background = hex;
-    opt.style.color = (n === 1 || n === 2 || n === 3 || n === 4 || n === 15 || n === 17) ? '#ffffff' : '#111111';
+    opt.style.color = (n === 1 || n === 2 || n === 3 || n === 4 || n === 12 || n === 13 || n === 15 || n === 16 || n === 17 || n === 18) ? '#ffffff' : '#1e293b';
     sel.appendChild(opt);
   });
   if (current) sel.value = String(current);

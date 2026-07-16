@@ -2,43 +2,43 @@
 {% block title %}{{ project.name }} :: LAB::INV{% endblock %}
 {% block content %}
 
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-  <a href="/projects" class="muted" style="font-size:11px;">← Projects</a>
-  <span class="sep">/</span>
-  <span style="color:var(--text);font-size:13px;">{{ project.name }}</span>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+  <a href="/projects" class="muted" style="font-size:11px;text-decoration:none;">← Projects</a>
+  <span class="sep" style="color:var(--text3);">/</span>
+  <span style="color:var(--text);font-size:13px;font-weight:600;">{{ project.name }}</span>
   <span class="status-badge status-{{ project.status }}">{{ project.status }}</span>
 </div>
 
-<div class="row g-3">
+<div class="row g-4">
   <!-- TODO column -->
   <div class="col-md-5">
-    <div class="card h-100">
-      <div class="card-header"><span class="dot"></span>TODO</div>
-      <div class="p-3">
+    <div>
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Tasks / TODO</h2>
+      <div class="p-0">
         <form hx-post="/api/projects/{{ project.id }}/todos" hx-target="#todo-list" hx-swap="beforeend" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
           <div class="input-group">
-            <select name="priority" class="form-select" style="max-width:80px;">
+            <select name="priority" class="form-select" style="max-width:80px;font-size:11px;">
               <option value="0">—</option>
               <option value="1">HI</option>
               <option value="2">URG</option>
             </select>
-            <input name="text" class="form-control" placeholder="Add task..." required>
+            <input name="text" class="form-control" placeholder="Add task..." required style="font-size:11px;">
             <button type="submit" class="btn btn-primary">+</button>
           </div>
         </form>
         <div id="todo-list">
           {% for todo in todos %}
-          <div class="todo-item priority-{{ todo.priority }} {% if todo.done %}done{% endif %}" id="todo-{{ todo.id }}">
+          <div class="todo-item priority-{{ todo.priority }} {% if todo.done %}done{% endif %}" id="todo-{{ todo.id }}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);border-radius:4px;margin-bottom:2px;transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.5)'" onmouseout="this.style.background='transparent'">
             <input type="checkbox" {% if todo.done %}checked{% endif %}
               hx-patch="/api/projects/todos/{{ todo.id }}/toggle"
               hx-swap="none"
               onchange="this.closest('.todo-item').classList.toggle('done', this.checked)"
-              style="accent-color: var(--green);">
-            <span class="todo-text" style="flex:1;font-size:12px;">{{ todo.text }}</span>
+              style="accent-color: var(--green);cursor:pointer;">
+            <span class="todo-text" style="flex:1;font-size:11.5px;color:var(--text);">{{ todo.text }}</span>
             <button class="btn btn-danger btn-xs"
               hx-delete="/api/projects/todos/{{ todo.id }}"
               hx-target="#todo-{{ todo.id }}"
-              hx-swap="outerHTML">×</button>
+              hx-swap="outerHTML" style="padding:1px 4px;font-size:9px;">×</button>
           </div>
           {% endfor %}
         </div>
@@ -48,16 +48,16 @@
 
   <!-- BOM column -->
   <div class="col-md-7">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>Bill of Materials</div>
-      <div class="p-3">
+    <div>
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Bill of Materials (BOM)</h2>
+      <div class="p-0">
         <form hx-post="/api/projects/{{ project.id }}/bom" hx-target="#bom-table-body" hx-swap="beforeend" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
           <div class="row g-2">
             <div class="col-4">
-              <input name="description" class="form-control" placeholder="Description / part" required>
+              <input name="description" class="form-control" placeholder="Description / part" required style="font-size:11px;">
             </div>
             <div class="col-3">
-              <select name="component_id" class="form-select">
+              <select name="component_id" class="form-select" style="font-size:11px;">
                 <option value="">— link component —</option>
                 {% for comp in components_all %}
                 <option value="{{ comp.id }}">{{ comp.barcode_id }} {{ comp.name }}</option>
@@ -65,20 +65,20 @@
               </select>
             </div>
             <div class="col-1">
-              <input name="quantity_needed" type="number" class="form-control" placeholder="Need" value="1" min="1">
+              <input name="quantity_needed" type="number" class="form-control" placeholder="Need" value="1" min="1" style="font-size:11px;">
             </div>
             <div class="col-1">
-              <input name="quantity_have" type="number" class="form-control" placeholder="Have" value="0" min="0">
+              <input name="quantity_have" type="number" class="form-control" placeholder="Have" value="0" min="0" style="font-size:11px;">
             </div>
             <div class="col-3">
               <div class="input-group">
-                <input name="notes" class="form-control" placeholder="Notes">
+                <input name="notes" class="form-control" placeholder="Notes" style="font-size:11px;">
                 <button type="submit" class="btn btn-primary">+</button>
               </div>
             </div>
           </div>
         </form>
-        <table class="table">
+        <table class="table" style="font-size:11px;">
           <thead><tr>
             <th>Component</th><th>Linked</th><th>Need</th><th>Have</th><th>Notes</th><th>✓</th><th></th>
           </tr></thead>
@@ -86,9 +86,9 @@
             {% for row in bom_rows %}
             {% set item = row.BOMItem %}
             {% set comp = row.Component %}
-            <tr id="bom-{{ item.id }}" {% if item.sourced %}style="opacity:0.5"{% endif %}>
+            <tr id="bom-{{ item.id }}" {% if item.sourced %}style="opacity:0.55"{% endif %}>
               <td>{{ item.description }}</td>
-              <td>{% if comp %}<span class="bid">{{ comp.barcode_id }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td>{% if comp %}<span class="bid" style="font-size:9.5px;">{{ comp.barcode_id }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
               <td>{{ item.quantity_needed }}</td>
               <td>{{ item.quantity_have }}</td>
               <td class="muted">{{ item.notes or '—' }}</td>
@@ -96,14 +96,14 @@
                 <input type="checkbox" {% if item.sourced %}checked{% endif %}
                   hx-patch="/api/projects/bom/{{ item.id }}/sourced"
                   hx-swap="none"
-                  onchange="this.closest('tr').style.opacity = this.checked ? '0.5' : '1'"
-                  style="accent-color: var(--green);">
+                  onchange="this.closest('tr').style.opacity = this.checked ? '0.55' : '1'"
+                  style="accent-color: var(--green);cursor:pointer;">
               </td>
               <td>
                 <button class="btn btn-danger btn-xs"
                   hx-delete="/api/projects/bom/{{ item.id }}"
                   hx-target="#bom-{{ item.id }}"
-                  hx-swap="outerHTML">×</button>
+                  hx-swap="outerHTML" style="padding:1px 4px;font-size:9px;">×</button>
               </td>
             </tr>
             {% endfor %}

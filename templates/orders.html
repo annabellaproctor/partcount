@@ -1,26 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Orders :: LAB::INV{% endblock %}
 {% block content %}
-<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:20px;">
   <div>
-    <div class="page-title" style="margin:0;">Orders</div>
-    <div class="muted" style="font-size:11px;">Fast draft workflow + explicit status/receive controls. Keyboard: `/` search, `Alt+N` component row, `Alt+K` kit row, `Alt+S` create.</div>
+    <h2 class="text-slate-800 text-[13px] font-bold" style="color: var(--text); letter-spacing: 0.2px; text-transform: uppercase; margin:0;">Orders</h2>
+    <div class="muted" style="font-size:11px;color:var(--text3);margin-top:2px;">Fast draft workflow + explicit status/receive controls. Keyboard: `/` search, `Alt+N` component row, `Alt+K` kit row, `Alt+S` create.</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
-    <input id="orders-filter" class="form-control form-control-sm" placeholder="Search references, suppliers, status..." style="width:260px;">
+    <input id="orders-filter" class="form-control form-control-sm" placeholder="Search references, suppliers, status..." style="width:260px;font-size:11.5px;">
     <button class="btn btn-primary btn-sm" onclick="toggleOrderHelp()">Shortcuts</button>
   </div>
 </div>
 
-<div class="row g-3 mb-4">
+<div class="row g-4 mb-4">
   <div class="col-xl-7">
-    <div class="card h-100">
-      <div class="card-header"><span class="dot"></span>New Order Draft</div>
-      <div class="p-3">
+    <div>
+      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">New Order Draft</h2>
+      <div class="p-0">
         <div class="row g-2" style="margin-bottom:8px;">
           <div class="col-md-4">
-            <label class="form-label">Supplier</label>
-            <select id="order-supplier" class="form-select">
+            <label class="form-label" style="font-size:10px;color:var(--text3);">Supplier</label>
+            <select id="order-supplier" class="form-select" style="font-size:11px;">
               <option value="">-- select --</option>
               {% for s in suppliers %}
               <option value="{{ s.id }}">{{ s.name }}</option>
@@ -28,12 +28,12 @@
             </select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">Reference</label>
-            <input id="order-ref" class="form-control" placeholder="Order ID / invoice ref">
+            <label class="form-label" style="font-size:10px;color:var(--text3);">Reference</label>
+            <input id="order-ref" class="form-control" placeholder="Order ID / invoice ref" style="font-size:11px;">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Total Cost</label>
-            <input id="order-total" class="form-control" type="number" step="0.01" placeholder="0.00">
+            <label class="form-label" style="font-size:10px;color:var(--text3);">Total Cost</label>
+            <input id="order-total" class="form-control" type="number" step="0.01" placeholder="0.00" style="font-size:11px;">
           </div>
         </div>
 
@@ -62,12 +62,12 @@
   </div>
 
   <div class="col-xl-5">
-    <div class="card h-100">
-      <div class="card-header"><span class="dot"></span>AI Order Parse</div>
-      <div class="p-3">
+    <div class="p-3 rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
+      <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2.5" style="letter-spacing: 1px; color: var(--text2);">AI Order Parse</h2>
+      <div>
         <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Rich Paste Area</div>
-        <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:95px;overflow:auto;"></div>
-        <textarea id="order-ai-text" class="form-control" rows="6" placeholder="Paste full webpage text from any site..." style="margin-top:8px;"></textarea>
+        <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:95px;overflow:auto;font-size:11px;background:rgba(255,255,255,0.7);"></div>
+        <textarea id="order-ai-text" class="form-control" rows="6" placeholder="Paste full webpage text from any site..." style="margin-top:8px;font-size:11px;background:rgba(255,255,255,0.7);"></textarea>
         <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
           <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
           <span id="order-ai-status" class="muted" style="font-size:11px;"></span>
@@ -77,10 +77,10 @@
   </div>
 </div>
 
-<div class="card mb-5">
-  <div class="card-header"><span class="dot"></span>Existing Orders</div>
-  <div class="p-2">
-    <table class="table" id="orders-table">
+<div>
+  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Existing Orders</h2>
+  <div class="p-0">
+    <table class="table" id="orders-table" style="font-size:11.5px;">
       <thead>
         <tr>
           <th>Reference</th>
@@ -127,25 +127,25 @@
   </div>
 </div>
 
-<div id="order-help-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;padding:24px;">
-  <div class="card" style="max-width:520px;margin:0 auto;">
-    <div class="card-header"><span class="dot"></span>Orders Shortcuts</div>
-    <div class="p-3" style="font-size:12px;line-height:1.8;">
+<div id="order-help-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);z-index:1000;padding:24px;display:flex;align-items:center;justify-content:center;">
+  <div style="max-width:520px;width:100%;margin:0 auto;background:rgba(255,255,255,0.98);backdrop-filter:blur(12px);border:1px solid rgba(226, 232, 240, 0.8);border-radius:8px;padding:20px;box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+    <h2 class="text-slate-800 text-[12px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Orders Shortcuts</h2>
+    <div style="font-size:12px;line-height:1.8;color:var(--text2);">
       <div><strong>/</strong> Focus orders search</div>
       <div><strong>Alt+N</strong> Add component row</div>
       <div><strong>Alt+K</strong> Add kit row</div>
       <div><strong>Alt+S</strong> Create order</div>
       <div><strong>Esc</strong> Close this panel</div>
-      <div style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="toggleOrderHelp(false)">Close</button></div>
+      <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="toggleOrderHelp(false)">Close</button></div>
     </div>
   </div>
 </div>
 
-<div id="order-view-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;padding:22px;overflow:auto;">
-  <div class="card" style="max-width:900px;margin:0 auto;">
-    <div class="card-header"><span class="dot"></span>Order Detail</div>
-    <div class="p-3" id="order-view-body" style="font-size:12px;"></div>
-    <div class="p-3" style="padding-top:0;"><button class="btn btn-primary btn-sm" onclick="closeOrderView()">Close</button></div>
+<div id="order-view-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);z-index:1000;padding:22px;overflow:auto;display:flex;align-items:center;justify-content:center;">
+  <div style="max-width:900px;width:100%;margin:0 auto;background:rgba(255,255,255,0.98);backdrop-filter:blur(12px);border:1px solid rgba(226, 232, 240, 0.8);border-radius:8px;padding:20px;box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+    <h2 class="text-slate-800 text-[12px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Order Detail</h2>
+    <div id="order-view-body" style="font-size:12px;color:var(--text2);margin-bottom:12px;"></div>
+    <div style="padding-top:0;"><button class="btn btn-primary btn-sm" onclick="closeOrderView()">Close</button></div>
   </div>
 </div>
 {% endblock %}

@@ -4,10 +4,10 @@
 
 <!-- Header -->
 <div style="max-width:1400px;margin:0 auto;padding:0 12px;">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:32px;margin-top:12px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px;margin-top:12px;">
     <div>
-      <h1 style="font-size:24px;font-weight:600;color:var(--text);margin:0;margin-bottom:4px;">Components</h1>
-      <span style="color:var(--text3);font-size:12px;">{{ rows|length }} total · Use ⌘K to search</span>
+      <h2 class="text-slate-800 text-[13px] font-bold" style="color: var(--text); letter-spacing: 0.2px; text-transform: uppercase; margin: 0; margin-bottom: 2px;">Components</h2>
+      <span style="color:var(--text3);font-size:11px;">{{ rows|length }} total · Use ⌘K to search</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
       <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
@@ -27,8 +27,8 @@
   </div>
 
   <!-- Batch tools (collapsible) -->
-  <div id="batch-tools-section" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:24px;">
-    <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;">Batch Operations</div>
+  <div id="batch-tools-section" style="display:none;background:rgba(241, 245, 249, 0.55);backdrop-filter:blur(4px);border:1px solid rgba(226, 232, 240, 0.8);border-radius:6px;padding:16px;margin-bottom:24px;">
+    <div style="font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Batch Operations</div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px;">
       <!-- Rename -->
@@ -129,12 +129,12 @@
           <td>
             <a href="/components/{{ comp.barcode_id }}" style="color:var(--text);">{{ comp.name }}</a>
             {% if comp.is_generic %}
-            <span style="font-size:8px;text-transform:uppercase;background:var(--green);color:#000;padding:2px 4px;border-radius:2px;margin-left:4px;">G</span>
+            <span style="font-size:8.5px;text-transform:uppercase;background:var(--green-bg);color:var(--green);border:1px solid rgba(217,119,6,0.2);padding:1px 4px;border-radius:2px;margin-left:4px;font-weight:600;">G</span>
             {% elif comp.parent_id %}
-            <span style="font-size:8px;text-transform:uppercase;background:var(--bg3);color:var(--text3);padding:2px 4px;border-radius:2px;margin-left:4px;">V</span>
+            <span style="font-size:8.5px;text-transform:uppercase;background:var(--bg3);color:var(--text3);border:1px solid var(--border);padding:1px 4px;border-radius:2px;margin-left:4px;font-weight:600;">V</span>
             {% endif %}
             {% if kit_refs > 0 %}
-            <span style="font-size:8px;text-transform:uppercase;background:var(--blue);color:#fff;padding:2px 4px;border-radius:2px;margin-left:2px;">K×{{ kit_refs }}</span>
+            <span style="font-size:8.5px;text-transform:uppercase;background:rgba(59,130,246,0.08);color:var(--blue);border:1px solid rgba(59,130,246,0.2);padding:1px 4px;border-radius:2px;margin-left:2px;font-weight:600;">K×{{ kit_refs }}</span>
             {% endif %}
           </td>
           <td class="muted">{{ comp.value or '—' }}</td>
