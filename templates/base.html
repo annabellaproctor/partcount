@@ -118,7 +118,7 @@
       font-size: 11px;
       margin-right: 6px;
     }
-    .nav-link.active .menu-ico { color: var(--green); }
+    .nav-link.active .menu-ico { color: #0f172a; }
     .nav-link {
       color: var(--text2) !important;
       font-size: 11px;
@@ -132,8 +132,8 @@
       border-bottom: 2px solid transparent;
       transition: color 0.12s, border-color 0.12s;
     }
-    .nav-link:hover { color: var(--green) !important; }
-    .nav-link.active { color: var(--green) !important; font-weight: 600; border-bottom: 2px solid var(--green) !important; }
+    .nav-link:hover { color: #0f172a !important; }
+    .nav-link.active { color: #0f172a !important; font-weight: 600; border-bottom: 2px solid #0f172a !important; }
     .topbar-right {
       margin-left: auto;
       display: flex;
@@ -270,35 +270,66 @@
 
     /* ── forms ── */
     .form-control, .form-select {
-      background: var(--bg3);
-      border: 1px solid var(--border2);
+      background: #f1f5f9;
+      border: 1px solid rgba(226, 232, 240, 0.8);
       color: var(--text);
       border-radius: var(--radius);
       font-family: var(--font);
       font-size: 12px;
-      padding: 5px 10px;
+      padding: 6px 12px;
+      transition: all 0.15s ease;
+    }
+    .form-control:hover, .form-select:hover {
+      background: #e2e8f0;
     }
     .form-control:focus, .form-select:focus {
-      background: var(--bg4);
-      border-color: var(--green2);
+      background: #ffffff;
+      border-color: #3b82f6;
       color: var(--text);
-      box-shadow: 0 0 0 2px rgba(61,220,132,0.08);
+      box-shadow: 0 0 0 1.5px rgba(59, 130, 246, 0.3);
+      outline: none;
     }
     .form-control::placeholder { color: var(--text3); }
-    .form-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text2); margin-bottom: 4px; }
+    .form-label { font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; color: var(--text3); margin-bottom: 4px; }
 
     /* ── buttons ── */
-    .btn { font-family: var(--font); border-radius: var(--radius); font-size: 11px; letter-spacing: 0.5px; }
-    .btn-primary {
-      background: transparent;
-      border: 1px solid var(--green2);
-      color: var(--green);
+    .btn {
+      font-family: var(--font);
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      padding: 5px 12px;
+      transition: all 0.15s ease;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid transparent;
     }
-    .btn-primary:hover { background: var(--green-bg); border-color: var(--green); color: var(--green); }
-    .btn-danger { background: transparent; border: 1px solid #5a2525; color: var(--red); }
-    .btn-danger:hover { background: rgba(224,85,85,0.08); border-color: var(--red); color: var(--red); }
-    .btn-sm { padding: 2px 9px; font-size: 10px; }
-    .btn-xs { padding: 1px 6px; font-size: 9px; }
+    .btn-primary {
+      background: #0f172a !important; /* bg-engineering-dark / bg-slate-900 */
+      border-color: #1e293b !important;
+      color: #ffffff !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    .btn-primary:hover {
+      background: #1e293b !important; /* bg-slate-800 */
+      border-color: #334155 !important;
+      color: #ffffff !important;
+    }
+    .btn-danger {
+      background: #fef2f2 !important;
+      border-color: #fee2e2 !important;
+      color: #b91c1c !important;
+    }
+    .btn-danger:hover {
+      background: #fee2e2 !important;
+      border-color: #fca5a5 !important;
+      color: #991b1b !important;
+    }
+    .btn-sm { padding: 3px 10px; font-size: 10px; }
+    .btn-xs { padding: 2px 6px; font-size: 9px; }
 
     /* ── stats ── */
     .stat-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
