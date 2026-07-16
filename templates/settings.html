@@ -2,16 +2,16 @@
 {% block title %}Settings :: LAB::INV{% endblock %}
 {% block content %}
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-  <h2 style="color: var(--text); font-size: 14px; font-weight: 700; margin:0;">Settings</h2>
+  <h2 class="mono-util text-muted" style="margin:0;">Settings</h2>
 </div>
 
 <div class="row g-4">
   <div class="col-md-4">
     <div class="mb-4">
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Profile</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Profile</h2>
+      <div class="card p-0">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-          <div style="width:44px;height:44px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:bold;color:var(--green);">
+          <div class="mono-util" style="width:44px;height:44px;border-radius:2px;background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--green);">
             {{ profile.initials if profile else 'AP' }}
           </div>
           <div>
@@ -19,34 +19,34 @@
             <div style="font-size:11px;color:var(--text3);">{{ profile.email if profile else '—' }}</div>
           </div>
         </div>
-        <div style="font-size:10px;color:var(--text3);letter-spacing:1px;">ACCOUNT ID</div>
-        <div style="font-size:11px;font-family:var(--font);color:var(--text2);margin-top:2px;">{{ profile.id[:16] if profile else '—' }}...</div>
+        <div class="mono-util muted" style="margin-bottom: 2px;">ACCOUNT ID</div>
+        <div class="mono-util muted">{{ profile.id[:16] if profile else '—' }}...</div>
       </div>
     </div>
 
     <!-- API Usage Monitor -->
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px; display:flex; align-items:center; justify-content:space-between;">
-        API Usage (30 days)
-        <button class="btn btn-sm btn-primary" style="font-size:10px;padding:2px 8px;" onclick="refreshUsage()">↻</button>
-      </h2>
-      <div class="p-0" id="usage-stats">
-        <div style="text-align:center;color:var(--text3);font-size:11px;padding:20px;">Loading...</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+        <h2 class="mono-util text-muted" style="margin: 0;">API Usage (30 days)</h2>
+        <button class="btn btn-primary btn-xs" onclick="refreshUsage()">↻</button>
+      </div>
+      <div class="card p-0" id="usage-stats">
+        <div class="mono-util muted" style="text-align:center;padding:20px;">Loading...</div>
       </div>
     </div>
   </div>
 
   <div class="col-md-8">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">API Keys</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">API Keys</h2>
+      <div class="card p-0">
         <form hx-post="/api/keys/" hx-target="#keys-table-body" hx-swap="afterbegin" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
-          <div class="input-group" style="max-width:400px;">
-            <input name="label" class="form-control" placeholder="Key label — e.g. gmail-integration" required style="font-size:11.5px;">
-            <button type="submit" class="btn btn-primary">GENERATE</button>
+          <div class="input-group" style="max-width:400px; gap: 8px;">
+            <input name="label" class="form-control" placeholder="Key label — e.g. gmail-integration" required>
+            <button type="submit" class="btn btn-primary btn-xs">GENERATE</button>
           </div>
         </form>
-        <table class="table" style="font-size:11.5px;">
+        <table class="table">
           <thead><tr>
             <th>Label</th><th>Key Preview</th><th>Last Used</th><th>Status</th><th></th>
           </tr></thead>
@@ -54,13 +54,13 @@
             {% for key in keys %}
             <tr id="key-{{ key.id }}">
               <td>{{ key.label }}</td>
-              <td style="font-family:var(--font);font-size:11px;color:var(--text2);">{{ key.key[:24] }}...</td>
+              <td class="mono-util muted">{{ key.key[:24] }}...</td>
               <td class="muted">{{ key.last_used.strftime('%b %d %H:%M') if key.last_used else 'never' }}</td>
               <td>
                 {% if key.active %}
                 <span class="status-badge status-active">active</span>
                 {% else %}
-                <span class="status-badge" style="background:rgba(85,85,85,0.08);color:var(--text3);border:1px solid var(--border);">revoked</span>
+                <span class="status-badge" style="background:var(--bg3);color:var(--text3);border:1px solid var(--border);">revoked</span>
                 {% endif %}
               </td>
               <td>
@@ -76,38 +76,38 @@
             {% endfor %}
           </tbody>
         </table>
-        <div style="font-size:10px;color:var(--text3);margin-top:8px;">
-          Use <code style="color:var(--green2);">X-API-Key: &lt;key&gt;</code> header for external API access.
+        <div class="mono-util muted" style="margin-top:8px;">
+          Use <code class="mono-util" style="color:var(--green2);">X-API-Key: &lt;key&gt;</code> header for external API access.
         </div>
       </div>
     </div>
 
     <div class="mt-4">
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">AI Providers Runtime</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">AI Providers Runtime</h2>
+      <div class="card p-0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-          <label class="muted" style="font-size:10px;letter-spacing:1px;text-transform:uppercase;">Strategy</label>
+          <label class="mono-util muted">Strategy</label>
           <select id="ai-strategy" class="form-select" style="max-width:220px;" onchange="onAiStrategyChanged()">
             <option value="priority">priority</option>
             <option value="round_robin">round_robin</option>
             <option value="weighted_random">weighted_random</option>
           </select>
-          <button class="btn btn-primary btn-sm" onclick="addAiProvider()">Add Provider</button>
-          <button class="btn btn-primary btn-sm" onclick="applyOllamaGroqPreset()">Preset: Ollama + Groq</button>
-          <button class="btn btn-primary btn-sm" onclick="refreshAiProviders()">Reload</button>
-          <button class="btn btn-primary btn-sm" onclick="saveAiProviders()">Save</button>
-          <button class="btn btn-primary btn-sm" onclick="copyAiProviderJson()">Copy JSON</button>
-          <button class="btn btn-primary btn-sm" onclick="loadAiProviderJsonFromEditor()">Apply JSON</button>
+          <button class="btn btn-primary btn-xs" onclick="addAiProvider()">Add Provider</button>
+          <button class="btn btn-primary btn-xs" onclick="applyOllamaGroqPreset()">Preset: Ollama + Groq</button>
+          <button class="btn btn-primary btn-xs" onclick="refreshAiProviders()">Reload</button>
+          <button class="btn btn-primary btn-xs" onclick="saveAiProviders()">Save</button>
+          <button class="btn btn-primary btn-xs" onclick="copyAiProviderJson()">Copy JSON</button>
+          <button class="btn btn-primary btn-xs" onclick="loadAiProviderJsonFromEditor()">Apply JSON</button>
         </div>
 
-        <div style="margin:10px 0 6px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Task → Model Preferences (optional global override)</div>
+        <div class="mono-util muted" style="margin:10px 0 6px;">Task → Model Preferences (optional global override)</div>
         <div id="ai-task-models" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:10px;"></div>
 
         <div id="ai-provider-list" style="display:flex;flex-direction:column;gap:10px;"></div>
 
-        <div style="margin:10px 0 6px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">Provider Config JSON (collaborative)</div>
-        <textarea id="ai-provider-json" class="form-control" rows="12" spellcheck="false" style="font-family:var(--font);font-size:11px;"></textarea>
-        <div class="muted" style="font-size:10px;margin-top:5px;">API keys are masked on load. Leave blank to keep the existing stored key for that provider ID.</div>
+        <div class="mono-util muted" style="margin:10px 0 6px;">Provider Config JSON (collaborative)</div>
+        <textarea id="ai-provider-json" class="form-control mono-util" rows="12" spellcheck="false" style="font-size: 11px;"></textarea>
+        <div class="mono-util muted" style="margin-top:5px;">API keys are masked on load. Leave blank to keep the existing stored key for that provider ID.</div>
 
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;">
           <select id="ai-test-task" class="form-select" style="max-width:180px;">
@@ -120,25 +120,25 @@
             <option value="rename">rename</option>
           </select>
           <input id="ai-test-message" class="form-control" style="max-width:360px;" value="ping" placeholder="test message">
-          <button class="btn btn-primary btn-sm" onclick="testAiProviderConfig()">Test Route</button>
-          <span id="ai-provider-status" class="muted" style="font-size:11px;"></span>
+          <button class="btn btn-primary btn-xs" onclick="testAiProviderConfig()">Test Route</button>
+          <span id="ai-provider-status" class="mono-util muted"></span>
         </div>
       </div>
     </div>
 
-    <div class="mt-4">
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Archetype Field Explorer</h2>
-      <div class="p-0">
+    <div class="mt-4 mb-5">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Archetype Field Explorer</h2>
+      <div class="card p-0">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <select id="archetype-path" class="form-select" style="max-width:420px;font-size:11px;" onchange="loadArchetypeFields()">
             <option value="">Select type path...</option>
           </select>
-          <button class="btn btn-primary btn-sm" onclick="loadArchetypeFields()">Load Fields</button>
+          <button class="btn btn-primary btn-xs" onclick="loadArchetypeFields()">Load Fields</button>
         </div>
-        <div id="archetype-status" class="muted" style="font-size:11px;margin-bottom:6px;"></div>
-        <pre id="archetype-fields" style="font-size:11px;background:rgba(255,255,255,0.7);border:1px solid var(--border);padding:10px;border-radius:4px;min-height:130px;white-space:pre-wrap;color:var(--text);">Select a type path to inspect fields/required/defaults...</pre>
-        <div style="font-size:10px;color:var(--text3);margin:8px 0 6px;letter-spacing:1px;text-transform:uppercase;">Hierarchy Tree</div>
-        <pre id="archetype-tree" style="font-size:11px;background:rgba(255,255,255,0.7);border:1px solid var(--border);padding:10px;border-radius:4px;max-height:280px;overflow:auto;white-space:pre-wrap;color:var(--text);">Loading hierarchy...</pre>
+        <div id="archetype-status" class="mono-util muted" style="margin-bottom:6px;"></div>
+        <pre id="archetype-fields" class="mono-util" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:2px;min-height:130px;white-space:pre-wrap;color:var(--text);">Select a type path to inspect fields/required/defaults...</pre>
+        <div class="mono-util muted" style="margin:8px 0 6px;">Hierarchy Tree</div>
+        <pre id="archetype-tree" class="mono-util" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:2px;max-height:280px;overflow:auto;white-space:pre-wrap;color:var(--text);">Loading hierarchy...</pre>
       </div>
     </div>
   </div>

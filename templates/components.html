@@ -6,29 +6,29 @@
 <div style="max-width:1400px;margin:0 auto;padding:0 12px;">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px;margin-top:12px;">
     <div>
-      <h2 style="color: var(--text); font-size: 12px; font-weight: 700; margin: 0; margin-bottom: 2px;">Component Registry</h2>
-      <span style="color:var(--text3);font-size:11px;">{{ rows|length }} total · Use ⌘K to search</span>
+      <h2 class="mono-util text-muted" style="margin-bottom: 4px;">Component Registry</h2>
+      <span class="mono-util muted">{{ rows|length }} total · Use ⌘K to search</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
+      <label class="mono-util muted" style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
         <input type="checkbox" id="generic-filter" style="accent-color:var(--green);" onchange="applyFilters()">
         Generic only
       </label>
-      <input class="form-control form-control-sm" style="width:180px;font-size:11px;"
+      <input class="form-control" style="width:180px; font-size: 11px; padding: 4px 8px; min-height: 24px;"
              placeholder="Filter..." oninput="applyFilters()" id="text-filter">
     </div>
   </div>
 
   <!-- Quick actions -->
   <div style="display:flex;gap:8px;margin-bottom:24px;align-items:center;flex-wrap:wrap;">
-    <span id="batch-selection-count" class="muted" style="font-size:11px;">0 selected</span>
-    <button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="bulkDeleteSelected()" id="bulk-delete-btn" disabled>Delete</button>
-    <button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="toggleBatchTools()" id="batch-toggle-btn">▼ More Tools</button>
+    <span id="batch-selection-count" class="mono-util muted">0 selected</span>
+    <button class="btn btn-primary btn-xs" onclick="bulkDeleteSelected()" id="bulk-delete-btn" disabled>Delete</button>
+    <button class="btn btn-primary btn-xs" onclick="toggleBatchTools()" id="batch-toggle-btn">▼ More Tools</button>
   </div>
 
   <!-- Batch tools (collapsible) -->
-  <div id="batch-tools-section" style="display:none;background:rgba(241, 245, 249, 0.55);backdrop-filter:blur(4px);border:1px solid rgba(226, 232, 240, 0.8);border-radius:6px;padding:16px;margin-bottom:24px;">
-    <div style="font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Batch Operations</div>
+  <div id="batch-tools-section" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:2px;padding:16px;margin-bottom:24px;">
+    <div class="mono-util text-muted" style="margin-bottom:12px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Batch Operations</div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px;">
       <!-- Rename -->

@@ -2,41 +2,58 @@
 {% block title %}Projects :: LAB::INV{% endblock %}
 {% block content %}
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-  <h2 style="color: var(--text); font-size: 14px; font-weight: 700; margin:0;">Projects</h2>
-  <button onclick="document.getElementById('proj-form').style.display=document.getElementById('proj-form').style.display==='none'?'block':'none'" class="btn btn-primary btn-sm">+ New Project</button>
+  <h2 class="mono-util text-muted" style="margin:0;">Projects</h2>
+  <button onclick="document.getElementById('proj-form').style.display=document.getElementById('proj-form').style.display==='none'?'block':'none'" class="btn btn-primary btn-xs">+ New Project</button>
 </div>
 
-<div id="proj-form" style="display:none;background:rgba(241, 245, 249, 0.55);backdrop-filter:blur(4px);border:1px solid rgba(226, 232, 240, 0.8);border-radius:6px;padding:16px;margin-bottom:24px;">
-  <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-3">Register New Project</h3>
+<div id="proj-form" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:2px;padding:16px;margin-bottom:24px;">
+  <h3 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Register New Project</h3>
   <div>
     <form action="/api/projects/" method="post" enctype="multipart/form-data">
-      <div class="row g-2">
-        <div class="col-6"><label class="form-label">Name</label><input name="name" class="form-control" required placeholder="Gate controller v2"></div>
-        <div class="col-3"><label class="form-label">Status</label><select name="status" class="form-select"><option value="active">Active</option><option value="paused">Paused</option><option value="complete">Complete</option></select></div>
-        <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-primary w-100">Create</button></div>
-        <div class="col-12"><label class="form-label">Description</label><input name="description" class="form-control" placeholder="Optional"></div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+        <div style="flex: 2; min-width: 200px;">
+          <label class="form-label">Name</label>
+          <input name="name" class="form-control" required placeholder="Gate controller v2">
+        </div>
+        <div style="flex: 1; min-width: 100px;">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="complete">Complete</option>
+          </select>
+        </div>
+        <div>
+          <button type="submit" class="btn w-100" style="min-height: 32px;">Create</button>
+        </div>
+        <div style="flex: 100%; margin-top: 8px;">
+          <label class="form-label">Description</label>
+          <input name="description" class="form-control" placeholder="Optional">
+        </div>
       </div>
     </form>
   </div>
 </div>
 
 <div>
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">All Projects</h2>
-  <table class="table">
-    <thead><tr>
-      <th>Name</th><th>Status</th><th>Description</th><th>Updated</th><th></th>
-    </tr></thead>
-    <tbody>
-      {% for proj in projects %}
-      <tr>
-        <td><a href="/projects/{{ proj.id }}">{{ proj.name }}</a></td>
-        <td><span class="status-badge status-{{ proj.status }}">{{ proj.status }}</span></td>
-        <td class="muted">{{ proj.description or '—' }}</td>
-        <td class="muted">{{ proj.updated_at.strftime('%b %d') }}</td>
-        <td><a href="/projects/{{ proj.id }}" class="btn btn-primary btn-sm">OPEN</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">All Projects</h2>
+  <div class="card p-0">
+    <table class="table">
+      <thead><tr>
+        <th>Name</th><th>Status</th><th>Description</th><th>Updated</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for proj in projects %}
+        <tr>
+          <td><a href="/projects/{{ proj.id }}">{{ proj.name }}</a></td>
+          <td><span class="status-badge status-{{ proj.status }}">{{ proj.status }}</span></td>
+          <td class="muted">{{ proj.description or '—' }}</td>
+          <td class="muted">{{ proj.updated_at.strftime('%b %d') }}</td>
+          <td><a href="/projects/{{ proj.id }}" class="btn btn-primary btn-xs">OPEN</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

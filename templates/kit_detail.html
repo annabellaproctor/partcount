@@ -9,56 +9,58 @@
 </div>
 
 <div class="mb-4">
-  <h2 style="font-size:20px;font-weight:700;color:var(--text);margin:0;margin-bottom:6px;">{{ kit.name }}</h2>
+  <h2 style="font-size:16px;font-weight:700;color:var(--text);margin:0;margin-bottom:6px;letter-spacing:-0.02em;">{{ kit.name|lower }}</h2>
   <div class="muted" style="font-size:11.5px;color:var(--text2);">{{ kit.description or 'No description' }}</div>
   {% if kit.notes %}
   <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">{{ kit.notes }}</div>
   {% endif %}
 </div>
 
-<div class="mb-4 p-3 rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
-  <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2.5" style="letter-spacing: 1px; color: var(--text2);">AI Kit Smart Modify</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">AI Kit Smart Modify</h2>
   <div>
     <textarea id="kit-ai-text" class="form-control" rows="6" placeholder="Paste noisy webpage/cart text to repair kit details or suggest kit components..." style="font-size:11px;"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-      <button class="btn btn-primary btn-sm" onclick="analyzeKitText()">Analyze + Suggest</button>
-      <span id="kit-ai-status" class="muted" style="font-size:11px;"></span>
+      <button class="btn btn-primary btn-xs" onclick="analyzeKitText()">Analyze + Suggest</button>
+      <span id="kit-ai-status" class="mono-util muted"></span>
     </div>
-    <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:4px;">
-      <div id="kit-ai-summary" style="font-size:11px;color:var(--text2);margin-bottom:6px;"></div>
-      <div id="kit-ai-assumptions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--amber);"></div>
-      <div id="kit-ai-suggestions" style="display:none;margin-bottom:6px;font-size:10px;color:var(--blue);"></div>
-      <pre id="kit-ai-patch" style="margin:0;font-size:10px;white-space:pre-wrap;color:var(--text2);"></pre>
+    <div id="kit-ai-preview" style="display:none;margin-top:8px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
+      <div id="kit-ai-summary" class="mono-util text-muted" style="margin-bottom:6px;"></div>
+      <div id="kit-ai-assumptions" class="mono-util" style="display:none;margin-bottom:6px;color:var(--amber);"></div>
+      <div id="kit-ai-suggestions" class="mono-util" style="display:none;margin-bottom:6px;color:var(--blue);"></div>
+      <pre id="kit-ai-patch" class="mono-util" style="margin:0;white-space:pre-wrap;color:var(--text2);"></pre>
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
         <label style="font-size:10px;color:var(--text3);display:flex;gap:6px;align-items:center;cursor:pointer;">
           <input type="checkbox" id="kit-replace-components" style="accent-color: var(--green);">
           Replace kit components with AI candidates
         </label>
-        <button class="btn btn-primary btn-sm" onclick="applyKitAiPatch()">Apply Suggested Changes</button>
+        <button class="btn btn-primary btn-xs" onclick="applyKitAiPatch()">Apply Suggested Changes</button>
       </div>
     </div>
   </div>
 </div>
 
 <div>
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Kit Composition</h2>
-  <table class="table" style="font-size:11.5px;">
-    <thead>
-      <tr><th>Barcode</th><th>Name</th><th>Value</th><th>Type Path</th><th>Qty</th><th>Notes</th></tr>
-    </thead>
-    <tbody>
-      {% for link, comp in rows %}
-      <tr>
-        <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
-        <td>{{ comp.name }}</td>
-        <td>{{ comp.value or '—' }} {{ comp.unit or '' }}</td>
-        <td class="muted">{{ comp.type_path or '—' }}</td>
-        <td>{{ link.quantity }}</td>
-        <td class="muted">{{ link.notes or '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Kit Composition</h2>
+  <div class="card p-0">
+    <table class="table">
+      <thead>
+        <tr><th>Barcode</th><th>Name</th><th>Value</th><th>Type Path</th><th>Qty</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for link, comp in rows %}
+        <tr>
+          <td><a href="/components/{{ comp.barcode_id }}" class="mono-util">{{ comp.barcode_id }}</a></td>
+          <td>{{ comp.name }}</td>
+          <td>{{ comp.value or '—' }} {{ comp.unit or '' }}</td>
+          <td class="muted">{{ comp.type_path or '—' }}</td>
+          <td>{{ link.quantity }}</td>
+          <td class="muted">{{ link.notes or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
 

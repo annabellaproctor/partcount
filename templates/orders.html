@@ -3,20 +3,20 @@
 {% block content %}
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:20px;">
   <div>
-    <h2 style="color: var(--text); font-size: 14px; font-weight: 700; margin:0;">Orders</h2>
-    <div class="muted" style="font-size:11px;color:var(--text3);margin-top:2px;">Fast draft workflow + explicit status/receive controls. Keyboard: `/` search, `Alt+N` component row, `Alt+K` kit row, `Alt+S` create.</div>
+    <h2 class="mono-util text-muted" style="margin:0;">Orders</h2>
+    <div class="mono-util muted" style="margin-top:2px;">Fast draft workflow + explicit status/receive controls. Keyboard: `/` search, `Alt+N` component row, `Alt+K` kit row, `Alt+S` create.</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
-    <input id="orders-filter" class="form-control form-control-sm" placeholder="Search references, suppliers, status..." style="width:260px;font-size:11.5px;">
-    <button class="btn btn-primary btn-sm" onclick="toggleOrderHelp()">Shortcuts</button>
+    <input id="orders-filter" class="form-control" placeholder="Search references, suppliers, status..." style="width:260px;font-size:11.5px;padding:4px 8px;min-height:24px;">
+    <button class="btn" onclick="toggleOrderHelp()" class="btn-xs">Shortcuts</button>
   </div>
 </div>
 
 <div class="row g-4 mb-4">
   <div class="col-xl-7">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">New Order Draft</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">New Order Draft</h2>
+      <div class="card">
         <div class="row g-2" style="margin-bottom:8px;">
           <div class="col-md-4">
             <label class="form-label" style="font-size:10px;color:var(--text3);">Supplier</label>
@@ -38,9 +38,9 @@
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
-          <button class="btn btn-primary btn-sm" onclick="addComponentOrderRow()" title="Alt+N">+ Component Row</button>
-          <button class="btn btn-primary btn-sm" onclick="addKitOrderRow()" title="Alt+K">+ Kit Row</button>
-          <span class="muted" style="font-size:10px;">Choose existing component or create on-the-fly.</span>
+          <button class="btn" onclick="addComponentOrderRow()" title="Alt+N">+ Component Row</button>
+          <button class="btn" onclick="addKitOrderRow()" title="Alt+K">+ Kit Row</button>
+          <span class="mono-util muted">Choose existing component or create on-the-fly.</span>
         </div>
 
         <div style="margin-top:10px;">
@@ -54,23 +54,23 @@
         </div>
 
         <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
-          <button id="create-order-btn" class="btn btn-primary" onclick="createOrderFromDraft()" title="Alt+S">Create Order</button>
-          <span id="order-create-status" class="muted" style="font-size:11px;"></span>
+          <button id="create-order-btn" class="btn" onclick="createOrderFromDraft()" title="Alt+S">Create Order</button>
+          <span id="order-create-status" class="mono-util muted"></span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="col-xl-5">
-    <div class="p-3 rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
-      <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2.5" style="letter-spacing: 1px; color: var(--text2);">AI Order Parse</h2>
+    <div class="card">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">AI Order Parse</h2>
       <div>
-        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Rich Paste Area</div>
-        <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:95px;overflow:auto;font-size:11px;background:rgba(255,255,255,0.7);"></div>
-        <textarea id="order-ai-text" class="form-control" rows="6" placeholder="Paste full webpage text from any site..." style="margin-top:8px;font-size:11px;background:rgba(255,255,255,0.7);"></textarea>
+        <div class="mono-util text-muted" style="margin-bottom:4px;">Rich Paste Area</div>
+        <div id="order-ai-rich" contenteditable="true" class="form-control" style="min-height:95px;overflow:auto;background:var(--bg3);"></div>
+        <textarea id="order-ai-text" class="form-control" rows="6" placeholder="Paste full webpage text from any site..." style="margin-top:8px;background:var(--bg3);"></textarea>
         <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-          <button class="btn btn-primary btn-sm" onclick="parseOrderText()">Parse Order Lines</button>
-          <span id="order-ai-status" class="muted" style="font-size:11px;"></span>
+          <button class="btn" onclick="parseOrderText()">Parse Order Lines</button>
+          <span id="order-ai-status" class="mono-util muted"></span>
         </div>
       </div>
     </div>
@@ -78,9 +78,9 @@
 </div>
 
 <div>
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Existing Orders</h2>
-  <div class="p-0">
-    <table class="table" id="orders-table" style="font-size:11.5px;">
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Existing Orders</h2>
+  <div class="card p-0">
+    <table class="table" id="orders-table">
       <thead>
         <tr>
           <th>Reference</th>

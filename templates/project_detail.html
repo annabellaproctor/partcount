@@ -5,7 +5,7 @@
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
   <a href="/projects" class="muted" style="font-size:11px;text-decoration:none;">← Projects</a>
   <span class="sep" style="color:var(--text3);">/</span>
-  <span style="color:var(--text);font-size:13px;font-weight:600;">{{ project.name }}</span>
+  <h2 style="font-size:16px;font-weight:700;color:var(--text);margin:0;letter-spacing:-0.02em;">{{ project.name|lower }}</h2>
   <span class="status-badge status-{{ project.status }}">{{ project.status }}</span>
 </div>
 
@@ -13,17 +13,17 @@
   <!-- TODO column -->
   <div class="col-md-5">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Tasks / TODO</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Tasks / TODO</h2>
+      <div class="card p-0">
         <form hx-post="/api/projects/{{ project.id }}/todos" hx-target="#todo-list" hx-swap="beforeend" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
-          <div class="input-group">
-            <select name="priority" class="form-select" style="max-width:80px;font-size:11px;">
+          <div class="input-group" style="gap: 8px;">
+            <select name="priority" class="form-select" style="max-width:80px;">
               <option value="0">—</option>
               <option value="1">HI</option>
               <option value="2">URG</option>
             </select>
-            <input name="text" class="form-control" placeholder="Add task..." required style="font-size:11px;">
-            <button type="submit" class="btn btn-primary">+</button>
+            <input name="text" class="form-control" placeholder="Add task..." required>
+            <button type="submit" class="btn btn-primary btn-xs">+</button>
           </div>
         </form>
         <div id="todo-list">
@@ -49,15 +49,15 @@
   <!-- BOM column -->
   <div class="col-md-7">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Bill of Materials (BOM)</h2>
-      <div class="p-0">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Bill of Materials (BOM)</h2>
+      <div class="card p-0">
         <form hx-post="/api/projects/{{ project.id }}/bom" hx-target="#bom-table-body" hx-swap="beforeend" hx-on::after-request="this.reset()" enctype="multipart/form-data" class="mb-3">
           <div class="row g-2">
             <div class="col-4">
-              <input name="description" class="form-control" placeholder="Description / part" required style="font-size:11px;">
+              <input name="description" class="form-control" placeholder="Description / part" required>
             </div>
             <div class="col-3">
-              <select name="component_id" class="form-select" style="font-size:11px;">
+              <select name="component_id" class="form-select">
                 <option value="">— link component —</option>
                 {% for comp in components_all %}
                 <option value="{{ comp.id }}">{{ comp.barcode_id }} {{ comp.name }}</option>
@@ -65,20 +65,20 @@
               </select>
             </div>
             <div class="col-1">
-              <input name="quantity_needed" type="number" class="form-control" placeholder="Need" value="1" min="1" style="font-size:11px;">
+              <input name="quantity_needed" type="number" class="form-control" placeholder="Need" value="1" min="1">
             </div>
             <div class="col-1">
-              <input name="quantity_have" type="number" class="form-control" placeholder="Have" value="0" min="0" style="font-size:11px;">
+              <input name="quantity_have" type="number" class="form-control" placeholder="Have" value="0" min="0">
             </div>
             <div class="col-3">
-              <div class="input-group">
-                <input name="notes" class="form-control" placeholder="Notes" style="font-size:11px;">
-                <button type="submit" class="btn btn-primary">+</button>
+              <div class="input-group" style="gap: 8px;">
+                <input name="notes" class="form-control" placeholder="Notes">
+                <button type="submit" class="btn btn-primary btn-xs">+</button>
               </div>
             </div>
           </div>
         </form>
-        <table class="table" style="font-size:11px;">
+        <table class="table">
           <thead><tr>
             <th>Component</th><th>Linked</th><th>Need</th><th>Have</th><th>Notes</th><th>✓</th><th></th>
           </tr></thead>
@@ -88,7 +88,7 @@
             {% set comp = row.Component %}
             <tr id="bom-{{ item.id }}" {% if item.sourced %}style="opacity:0.55"{% endif %}>
               <td>{{ item.description }}</td>
-              <td>{% if comp %}<span class="bid" style="font-size:9.5px;">{{ comp.barcode_id }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td>{% if comp %}<span class="mono-util" style="font-size:9.5px;">{{ comp.barcode_id }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
               <td>{{ item.quantity_needed }}</td>
               <td>{{ item.quantity_have }}</td>
               <td class="muted">{{ item.notes or '—' }}</td>

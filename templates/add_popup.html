@@ -4,7 +4,7 @@
 
     <!-- Header -->
     <div class="add-popup-header">
-      <span style="letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:var(--text2);">Add Component / Kit</span>
+      <span class="mono-util text-muted">Add Component / Kit</span>
       <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
         <a href="/add" target="_blank" style="font-size:10px;color:var(--text3);">↗ Full page</a>
         <button onclick="closeAddPopup()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
@@ -24,7 +24,7 @@
     <div id="single-entry-mode">
     <!-- Section 1: DigiKey/Mouser search -->
     <div class="add-popup-section">
-      <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Search Suppliers</div>
+      <div class="mono-util text-muted" style="margin-bottom:6px;">Search Suppliers</div>
       <div style="display:flex;gap:6px;">
         <input id="lookup-input" class="form-control" placeholder="MPN, name, value... e.g. ESP32-WROOM, 10k 0805"
                oninput="debounceLookup(this.value)"
@@ -42,8 +42,8 @@
     <!-- Section 2: AI Paste — always visible -->
     <div class="add-popup-section" style="border-top:1px solid var(--border);">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-        <span style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">AI Parse — paste any text</span>
-        <button type="button" onclick="runAIParse()" id="ai-parse-btn" class="btn btn-primary btn-xs" style="margin-left:auto;">⚡ Parse</button>
+        <span class="mono-util text-muted">AI Parse — paste any text</span>
+        <button type="button" onclick="runAIParse()" id="ai-parse-btn" class="btn" style="margin-left:auto;padding: 2px 8px; font-size: 10px; min-height: 24px;">⚡ Parse</button>
       </div>
       <textarea id="ai-paste-input" class="form-control" rows="2"
         style="font-size:11px;resize:vertical;font-family:var(--font);"
@@ -64,8 +64,8 @@
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div id="preview-price"  style="font-size:13px;color:var(--amber);"></div>
-          <div id="preview-source" style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px;"></div>
-          <button onclick="clearPreview()" class="btn btn-danger btn-xs" style="margin-top:6px;">Clear</button>
+          <div id="preview-source" class="mono-util text-muted" style="margin-top:2px;"></div>
+          <button onclick="clearPreview()" class="btn btn-danger" style="margin-top:6px;padding: 2px 8px; font-size: 10px; min-height: 24px;">Clear</button>
         </div>
       </div>
     </div>
@@ -179,9 +179,9 @@
       <div class="add-popup-footer">
         <span id="add-form-status" style="font-size:11px;color:var(--text3);flex:1;"></span>
         <div style="display:flex;gap:8px;">
-          <button type="button" onclick="resetAddForm()" class="btn btn-danger btn-sm">Reset</button>
-          <button type="button" onclick="addAnother()" id="add-another-btn" class="btn btn-primary btn-sm">+ Add Another</button>
-          <button type="submit" id="add-submit-btn" class="btn btn-primary btn-sm">Save</button>
+          <button type="button" onclick="resetAddForm()" class="btn btn-danger btn-xs">Reset</button>
+          <button type="button" onclick="addAnother()" id="add-another-btn" class="btn btn-primary btn-xs">+ Add Another</button>
+          <button type="submit" id="add-submit-btn" class="btn btn-primary btn-xs">Save</button>
         </div>
       </div>
     </form>
@@ -201,13 +201,13 @@
           <div class="col-12">
             <label class="form-label">Components in Kit</label>
             <div id="kit-components-list" style="display:flex;flex-direction:column;gap:6px;"></div>
-            <button type="button" class="btn btn-primary btn-xs" style="margin-top:8px;" onclick="addKitRow()">+ Add Component Row</button>
+            <button type="button" class="btn" style="margin-top:8px;padding: 2px 8px; font-size: 10px; min-height: 24px;" onclick="addKitRow()">+ Add Component Row</button>
           </div>
         </div>
       </div>
       <div class="add-popup-footer">
         <span id="kit-form-status" style="font-size:11px;color:var(--text3);flex:1;"></span>
-        <button type="button" class="btn btn-primary btn-sm" onclick="saveKit()">Save Kit</button>
+        <button type="button" class="btn btn-primary btn-xs" onclick="saveKit()">Save Kit</button>
       </div>
     </div>
   </div>

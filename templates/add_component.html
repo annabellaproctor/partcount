@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Add Component :: LAB::INV{% endblock %}
 {% block content %}
-<div class="page-title">Add Component</div>
+<div class="page-title" style="margin-bottom:16px;">Add Component</div>
 <div class="row justify-content-center">
   <div class="col-md-8">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>New Component — Full Form</div>
-      <div class="p-4">
+    <div class="card p-3 mb-3">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">New Component — Full Form</h2>
+      <div>
         <div class="mb-4" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <label class="form-label" style="margin:0;">AI Parse Noisy Website Text</label>
-            <button type="button" class="btn btn-primary btn-xs" onclick="runAIParse()" style="margin-left:auto;">Parse</button>
+            <label class="mono-util muted" style="margin:0;">AI Parse Noisy Website Text</label>
+            <button type="button" class="btn" onclick="runAIParse()" style="margin-left:auto;padding: 2px 8px; font-size: 10px; min-height: 24px;">Parse</button>
           </div>
           <textarea id="ai-paste-input" class="form-control" rows="4" placeholder="Paste full webpage text from any site (menus, reviews, cart noise is fine)..."></textarea>
           <div id="ai-parse-status" style="font-size:10px;color:var(--text3);margin-top:4px;"></div>
@@ -18,7 +18,7 @@
 
         <!-- Lookup bar -->
         <div class="mb-4" style="padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:2px;">
-          <label class="form-label">Search DigiKey / LCSC to autofill</label>
+          <label class="mono-util muted">Search DigiKey / LCSC to autofill</label>
           <div style="display:flex;gap:6px;">
             <input id="lookup-input" class="form-control" placeholder="Search by name, MPN, value..."
                    oninput="debounceLookup(this.value)" autocomplete="off" style="flex:1;">
@@ -112,9 +112,9 @@
             </div>
             <input type="hidden" name="lcsc_pn" id="f-lcsc">
             <input type="hidden" name="image_url" id="f-imgurl">
-            <div class="col-12">
-              <button type="submit" class="btn btn-primary">ADD COMPONENT</button>
-              <span id="add-form-status" style="margin-left:12px;font-size:12px;"></span>
+            <div class="col-12" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+              <button type="submit" class="btn btn-primary btn-xs">ADD COMPONENT</button>
+              <span id="add-form-status" class="mono-util muted" style="margin-left:12px;"></span>
             </div>
           </div>
         </form>

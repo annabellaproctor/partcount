@@ -20,7 +20,7 @@
 
   <div style="display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:start;margin-bottom:28px;">
     <div>
-      <h1 style="margin:0 0 6px 0;font-size:30px;line-height:1.2;color:var(--text);">{{ comp.name }}</h1>
+      <h1 style="margin:0 0 6px 0;font-size:16px;font-weight:700;letter-spacing:-0.02em;color:var(--text);">{{ comp.name|lower }}</h1>
       <div style="font-size:12px;color:var(--text2);">{{ comp.value or '—' }}{% if comp.package %} · {{ comp.package }}{% endif %}</div>
     </div>
     <div style="text-align:right;">
@@ -34,13 +34,13 @@
 
   <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;">
     <div>
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header"><span class="dot"></span>Stock Actions</div>
-        <div class="p-3">
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Stock Actions</h2>
+        <div>
           <div style="display:grid;grid-template-columns:minmax(0,220px) 120px minmax(0,1fr);gap:8px;align-items:end;">
             <div>
-              <label class="form-label">Source</label>
-              <select id="stock-footprint" class="form-select form-select-sm">
+              <label class="mono-util muted">Source</label>
+              <select id="stock-footprint" class="form-select" style="font-size: 11px;">
                 {% if footprints %}
                   {% for fp in footprints %}
                   <option value="{{ fp.id }}">{{ fp.manufacturer or 'Unspecified' }} / {{ fp.source or 'Manual' }}</option>
@@ -51,27 +51,30 @@
               </select>
             </div>
             <div>
-              <label class="form-label">Qty</label>
-              <input id="stock-qty" type="number" step="1" value="1" class="form-control form-control-sm">
+              <label class="mono-util muted">Qty</label>
+              <input id="stock-qty" type="number" step="1" value="1" class="form-control" style="font-size: 11px;">
             </div>
             <div>
-              <label class="form-label">Note</label>
-              <input id="stock-note" class="form-control form-control-sm" placeholder="location, batch, reference...">
+              <label class="mono-util muted">Note</label>
+              <input id="stock-note" class="form-control" placeholder="location, batch, reference..." style="font-size: 11px;">
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
-            <button class="btn btn-danger btn-sm" onclick="runStockAction('take')">Take</button>
-            <button class="btn btn-primary btn-sm" onclick="runStockAction('put')">Put</button>
-            <button class="btn btn-primary btn-sm" onclick="runStockAction('restock')">Restock</button>
-            <button class="btn btn-primary btn-sm" onclick="runStockAction('calibrate')">Calibrate</button>
+            <button class="btn btn-danger btn-xs" onclick="runStockAction('take')">Take</button>
+            <button class="btn btn-primary btn-xs" onclick="runStockAction('put')">Put</button>
+            <button class="btn btn-primary btn-xs" onclick="runStockAction('restock')">Restock</button>
+            <button class="btn btn-primary btn-xs" onclick="runStockAction('calibrate')">Calibrate</button>
             <span id="stock-action-status" class="muted" style="font-size:11px;margin-left:8px;"></span>
           </div>
         </div>
       </div>
 
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header"><span class="dot"></span>Stock By Source</div>
-        <div class="p-3" style="padding-top:8px;">
+        </div>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Stock By Source</h2>
+        <div>
           {% if footprints %}
           <table style="width:100%;font-size:12px;border-collapse:collapse;">
             <thead>
@@ -97,10 +100,11 @@
           <div class="muted" style="font-size:11px;">No stock records yet.</div>
           {% endif %}
         </div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="card-header"><span class="dot"></span>Recent Inventory Events</div>
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Recent Inventory Events</h2>
         <div class="p-0">
           {% if inventory_events %}
           <div style="max-height:260px;overflow:auto;">
@@ -123,43 +127,46 @@
     </div>
 
     <div>
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header"><span class="dot"></span>Component Info</div>
-        <div class="p-3">
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Component Info</h2>
+        <div>
           <div class="muted" style="font-size:10px;margin-bottom:8px;">Barcode: {{ comp.barcode_id }} · Type: {{ ctype.name if ctype else '—' }}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-            <input id="edit-value" class="form-control form-control-sm" placeholder="Value" value="{{ (comp.value or '')|e }}">
-            <input id="edit-unit" class="form-control form-control-sm" placeholder="Unit" value="{{ (comp.unit or '')|e }}">
-            <input id="edit-package" class="form-control form-control-sm" placeholder="Package" value="{{ (comp.package or '')|e }}">
-            <input id="edit-mpn" class="form-control form-control-sm" placeholder="MPN" value="{{ (comp.mpn or '')|e }}">
-            <input id="edit-digikey" class="form-control form-control-sm" placeholder="DigiKey PN" value="{{ (comp.digikey_pn or '')|e }}">
-            <input id="edit-lcsc" class="form-control form-control-sm" placeholder="LCSC PN" value="{{ (comp.lcsc_pn or '')|e }}">
-            <input id="edit-voltage" type="number" step="any" class="form-control form-control-sm" placeholder="Voltage (V)" value="{{ comp.voltage_rating if comp.voltage_rating is not none else '' }}">
-            <input id="edit-current" type="number" step="any" class="form-control form-control-sm" placeholder="Current (A)" value="{{ comp.current_rating if comp.current_rating is not none else '' }}">
-            <input id="edit-power" type="number" step="any" class="form-control form-control-sm" placeholder="Power (W)" value="{{ comp.power_rating if comp.power_rating is not none else '' }}">
-            <input id="edit-tolerance" class="form-control form-control-sm" placeholder="Tolerance" value="{{ (comp.tolerance or '')|e }}">
-            <input id="edit-datasheet" class="form-control form-control-sm" placeholder="Datasheet URL" value="{{ (comp.datasheet_url or '')|e }}" style="grid-column:1/3;">
-            <input id="edit-mfr" class="form-control form-control-sm" placeholder="Manufacturer" value="{{ (primary_mfr.name if primary_mfr else '')|e }}" style="grid-column:1/3;">
-            <textarea id="edit-description" class="form-control form-control-sm" rows="2" placeholder="Description" style="grid-column:1/3;">{{ (comp.description or '')|e }}</textarea>
-            <textarea id="edit-notes" class="form-control form-control-sm" rows="2" placeholder="Notes" style="grid-column:1/3;">{{ (comp.notes or '')|e }}</textarea>
+            <input id="edit-value" class="form-control" style="font-size: 11px;" placeholder="Value" value="{{ (comp.value or '')|e }}">
+            <input id="edit-unit" class="form-control" style="font-size: 11px;" placeholder="Unit" value="{{ (comp.unit or '')|e }}">
+            <input id="edit-package" class="form-control" style="font-size: 11px;" placeholder="Package" value="{{ (comp.package or '')|e }}">
+            <input id="edit-mpn" class="form-control" style="font-size: 11px;" placeholder="MPN" value="{{ (comp.mpn or '')|e }}">
+            <input id="edit-digikey" class="form-control" style="font-size: 11px;" placeholder="DigiKey PN" value="{{ (comp.digikey_pn or '')|e }}">
+            <input id="edit-lcsc" class="form-control" style="font-size: 11px;" placeholder="LCSC PN" value="{{ (comp.lcsc_pn or '')|e }}">
+            <input id="edit-voltage" type="number" step="any" class="form-control" style="font-size: 11px;" placeholder="Voltage (V)" value="{{ comp.voltage_rating if comp.voltage_rating is not none else '' }}">
+            <input id="edit-current" type="number" step="any" class="form-control" style="font-size: 11px;" placeholder="Current (A)" value="{{ comp.current_rating if comp.current_rating is not none else '' }}">
+            <input id="edit-power" type="number" step="any" class="form-control" style="font-size: 11px;" placeholder="Power (W)" value="{{ comp.power_rating if comp.power_rating is not none else '' }}">
+            <input id="edit-tolerance" class="form-control" style="font-size: 11px;" placeholder="Tolerance" value="{{ (comp.tolerance or '')|e }}">
+            <input id="edit-datasheet" class="form-control" style="font-size: 11px;" placeholder="Datasheet URL" value="{{ (comp.datasheet_url or '')|e }}" style="grid-column:1/3;">
+            <input id="edit-mfr" class="form-control" style="font-size: 11px;" placeholder="Manufacturer" value="{{ (primary_mfr.name if primary_mfr else '')|e }}" style="grid-column:1/3;">
+            <textarea id="edit-description" class="form-control" style="font-size: 11px;" rows="2" placeholder="Description" style="grid-column:1/3;">{{ (comp.description or '')|e }}</textarea>
+            <textarea id="edit-notes" class="form-control" style="font-size: 11px;" rows="2" placeholder="Notes" style="grid-column:1/3;">{{ (comp.notes or '')|e }}</textarea>
           </div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
-            <button class="btn btn-primary btn-sm" onclick="saveComponentDetails()">Save Details</button>
+            <button class="btn btn-primary btn-xs" onclick="saveComponentDetails()">Save Details</button>
             <span id="edit-details-status" class="muted" style="font-size:10px;"></span>
           </div>
         </div>
       </div>
 
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header"><span class="dot"></span>Image</div>
-        <div class="p-3 text-center">
+        </div>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Image</h2>
+        <div class="text-center">
           {% if comp.image_path %}
           <img src="{{ comp.image_path }}" id="comp-img" style="max-width:100%;max-height:170px;object-fit:contain;border:1px solid var(--border);border-radius:3px;background:var(--bg3);">
           {% else %}
           <div id="comp-img-placeholder" style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;border:1px dashed var(--border);border-radius:3px;">No image</div>
           {% endif %}
           <div style="position:relative;margin-top:8px;display:inline-block;">
-            <button class="btn btn-primary btn-sm" onclick="toggleImageMenu(event)">Image Menu</button>
+            <button class="btn btn-primary btn-xs" onclick="toggleImageMenu(event)">Image Menu</button>
             <div id="image-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:3px;box-shadow:0 4px 12px rgba(0,0,0,0.35);min-width:150px;z-index:10;margin-top:4px;overflow:hidden;text-align:left;">
               <button class="dropdown-item" style="width:100%;text-align:left;padding:8px 10px;border:none;background:transparent;color:var(--text);font-size:12px;" onclick="openCropEditor()">Edit / Crop</button>
               <label class="dropdown-item" style="display:block;padding:8px 10px;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);cursor:pointer;font-size:12px;">
@@ -175,9 +182,12 @@
         </div>
       </div>
 
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-header"><span class="dot"></span>Suppliers</div>
-        <div class="p-3">
+        </div>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Suppliers</h2>
+        <div>
           {% for cs in component_suppliers %}
           <div style="padding:7px 0;border-bottom:1px solid var(--border2);font-size:11px;">
             <div style="display:flex;justify-content:space-between;gap:8px;">

@@ -2,41 +2,41 @@
 {% block title %}Registry :: LAB::INV{% endblock %}
 {% block content %}
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-  <h2 style="color: var(--text); font-size: 14px; font-weight: 700; margin:0;">Registry</h2>
-  <span style="color:var(--text3);font-size:11px;">Type paths and archetype tooling</span>
+  <h2 class="mono-util text-muted" style="margin:0;">Registry</h2>
+  <span class="mono-util muted">Type paths and archetype tooling</span>
 </div>
 
-<div class="mb-4 p-3 rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
-  <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2.5" style="letter-spacing: 1px; color: var(--text2);">Admin Options</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <h2 class="mono-util text-muted" style="margin-bottom: 8px;">Admin Options</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a href="/components" class="btn btn-primary btn-sm">Open Components Registry</a>
-    <a href="/kits" class="btn btn-primary btn-sm">Open Kits Registry</a>
-    <a href="/settings" class="btn btn-primary btn-sm">API / Settings</a>
-    <button class="btn btn-primary btn-sm" onclick="openAddPopup()">+ Add Component</button>
+    <a href="/components" class="btn btn-primary btn-xs">Open Components Registry</a>
+    <a href="/kits" class="btn btn-primary btn-xs">Open Kits Registry</a>
+    <a href="/settings" class="btn btn-primary btn-xs">API / Settings</a>
+    <button class="btn" onclick="openAddPopup()" class="btn-xs">+ Add Component</button>
   </div>
 </div>
 
 <div class="row g-4">
   <div class="col-md-6">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Type Path Explorer</h2>
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Type Path Explorer</h2>
       <div class="p-0">
         <label class="form-label" style="font-size:10px;color:var(--text3);">Type Path</label>
-        <select id="type-path-select" class="form-select mb-2" onchange="loadTypeFields()" style="font-size:11px;">
+        <select id="type-path-select" class="form-select mb-2" onchange="loadTypeFields()">
           {% for p in paths %}
           <option value="{{ p }}">{{ p }}</option>
           {% endfor %}
         </select>
-        <div id="type-fields-status" class="muted" style="font-size:11px;margin-bottom:6px;"></div>
-        <pre id="type-fields-view" style="font-size:11px;background:rgba(255,255,255,0.7);border:1px solid var(--border);padding:10px;border-radius:4px;min-height:210px;white-space:pre-wrap;color:var(--text);">Select a type path...</pre>
+        <div id="type-fields-status" class="mono-util muted" style="margin-bottom:6px;"></div>
+        <pre id="type-fields-view" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);padding:10px;border-radius:2px;min-height:210px;white-space:pre-wrap;color:var(--text);">Select a type path...</pre>
       </div>
     </div>
   </div>
 
   <div class="col-md-6">
     <div>
-      <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Registry Coverage</h2>
-      <div class="p-0" style="max-height:360px;overflow:auto;">
+      <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Registry Coverage</h2>
+      <div class="card p-0" style="max-height:360px;overflow:auto;">
         <table class="table">
           <thead>
             <tr><th>Type Path</th><th style="width:90px;">Count</th></tr>
@@ -44,7 +44,7 @@
           <tbody>
             {% for row in path_counts %}
             <tr>
-              <td style="font-size:11px;color:var(--text2);">{{ row.path }}</td>
+              <td class="muted">{{ row.path }}</td>
               <td>{{ row.count }}</td>
             </tr>
             {% endfor %}
@@ -58,30 +58,30 @@
   </div>
 </div>
 
-<div class="mt-4">
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Quick Component Patch</h2>
-  <div class="p-0" style="display:grid;gap:8px;">
+<div style="margin-top:24px;">
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Quick Component Patch</h2>
+  <div class="card" style="display:grid;gap:8px;">
     <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px;">
-      <input id="reg-component-id" class="form-control form-control-sm" placeholder="Barcode or component ID" style="font-size:11px;">
-      <input id="reg-edit-mpn" class="form-control form-control-sm" placeholder="MPN" style="font-size:11px;">
-      <input id="reg-edit-mfr" class="form-control form-control-sm" placeholder="Manufacturer" style="font-size:11px;">
+      <input id="reg-component-id" class="form-control" placeholder="Barcode or component ID">
+      <input id="reg-edit-mpn" class="form-control" placeholder="MPN">
+      <input id="reg-edit-mfr" class="form-control" placeholder="Manufacturer">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
-      <input id="reg-edit-value" class="form-control form-control-sm" placeholder="Value" style="font-size:11px;">
-      <input id="reg-edit-unit" class="form-control form-control-sm" placeholder="Unit" style="font-size:11px;">
-      <input id="reg-edit-current" type="number" step="any" class="form-control form-control-sm" placeholder="Current (A)" style="font-size:11px;">
-      <input id="reg-edit-power" type="number" step="any" class="form-control form-control-sm" placeholder="Power (W)" style="font-size:11px;">
+      <input id="reg-edit-value" class="form-control" placeholder="Value">
+      <input id="reg-edit-unit" class="form-control" placeholder="Unit">
+      <input id="reg-edit-current" type="number" step="any" class="form-control" placeholder="Current (A)">
+      <input id="reg-edit-power" type="number" step="any" class="form-control" placeholder="Power (W)">
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <button class="btn btn-primary btn-sm" onclick="patchRegistryComponent()">Apply Patch</button>
-      <span id="reg-patch-status" class="muted" style="font-size:11px;"></span>
+      <button class="btn" onclick="patchRegistryComponent()">Apply Patch</button>
+      <span id="reg-patch-status" class="mono-util muted"></span>
     </div>
   </div>
 </div>
 
-<div class="mt-4 mb-5">
-  <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Archetype Notes</h2>
-  <div class="p-0" style="font-size:11.5px;color:var(--text2);line-height:1.6;">
+<div style="margin-top:24px; margin-bottom: 40px;">
+  <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Archetype Notes</h2>
+  <div class="card muted" style="line-height:1.6;">
     Keep "type_path" as specific as possible for better AI enrich and clearer registry grouping.
     Development boards and module families should include differentiators in type_data
     (clock_speed_mhz, ram_size_kb, flash_size_mb, pin_count, wireless, interface, usb_bridge).
