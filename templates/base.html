@@ -31,30 +31,37 @@
     :root {
       --topbar-h: 42px;
       --footer-dock-h: 56px;
-      --bg:       #0a0a0a;
-      --bg2:      #111111;
-      --bg3:      #181818;
-      --bg4:      #1e1e1e;
-      --border:   #242424;
-      --border2:  #2e2e2e;
-      --green:    #f59e0b;
-      --green2:   #d97706;
-      --green-bg: rgba(245,158,11,0.06);
-      --amber:    #f0a500;
-      --red:      #e05555;
-      --blue:     #4a9eff;
-      --text:     #e8e8e8;
-      --text2:    #a0a0a0;
-      --text3:    #686868;
-      --font:     'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
-      --radius:   3px;
+      --bg:       #fbf9f5;
+      --bg2:      rgba(255, 255, 255, 0.9);
+      --bg3:      #f1f5f9;
+      --bg4:      #e2e8f0;
+      --border:   #cbd5e1;
+      --border2:  #d4cbba;
+      --green:    #d97706;
+      --green2:   #f59e0b;
+      --green-bg: rgba(217,119,6,0.05);
+      --amber:    #fbbf24;
+      --red:      #ef4444;
+      --blue:     #3b82f6;
+      --text:     #1e293b;
+      --text2:    #475569;
+      --text3:    #64748b;
+      --font:     'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius:   6px;
     }
     *, *::before, *::after { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
     body {
-      background: var(--bg) !important;
-      color: var(--text);
-      font-family: var(--font);
+      background-color: var(--bg) !important;
+      background-image: 
+        linear-gradient(#f1ebde 1px, transparent 1px),
+        linear-gradient(90deg, #f1ebde 1px, transparent 1px),
+        linear-gradient(#e3d9c5 1.5px, transparent 1.5px),
+        linear-gradient(90deg, #e3d9c5 1.5px, transparent 1.5px) !important;
+      background-size: 15px 15px, 15px 15px, 75px 75px, 75px 75px !important;
+      background-position: -0.5px -0.5px, -0.5px -0.5px, -1px -1px, -1px -1px !important;
+      color: var(--text) !important;
+      font-family: var(--font) !important;
       font-size: 14px;
       display: flex;
       flex-direction: column;
@@ -80,7 +87,9 @@
 
     /* ── topbar ── */
     .topbar {
-      background: var(--bg2);
+      background: rgba(255, 255, 255, 0.85) !important;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border);
       padding: 0 16px;
       height: var(--topbar-h);
@@ -191,13 +200,16 @@
 
     /* ── cards ── */
     .card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.9) !important;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(226, 232, 240, 0.8) !important;
       border-radius: var(--radius);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
     }
     .card-header {
-      background: var(--bg3);
-      border-bottom: 1px solid var(--border);
+      background: rgba(248, 250, 252, 0.5) !important;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
       padding: 7px 14px;
       font-size: 10px;
       letter-spacing: 1.5px;
@@ -257,9 +269,9 @@
       letter-spacing: 0.5px;
       text-transform: uppercase;
     }
-    .status-active   { background: rgba(61,220,132,0.1);  color: var(--green);  border: 1px solid rgba(61,220,132,0.2); }
-    .status-paused   { background: rgba(240,165,0,0.1);   color: var(--amber);  border: 1px solid rgba(240,165,0,0.2); }
-    .status-complete { background: rgba(74,158,255,0.1);  color: var(--blue);   border: 1px solid rgba(74,158,255,0.2); }
+    .status-active   { background: rgba(217,119,6,0.08);  color: var(--green);  border: 1px solid rgba(217,119,6,0.2); }
+    .status-paused   { background: rgba(240,165,0,0.08);   color: var(--amber);  border: 1px solid rgba(240,165,0,0.2); }
+    .status-complete { background: rgba(59,130,246,0.08);  color: var(--blue);   border: 1px solid rgba(59,130,246,0.2); }
 
     /* ── forms ── */
     .form-control, .form-select {
