@@ -8,6 +8,7 @@ services:
       - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8437 --reload
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
