@@ -23,53 +23,47 @@
 
 <!-- Box minimap -->
 {% if boxes %}
-<div class="card mb-3">
-  <div class="card-header"><span class="dot"></span>Box Minimap (relative size + occupancy)</div>
-  <div class="p-3">
-    <div id="dashboard-box-minimap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
-    <div class="muted" style="font-size:10px;margin-top:8px;color:var(--text3);">Occupied cells use custom engineering indicators, otherwise copper. Empty cells are soft slate.</div>
-  </div>
-</div>
+<section class="mb-4 p-3 bg-light-section rounded-lg border border-slate-200/60" style="background: rgba(241, 245, 249, 0.55); backdrop-filter: blur(4px);">
+  <h2 class="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-2" style="letter-spacing: 1px; color: var(--text2);">Storage Box Occupancy Map</h2>
+  <div id="dashboard-box-minimap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
+  <div class="muted" style="font-size:9.5px;margin-top:8px;color:var(--text3);">Occupied cells use custom engineering indicators, otherwise copper. Empty cells are soft slate.</div>
+</section>
 {% endif %}
 
-<div class="row g-3">
+<div class="row g-4">
   <div class="col-md-8">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>Recent Components</div>
-      <table class="table">
-        <thead><tr>
-          <th>ID</th><th>Name</th><th>Value</th><th>Package</th><th></th>
-        </tr></thead>
-        <tbody>
-          {% for comp in recent %}
-          <tr>
-            <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
-            <td>{{ comp.name }}</td>
-            <td>{{ comp.value or '—' }}</td>
-            <td class="muted">{{ comp.package or '—' }}</td>
-            <td>
-              <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">EXT</a>
-              <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">INT</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Recent component registry</h2>
+    <table class="table">
+      <thead><tr>
+        <th>ID</th><th>Name</th><th>Value</th><th>Package</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        {% for comp in recent %}
+        <tr>
+          <td><a href="/components/{{ comp.barcode_id }}" class="bid">{{ comp.barcode_id }}</a></td>
+          <td>{{ comp.name }}</td>
+          <td>{{ comp.value or '—' }}</td>
+          <td class="muted">{{ comp.package or '—' }}</td>
+          <td>
+            <a href="/labels/print/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">EXT</a>
+            <a href="/labels/print-inside/{{ comp.barcode_id }}" target="_blank" class="btn btn-primary btn-xs">INT</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   <div class="col-md-4">
-    <div class="card">
-      <div class="card-header"><span class="dot"></span>Active Projects</div>
-      <div class="p-2">
-        {% for proj in projects_active %}
-        <a href="/projects/{{ proj.id }}" style="display:block;padding:7px 8px;border-bottom:1px solid var(--border);text-decoration:none;">
-          <div style="color:var(--text);font-size:12px;">{{ proj.name }}</div>
-          <div class="muted" style="font-size:10px;">{{ proj.status }}</div>
-        </a>
-        {% else %}
-        <div class="p-3 muted" style="font-size:11px;">No active projects</div>
-        {% endfor %}
-      </div>
+    <h2 class="text-slate-800 text-[11px] font-bold pb-1.5 border-b border-slate-200 mb-2.5" style="color: var(--text); letter-spacing: 0.2px;">Active project tracker</h2>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      {% for proj in projects_active %}
+      <a href="/projects/{{ proj.id }}" style="display:block;padding:8px 10px;border-bottom:1px solid var(--border);text-decoration:none;transition: background 0.15s; border-radius: 4px;" onmouseover="this.style.background='rgba(255,255,255,0.5)'" onmouseout="this.style.background='transparent'">
+        <div style="color:var(--text);font-size:12px;font-weight: 600;">{{ proj.name }}</div>
+        <div class="muted" style="font-size:9.5px;text-transform: uppercase;letter-spacing:0.5px;color: var(--text3);">{{ proj.status }}</div>
+      </a>
+      {% else %}
+      <div class="p-3 muted" style="font-size:11px;">No active projects</div>
+      {% endfor %}
     </div>
   </div>
 </div>
