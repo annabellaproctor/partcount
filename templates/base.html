@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3ddc84">
+  <meta name="theme-color" content="#d97706">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="BenchStock">
+  <meta name="apple-mobile-web-app-title" content="Partcount">
   <meta name="description" content="{% block meta_description %}Real-time component inventory management system{% endblock %}">
   <meta name="author" content="Annabella Adair-Proctor">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="{% block og_title %}LAB Inventory Tracker{% endblock %}">
+  <meta property="og:title" content="{% block og_title %}Partcount Inventory Tracker{% endblock %}">
   <meta property="og:description" content="{% block og_description %}Track components, stock, boxes, kits, and projects in one fast workspace.{% endblock %}">
   <meta property="og:image" content="/static/app-icon.svg">
   <meta name="twitter:card" content="summary">
   
-  <title>{% block title %}BenchStock{% endblock %}</title>
+  <title>{% block title %}Partcount{% endblock %}</title>
   
   <!-- Icons & PWA -->
   <link rel="icon" type="image/svg+xml" href="/static/app-icon.svg">
@@ -37,9 +37,9 @@
       --bg4:      #1e1e1e;
       --border:   #242424;
       --border2:  #2e2e2e;
-      --green:    #3ddc84;
-      --green2:   #2ab56d;
-      --green-bg: rgba(61,220,132,0.06);
+      --green:    #f59e0b;
+      --green2:   #d97706;
+      --green-bg: rgba(245,158,11,0.06);
       --amber:    #f0a500;
       --red:      #e05555;
       --blue:     #4a9eff;
@@ -365,8 +365,8 @@
     .log-line.info   { color: var(--blue); }
     .copyright-bar {
       height: 28px;
-      background: #07160f;
-      border-top: 1px solid #0f2e20;
+      background: #181105;
+      border-top: 1px solid #2b1d07;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -677,8 +677,9 @@
 <div class="topbar">
   <a href="/" class="brand" aria-label="Home" style="text-decoration:none;">
     <img src="/static/app-icon.svg" alt="Logo" class="brand-logo">
-    <span style="color:var(--text);">Bench</span>
-    <span>Stock</span>
+    <span style="color:var(--text);">Part</span>
+    <span style="color:var(--green);">count</span>
+    <span style="font-size:9px;vertical-align:super;color:var(--text3);margin-left:2px;">™</span>
   </a>
   <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}"><span class="menu-ico">◫</span>Dashboard</a>
   <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}"><span class="menu-ico">◉</span>Components</a>
