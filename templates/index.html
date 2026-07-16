@@ -27,7 +27,7 @@
   <div class="card-header"><span class="dot"></span>Box Minimap (relative size + occupancy)</div>
   <div class="p-3">
     <div id="dashboard-box-minimap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
-    <div class="muted" style="font-size:10px;margin-top:8px;">Occupied cells use sticker color when present, otherwise white. Empty cells are dark gray.</div>
+    <div class="muted" style="font-size:10px;margin-top:8px;color:var(--text3);">Occupied cells use custom engineering indicators, otherwise copper. Empty cells are soft slate.</div>
   </div>
 </div>
 {% endif %}
@@ -82,10 +82,10 @@ document.addEventListener('inv:scan', (e) => {
 });
 
 const DASH_TAGS = {
-  1: '#010101', 2: '#130871', 3: '#060d8f', 4: '#036dc0', 5: '#17a9da',
-  6: '#55aaa1', 7: '#81c2b7', 8: '#5ea51b', 9: '#769146', 10: '#97bf43',
-  11: '#f7ef21', 12: '#f89f73', 13: '#f4560f', 14: '#fb6963', 15: '#f31a06',
-  16: '#ef81af', 17: '#ed218b', 18: '#7e76b4', 19: '#487ac1', 20: '#9e947d',
+  1: '#1e293b', 2: '#334155', 3: '#475569', 4: '#3b82f6', 5: '#60a5fa',
+  6: '#0d9488', 7: '#14b8a6', 8: '#10b981', 9: '#34d399', 10: '#f59e0b',
+  11: '#fbbf24', 12: '#ea580c', 13: '#f97316', 14: '#f87171', 15: '#ef4444',
+  16: '#ec4899', 17: '#f43f5e', 18: '#8b5cf6', 19: '#a78bfa', 20: '#64748b',
 };
 
 function renderDashboardMini(boxes) {
@@ -94,14 +94,14 @@ function renderDashboardMini(boxes) {
   root.innerHTML = boxes.map(b => {
     const cols = Math.max(3, Math.min(12, b.cols || 6));
     const cells = (b.cells || []).map(c => {
-      const color = c.occupied ? (c.sticker_tag_no && DASH_TAGS[c.sticker_tag_no] ? DASH_TAGS[c.sticker_tag_no] : '#f4f7f8') : '#2f3438';
+      const color = c.occupied ? (c.sticker_tag_no && DASH_TAGS[c.sticker_tag_no] ? DASH_TAGS[c.sticker_tag_no] : 'var(--green)') : '#e2e8f0';
       return `<div style="aspect-ratio:1;background:${color};border-radius:1px;"></div>`;
     }).join('');
     return `
       <a href="/boxes/${b.id}" class="box-tile" style="padding:8px;text-decoration:none;">
         <div class="bt-label">${b.label}</div>
         <div class="bt-model">${b.model || '—'} · ${b.occupancy_pct}% used</div>
-        <div style="margin-top:6px;display:grid;grid-template-columns:repeat(${cols},1fr);gap:1px;background:#141414;border:1px solid var(--border2);border-radius:3px;padding:2px;">
+        <div style="margin-top:6px;display:grid;grid-template-columns:repeat(${cols},1fr);gap:1.5px;background:#f8fafc;border:1px solid var(--border);border-radius:3px;padding:3.5px;">
           ${cells}
         </div>
       </a>
