@@ -691,11 +691,16 @@
 <body>
 
 <div class="topbar">
-  <a href="/" class="brand" aria-label="Home" style="text-decoration:none;display:flex;align-items:center;gap:6px;font-family:var(--font);">
-    <img src="/static/app-icon.svg" alt="Logo" class="brand-logo" style="filter: hue-rotate(25deg);">
-    <span style="font-weight:700;color:var(--text);font-size:14px;letter-spacing:-0.5px;">partcount</span>
-    <span style="color:var(--border);font-weight:300;font-size:16px;">|</span>
-    <span style="font-size:10px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-top:1px;">Inventory</span>
+  <a href="/" class="brand" aria-label="Home" style="text-decoration:none;display:flex;align-items:center;gap:8px;font-family:var(--font);">
+    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; fill: none; stroke-linecap: round; stroke-linejoin: round;" class="brand-logo">
+      <rect x="6" y="6" width="12" height="12" rx="1.5" stroke="#475569" stroke-width="2" fill="rgba(255,255,255,0.9)" />
+      <rect x="9" y="9" width="6" height="6" rx="0.8" stroke="#3b82f6" stroke-width="1.2" />
+      <path d="M3 8h3 M3 12h3 M3 16h3" stroke="#10b981" stroke-width="1.5" />
+      <path d="M18 8h3 M18 12h3 M18 16h3" stroke="#3b82f6" stroke-width="1.5" />
+      <path d="M8 3v3 M12 3v3 M16 3v3" stroke="#3b82f6" stroke-width="1.5" />
+      <path d="M8 18v3 M12 18v3 M16 18v3" stroke="#10b981" stroke-width="1.5" />
+    </svg>
+    <span style="font-weight: 800; color: var(--text); font-size: 20px; letter-spacing: -0.5px; line-height: 1; text-transform: lowercase;">partcount</span>
   </a>
   <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}"><span class="menu-ico">◫</span>Dashboard</a>
   <a href="/components" class="nav-link {% if '/components' in request.url.path %}active{% endif %}"><span class="menu-ico">◉</span>Components</a>
