@@ -103,27 +103,6 @@
         </div>
       </div>
 
-      <div class="card p-3 mb-3">
-        <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Recent Inventory Events</h2>
-        <div class="p-0">
-          {% if inventory_events %}
-          <div style="max-height:260px;overflow:auto;">
-            {% for ev in inventory_events[:14] %}
-            <div style="padding:8px 10px;border-bottom:1px solid var(--border2);font-size:11px;display:flex;justify-content:space-between;gap:10px;">
-              <div>
-                <strong style="text-transform:uppercase;color:{% if ev.event_type == 'take' %}var(--red){% elif ev.event_type == 'calibrate' %}var(--blue){% else %}var(--green){% endif %};">{{ ev.event_type }}</strong>
-                <span class="muted">in={{ ev.quantity_input or 0 }} · eff={{ ev.resulting_effective_quantity or 0 }}</span>
-                {% if ev.notes %}<div class="muted" style="font-size:10px;">{{ ev.notes }}</div>{% endif %}
-              </div>
-              <div class="muted" style="font-size:10px;white-space:nowrap;">{{ ev.created_at.strftime('%Y-%m-%d %H:%M') if ev.created_at else '' }}</div>
-            </div>
-            {% endfor %}
-          </div>
-          {% else %}
-          <div class="p-3 muted" style="font-size:11px;">No inventory events yet.</div>
-          {% endif %}
-        </div>
-      </div>
     </div>
 
     <div>
