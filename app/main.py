@@ -394,13 +394,24 @@ async def box_grid_page(box_id: str, request: Request, db: AsyncSession = Depend
     cell_map = {r.BinAssignment.cell_id: r.Component for r in assignments}
     all_components = (await db.execute(select(Component).order_by(Component.barcode_id))).scalars().all()
     profile = (await db.execute(select(Profile).limit(1))).scalar_one_or_none()
-    return templates.TemplateResponse("box_grid.html", {
+
+    # Every box the roster sidebar can drop onto, minus this one.
+    other_boxes = (await db.execute(
+        select(Box).where(Box.id != box_id).order_by(Box.slot_index, Box.label)
+    )).scalars().all()
+
+    ctx = {
         "request": request,
         "box": box,
         "cell_map": cell_map,
         "all_components": all_components,
         "profile": profile,
-    })
+        "other_boxes": other_boxes,
+    }
+
+    if (box.box_type or "grid") == "filing":
+        return templates.TemplateResponse("box_filing.html", ctx)
+    return templates.TemplateResponse("box_grid.html", ctx)
 
 @app.get("/projects", response_class=HTMLResponse)
 async def projects_page(request: Request, db: AsyncSession = Depends(get_db)):

@@ -15,6 +15,7 @@ from app.models.database import get_db
 from app.models.models import Component, LabelPrintProfile, BinAssignment, Box
 from app.services.barcode_svc import generate_code128_svg
 from app.services.markings_svg import build_markings_svg
+from app.services.shelf_key import _humanize_value, _unit_symbol, parse_value
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter(prefix="/labels", tags=["labels"])
@@ -106,6 +107,36 @@ PRESET_PROFILES = [
       "id_font_pt": 6,
       "show_image": True,
       "image_min_height_in": 0.6,
+    },
+  },
+  {
+    "name": "Static Bag Tags (2x1 in)",
+    "settings": {
+      **DEFAULT_LABEL_SETTINGS,
+      "page_width_in": 8.5,
+      "page_height_in": 11.0,
+      "cell_width_in": 2.0,
+      "cell_height_in": 1.0,
+      "cut_width_in": 2.0,
+      "cut_height_in": 1.0,
+      "name_font_pt": 10,
+      "id_font_pt": 8,
+      "show_image": False,
+    },
+  },
+  {
+    "name": "Index Card Dividers (4x6 in) (2-up)",
+    "settings": {
+      **DEFAULT_LABEL_SETTINGS,
+      "page_width_in": 8.5,
+      "page_height_in": 11.0,
+      "cell_width_in": 4.0,
+      "cell_height_in": 6.0,
+      "cut_width_in": 4.0,
+      "cut_height_in": 6.0,
+      "name_font_pt": 14,
+      "id_font_pt": 10,
+      "show_image": False,
     },
   },
 ]
@@ -328,13 +359,28 @@ def _title_with_hyphen_breaks(raw: str | None) -> str:
   return safe.replace("-", "-<wbr>")
 
 
+def _print_value(comp: Component) -> str:
+  """The value as it should read on a label: '10' + unit 'kΩ' prints as '10kΩ'.
+
+  Much of the inventory stores the multiplier in unit rather than value, so the
+  raw column alone would print a 10kΩ resistor as bare '10'.
+  """
+  parsed = parse_value(getattr(comp, "value", None), getattr(comp, "unit", None))
+  if parsed is None:
+    return (comp.value or "").strip()
+  return _humanize_value(parsed, comp.value, _unit_symbol(comp))
+
+
 def _build_front_cell(comp: Component, settings: dict) -> str:
   title = _title_with_hyphen_breaks(comp.short_title or comp.name or "")
   bid = html.escape(_normalize_barcode_for_print(comp.barcode_id))
 
   split_mode = str(settings.get("sticker_split_mode", "none"))
+  printed_val = _print_value(comp)
+  val_html = f'<div class="front-val" style="font-size:1.15em; font-weight:bold; margin-bottom: 2px;">{html.escape(printed_val)}</div>' if printed_val else ''
   micro = (
     '<div class="front-mini">'
+    f'{val_html}'
     f'<div class="front-name">{title}</div>'
     f'<div class="front-id">{bid}</div>'
     '</div>'

@@ -255,6 +255,7 @@ async def box_filing(box_id: str, db: AsyncSession = Depends(get_db)):
                 "color": d.get("color"),
                 "bags": [
                     {
+                        "component_id": c.id,
                         "barcode_id": c.barcode_id,
                         "name": c.name,
                         "value": c.value,

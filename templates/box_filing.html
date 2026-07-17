@@ -1,0 +1,597 @@
+{% extends "base.html" %}
+{% block title %}{{ box.label }} :: LAB::INV{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+  <a href="/boxes" class="muted" style="font-size:11px;text-decoration:none;">← Boxes</a>
+  <span class="sep" style="color:var(--text3);">/</span>
+  <span class="mono-util">{{ box.label }}</span>
+  <span style="color:var(--text);font-size:13px;font-weight:600;">{{ box.model }}</span>
+  <span class="muted" style="font-size:11px;" id="bag-count">—</span>
+  <span class="muted" style="font-size:10px;">{{ box.location or '' }}</span>
+  <label style="margin-left:auto;font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+    <input type="checkbox" id="edit-toggle" onchange="setEditMode(this.checked)">
+    Crate Edit Mode
+  </label>
+  <span style="font-size:10px;color:var(--text3);" id="crate-mode-hint">Preview mode: click a tab to open it</span>
+</div>
+
+<div style="display:flex;gap:16px;align-items:flex-start;">
+
+  <div class="card p-3" style="flex:1;min-width:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;">
+      <h2 class="mono-util text-muted" style="margin:0;"><span class="dot"></span>{{ box.label }} — filing crate</h2>
+      <span class="mono-util" style="color:var(--text3);" id="crate-status"></span>
+    </div>
+
+    <!-- The crate: dividers stand as tabs; clicking one parts the stack. -->
+    <div class="crate-stage">
+      <div class="crate" id="crate">
+        <div class="crate-empty" id="crate-empty" hidden>
+          <p>No dividers yet.</p>
+          <p class="sub">Add a divider to start filing bags behind it.</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;" id="divider-controls" hidden>
+      <input id="new-div-label" class="form-control" placeholder="Divider name" style="max-width:180px;font-size:11px;">
+      <select id="new-div-color" class="form-select" style="max-width:120px;font-size:11px;">
+        <option value="red">Red</option>
+        <option value="amber">Amber</option>
+        <option value="green">Green</option>
+        <option value="blue">Blue</option>
+        <option value="violet">Violet</option>
+        <option value="slate">Slate</option>
+      </select>
+      <button class="btn btn-sm" onclick="addDivider()" style="font-size:11px;">Add divider</button>
+      <span class="muted" style="font-size:10px;" id="div-msg"></span>
+    </div>
+  </div>
+
+  <!-- Storage roster: drop a bag onto another box to move it there. -->
+  <aside class="card p-3 roster" id="roster">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span class="mono-util" style="font-size:10px;color:var(--text3);letter-spacing:1px;">STORAGE ROSTER</span>
+      <button class="roster-toggle" onclick="toggleRoster()" title="Collapse">×</button>
+    </div>
+    <p class="muted" style="font-size:10px;margin:0 0 10px;">Drag a bag here to move it to another box.</p>
+    {% for b in other_boxes %}
+      <div class="roster-box"
+           data-box-id="{{ b.id }}"
+           data-box-type="{{ b.box_type or 'grid' }}"
+           data-box-label="{{ b.label }}"
+           ondragover="rosterOver(event, this)"
+           ondragleave="rosterLeave(this)"
+           ondrop="rosterDrop(event, this)">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="roster-kind {{ 'filing' if (b.box_type or 'grid') == 'filing' else 'grid' }}">
+            {{ 'CRATE' if (b.box_type or 'grid') == 'filing' else 'GRID' }}
+          </span>
+          <span class="mono-util" style="font-size:11px;">{{ b.label }}</span>
+        </div>
+        <div class="muted" style="font-size:10px;margin-top:2px;">{{ b.model or '' }}{% if b.location %} · {{ b.location }}{% endif %}</div>
+      </div>
+    {% else %}
+      <p class="muted" style="font-size:10px;">No other boxes yet.</p>
+    {% endfor %}
+  </aside>
+  <button class="roster-reopen" id="roster-reopen" onclick="toggleRoster()" hidden>ROSTER</button>
+</div>
+
+<!-- Drop-into-crate: pick the divider, see where the bag lands. -->
+<div class="modal-backdrop" id="file-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="mono-util" style="font-size:11px;" id="file-modal-title">File bag</span>
+      <button class="btn-x" onclick="closeFileModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:11px;margin:0 0 10px;">Choose the divider this bag files behind.</p>
+      <div id="file-div-list"></div>
+      <div class="placement" id="placement" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-sm btn-ghost" onclick="closeFileModal()" style="font-size:11px;">Cancel</button>
+      <button class="btn btn-sm" id="file-confirm" onclick="confirmFile()" style="font-size:11px;" disabled>File it</button>
+    </div>
+  </div>
+</div>
+
+<style>
+/* ── the crate ──────────────────────────────────────────────────
+   Dividers stand as tabs in a shallow box, seen from slightly
+   above. Clicking one pulls it forward out of the stack and lays
+   its bags out beside it. Depth belongs to the tabs; the bag list
+   stays flat, because that is the part you actually have to read. */
+.crate-stage {
+  perspective: 1600px;
+  perspective-origin: 30% 40%;
+  padding: 26px 0 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.crate {
+  transform-style: preserve-3d;
+  min-height: 236px;
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  padding: 0 8px 14px;
+  position: relative;
+}
+/* the crate floor the tabs stand on */
+.crate::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--border2) 6%, var(--border2) 94%, transparent);
+}
+.divider {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 200px;
+  transform-style: preserve-3d;
+  transition: width 380ms cubic-bezier(.22,.61,.36,1);
+  cursor: pointer;
+  outline: none;
+}
+.divider:focus-visible .tab { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* the card standing in the crate, leaning back a touch */
+.tab {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 44px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, var(--bg2) 0%, var(--bg3) 82%);
+  border: 1px solid var(--border2);
+  box-shadow: 1px 1px 5px rgba(15,20,35,.05);
+  transform: rotateY(9deg);
+  transform-origin: left center;
+  transition: transform 380ms cubic-bezier(.22,.61,.36,1), box-shadow 300ms;
+}
+/* the colour-coded flag on top */
+.tab::before {
+  content: "";
+  position: absolute;
+  top: -8px; left: 3px; right: 3px;
+  height: 10px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dc);
+}
+.divider .tab-label {
+  position: absolute;
+  bottom: 14px; left: 50%;
+  transform: translateX(-50%) rotate(180deg);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  color: var(--text2);
+  pointer-events: none;
+  max-height: 150px;
+  overflow: hidden;
+}
+.divider .tab-count {
+  position: absolute;
+  top: 7px; left: 0; right: 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text3);
+  pointer-events: none;
+}
+.divider:hover .tab { transform: rotateY(4deg) translateZ(8px); box-shadow: 2px 2px 9px rgba(15,20,35,.09); }
+/* open: the tab swings forward, the bags lay out beside it */
+.divider.open { width: 268px; }
+.divider.open .tab {
+  transform: rotateY(-24deg) translateZ(30px);
+  box-shadow: 6px 3px 16px rgba(15,20,35,.14);
+}
+.divider.open .bags { opacity: 1; pointer-events: auto; }
+
+.bags {
+  position: absolute;
+  left: 52px; top: 0; bottom: 0;
+  width: 214px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms 120ms;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 3px 2px 0;
+}
+.bag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-left: 3px solid var(--dc);
+  border-radius: 3px;
+  padding: 5px 7px;
+  margin-bottom: 3px;
+  cursor: grab;
+  transition: transform 120ms, box-shadow 120ms;
+}
+.bag:hover { transform: translateX(2px); box-shadow: 0 1px 4px rgba(15,20,35,.08); }
+.bag:active { cursor: grabbing; }
+.bag.dragging { opacity: .4; }
+.bag .shelf-key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.bag .bag-bid {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text3);
+}
+.bags-empty {
+  font-size: 10px;
+  color: var(--text3);
+  padding: 8px 4px;
+  font-style: italic;
+}
+.crate-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text3);
+}
+.crate-empty p { margin: 0; font-size: 12px; }
+.crate-empty .sub { font-size: 10px; margin-top: 4px; }
+
+/* ── roster ── */
+.roster { width: 210px; flex: 0 0 210px; align-self: stretch; }
+.roster-toggle, .btn-x {
+  background: none; border: none; color: var(--text3);
+  font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.roster-toggle:hover, .btn-x:hover { color: var(--text); }
+.roster-reopen {
+  writing-mode: vertical-rl;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text3);
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px;
+  padding: 10px 4px; cursor: pointer; align-self: flex-start;
+}
+.roster-box {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 7px 8px;
+  margin-bottom: 6px;
+  transition: border-color 140ms, background 140ms, transform 140ms;
+}
+.roster-box.over {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  transform: translateX(-2px);
+}
+.roster-kind {
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: .6px;
+  padding: 1px 4px; border-radius: 2px;
+}
+.roster-kind.grid   { background: var(--bg4); color: var(--text3); }
+.roster-kind.filing { background: var(--accent-bg); color: var(--accent); }
+
+/* ── modal ── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(15,20,35,.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-card {
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--radius); width: 340px; max-width: calc(100vw - 32px);
+  box-shadow: 0 10px 40px rgba(15,20,35,.18);
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+}
+.modal-body { padding: 12px; }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 12px; border-top: 1px solid var(--border);
+}
+.div-choice {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border: 1px solid var(--border2);
+  border-radius: var(--radius); margin-bottom: 5px; cursor: pointer;
+}
+.div-choice:hover { border-color: var(--text3); }
+.div-choice.sel { border-color: var(--accent); background: var(--accent-bg); }
+.div-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+.placement {
+  margin-top: 10px; padding: 8px;
+  background: var(--bg3); border-radius: var(--radius);
+  font-size: 11px; color: var(--text2); line-height: 1.5;
+}
+.placement .pk { font-family: var(--font-mono); color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .divider, .tab, .bags, .bag, .roster-box { transition: none !important; }
+}
+@media (max-width: 900px) {
+  .roster { display: none; }
+  .crate-stage { perspective: none; }
+  .tab, .divider:hover .tab, .divider.open .tab { transform: none; }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BOX_ID = "{{ box.id }}";
+const DIVIDER_COLORS = {
+  red:    '#ef4444',
+  amber:  '#f59e0b',
+  green:  '#10b981',
+  blue:   '#4f6ef7',
+  violet: '#8b5cf6',
+  slate:  '#8b919e',
+};
+let EDIT_MODE = false;
+let OPEN_DIVIDER = null;
+let CRATE = { dividers: [] };
+let _drag = null;   // {componentId, barcode, fromBoxId, shelfKey}
+let _pendingMove = null;
+
+function colorOf(name) { return DIVIDER_COLORS[name] || DIVIDER_COLORS.slate; }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+function status(msg) { document.getElementById('crate-status').textContent = msg || ''; }
+
+async function loadCrate() {
+  try {
+    const r = await fetch('/api/boxes/' + BOX_ID + '/filing');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    CRATE = await r.json();
+    renderCrate();
+  } catch (e) {
+    status('Could not load crate');
+  }
+}
+
+function renderCrate() {
+  const crate = document.getElementById('crate');
+  const empty = document.getElementById('crate-empty');
+  const dividers = CRATE.dividers || [];
+  const total = dividers.reduce((n, d) => n + (d.bags || []).length, 0);
+  document.getElementById('bag-count').textContent =
+    total + (total === 1 ? ' bag' : ' bags') + ' · ' + dividers.length +
+    (dividers.length === 1 ? ' divider' : ' dividers');
+
+  crate.querySelectorAll('.divider').forEach(el => el.remove());
+  empty.hidden = dividers.length > 0;
+  if (!dividers.length) return;
+
+  dividers.forEach(d => {
+    const bags = d.bags || [];
+    const el = document.createElement('div');
+    el.className = 'divider' + (OPEN_DIVIDER === d.id ? ' open' : '');
+    el.style.setProperty('--dc', colorOf(d.color));
+    el.dataset.dividerId = d.id;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-expanded', OPEN_DIVIDER === d.id ? 'true' : 'false');
+    el.setAttribute('aria-label', d.label + ', ' + bags.length + ' bags');
+
+    el.innerHTML =
+      '<div class="tab">' +
+        '<span class="tab-count">' + bags.length + '</span>' +
+        '<span class="tab-label">' + esc(d.label) + '</span>' +
+      '</div>' +
+      '<div class="bags">' +
+        (bags.length
+          ? bags.map(b =>
+              '<div class="bag" draggable="true"' +
+                   ' data-comp-id="' + esc(b.component_id) + '"' +
+                   ' data-barcode="' + esc(b.barcode_id) + '"' +
+                   ' data-shelf-key="' + esc(b.shelf_key) + '">' +
+                '<span class="shelf-key">' + esc(b.shelf_key) + '</span>' +
+                '<span class="bag-bid">' + esc(b.barcode_id) + '</span>' +
+              '</div>').join('')
+          : '<div class="bags-empty">Empty — drag a bag here.</div>') +
+      '</div>';
+
+    el.addEventListener('click', ev => {
+      if (ev.target.closest('.bag')) return;   // dragging a bag is not a tab click
+      toggleDivider(d.id);
+    });
+    el.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleDivider(d.id); }
+    });
+
+    el.querySelectorAll('.bag').forEach(bag => {
+      bag.addEventListener('dragstart', ev => {
+        _drag = {
+          componentId: bag.dataset.compId,
+          barcode: bag.dataset.barcode,
+          shelfKey: bag.dataset.shelfKey,
+          fromBoxId: BOX_ID,
+        };
+        bag.classList.add('dragging');
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', bag.dataset.barcode || '');
+      });
+      bag.addEventListener('dragend', () => { bag.classList.remove('dragging'); _drag = null; });
+      bag.addEventListener('click', ev => {
+        if (EDIT_MODE) return;
+        ev.stopPropagation();
+        if (bag.dataset.barcode) location.href = '/components/' + bag.dataset.barcode;
+      });
+    });
+
+    crate.appendChild(el);
+  });
+}
+
+function toggleDivider(id) {
+  OPEN_DIVIDER = (OPEN_DIVIDER === id) ? null : id;
+  renderCrate();
+}
+
+function setEditMode(on) {
+  EDIT_MODE = on;
+  document.getElementById('divider-controls').hidden = !on;
+  document.getElementById('crate-mode-hint').textContent = on
+    ? 'Edit mode: add dividers, drag bags between boxes'
+    : 'Preview mode: click a tab to open it';
+}
+
+async function addDivider() {
+  const label = document.getElementById('new-div-label').value.trim();
+  const color = document.getElementById('new-div-color').value;
+  const msg = document.getElementById('div-msg');
+  if (!label) { msg.textContent = 'Name the divider first.'; return; }
+
+  // Derive a safe id from the label; the API rejects anything else.
+  let id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!id) id = 'd' + Date.now();
+  const taken = new Set((CRATE.dividers || []).map(d => d.id));
+  if (taken.has(id)) { let n = 2; while (taken.has(id + '-' + n)) n++; id = id + '-' + n; }
+
+  const body = new URLSearchParams({ id, label, color });
+  const r = await fetch('/api/boxes/' + BOX_ID + '/dividers', { method: 'POST', body });
+  if (!r.ok) { msg.textContent = 'Could not add divider (' + r.status + ')'; return; }
+  msg.textContent = '';
+  document.getElementById('new-div-label').value = '';
+  await loadCrate();
+}
+
+/* ── roster drag & drop ── */
+function toggleRoster() {
+  const r = document.getElementById('roster');
+  const b = document.getElementById('roster-reopen');
+  const hiding = !r.hidden;
+  r.hidden = hiding;
+  b.hidden = !hiding;
+}
+function rosterOver(ev, el) {
+  if (!_drag) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  el.classList.add('over');
+}
+function rosterLeave(el) { el.classList.remove('over'); }
+
+async function rosterDrop(ev, el) {
+  ev.preventDefault();
+  el.classList.remove('over');
+  if (!_drag) return;
+  const target = {
+    boxId: el.dataset.boxId,
+    boxType: el.dataset.boxType,
+    label: el.dataset.boxLabel,
+  };
+  const drag = _drag;
+  _drag = null;
+
+  if (target.boxType === 'filing') {
+    _pendingMove = { drag, target };
+    await openFileModal(drag, target);
+    return;
+  }
+  // Grid boxes address by cell, which this crate view cannot pick — hand off.
+  status('Open ' + target.label + ' to choose a cell for ' + drag.barcode);
+  setTimeout(() => { location.href = '/boxes/' + target.boxId; }, 900);
+}
+
+/* ── file-into-crate modal ── */
+async function openFileModal(drag, target) {
+  const modal = document.getElementById('file-modal');
+  document.getElementById('file-modal-title').textContent =
+    'File ' + (drag.barcode || 'bag') + ' into ' + target.label;
+  const list = document.getElementById('file-div-list');
+  document.getElementById('placement').hidden = true;
+  document.getElementById('file-confirm').disabled = true;
+  list.innerHTML = '<p class="muted" style="font-size:11px;">Loading dividers…</p>';
+  modal.hidden = false;
+
+  const r = await fetch('/api/boxes/' + target.boxId + '/dividers');
+  if (!r.ok) { list.innerHTML = '<p class="muted" style="font-size:11px;">Could not load dividers.</p>'; return; }
+  const dividers = await r.json();
+  if (!dividers.length) {
+    list.innerHTML = '<p class="muted" style="font-size:11px;">That crate has no dividers yet. Add one there first.</p>';
+    return;
+  }
+  list.innerHTML = dividers.map(d =>
+    '<div class="div-choice" data-div-id="' + esc(d.id) + '" onclick="pickDivider(this)">' +
+      '<span class="div-swatch" style="background:' + colorOf(d.color) + '"></span>' +
+      '<span style="font-size:11px;">' + esc(d.label) + '</span>' +
+    '</div>').join('');
+}
+
+async function pickDivider(el) {
+  document.querySelectorAll('.div-choice').forEach(x => x.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('file-confirm').disabled = false;
+  if (!_pendingMove) return;
+  _pendingMove.dividerId = el.dataset.divId;
+
+  // Show where it physically lands, so the bag goes in the right place.
+  const p = document.getElementById('placement');
+  p.hidden = false;
+  p.innerHTML = 'Working out where it goes…';
+  const url = '/api/boxes/' + _pendingMove.target.boxId + '/filing/placement'
+            + '?component_id=' + encodeURIComponent(_pendingMove.drag.componentId)
+            + '&divider_id=' + encodeURIComponent(el.dataset.divId);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    let where;
+    if (d.after && d.before) {
+      where = 'between <span class="pk">' + esc(d.after) + '</span> and <span class="pk">' + esc(d.before) + '</span>';
+    } else if (d.before) {
+      where = 'at the front, before <span class="pk">' + esc(d.before) + '</span>';
+    } else if (d.after) {
+      where = 'at the back, after <span class="pk">' + esc(d.after) + '</span>';
+    } else {
+      where = 'first behind this divider';
+    }
+    p.innerHTML = '<span class="pk">' + esc(d.shelf_key) + '</span> goes ' + where +
+                  ' — position ' + (d.position + 1) + ' of ' + d.of + '.';
+  } catch (e) {
+    p.innerHTML = 'Could not preview placement.';
+  }
+}
+
+function closeFileModal() {
+  document.getElementById('file-modal').hidden = true;
+  _pendingMove = null;
+}
+
+async function confirmFile() {
+  if (!_pendingMove || !_pendingMove.dividerId) return;
+  const { drag, target, dividerId } = _pendingMove;
+  const btn = document.getElementById('file-confirm');
+  btn.disabled = true;
+  btn.textContent = 'Filing…';
+
+  const body = new URLSearchParams({ component_id: drag.componentId, divider_id: dividerId });
+  const r = await fetch('/api/boxes/' + target.boxId + '/assign', { method: 'POST', body });
+  btn.textContent = 'File it';
+  if (!r.ok) { status('Could not file bag (' + r.status + ')'); closeFileModal(); return; }
+
+  closeFileModal();
+  status('Filed ' + drag.barcode + ' into ' + target.label);
+  await loadCrate();
+}
+
+document.addEventListener('DOMContentLoaded', loadCrate);
+</script>
+{% endblock %}

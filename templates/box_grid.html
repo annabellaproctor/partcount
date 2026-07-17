@@ -184,7 +184,94 @@
 .grid-cell.preview-target { border-color: var(--amber); background: rgba(240,165,0,0.08); }
 .sticker-chip { position: absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border); cursor: context-menu; }
 .sticker-chip:hover { box-shadow: 0 0 4px rgba(255,255,255,0.3); }
+
+/* ── storage roster: drag a part onto another box to move it ── */
+.roster-dock { position: fixed; right: 12px; top: 96px; z-index: 40; }
+.roster {
+  width: 200px; background: var(--bg2);
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  padding: 10px; box-shadow: 0 4px 16px rgba(15,20,35,.06);
+}
+.roster-toggle {
+  background: none; border: none; color: var(--text3);
+  font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.roster-toggle:hover { color: var(--text); }
+.roster-reopen {
+  writing-mode: vertical-rl; background: var(--bg2);
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  color: var(--text3); font-family: var(--font-mono);
+  font-size: 9px; letter-spacing: 1px; padding: 10px 4px; cursor: pointer;
+}
+.roster-box {
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  padding: 7px 8px; margin-bottom: 6px;
+  transition: border-color 140ms, background 140ms, transform 140ms;
+}
+.roster-box.over { border-color: var(--accent); background: var(--accent-bg); transform: translateX(-2px); }
+.roster-kind { font-family: var(--font-mono); font-size: 8px; letter-spacing: .6px; padding: 1px 4px; border-radius: 2px; }
+.roster-kind.grid   { background: var(--bg4); color: var(--text3); }
+.roster-kind.filing { background: var(--accent-bg); color: var(--accent); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(15,20,35,.35); display: flex; align-items: center; justify-content: center; }
+.modal-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius); width: 340px; max-width: calc(100vw - 32px); box-shadow: 0 10px 40px rgba(15,20,35,.18); }
+.modal-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.modal-body { padding: 12px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.btn-x { background: none; border: none; color: var(--text3); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.div-choice { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--border2); border-radius: var(--radius); margin-bottom: 5px; cursor: pointer; }
+.div-choice:hover { border-color: var(--text3); }
+.div-choice.sel { border-color: var(--accent); background: var(--accent-bg); }
+.div-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+.placement { margin-top: 10px; padding: 8px; background: var(--bg3); border-radius: var(--radius); font-size: 11px; color: var(--text2); line-height: 1.5; }
+.placement .pk { font-family: var(--font-mono); color: var(--text); }
+@media (max-width: 1200px) { .roster-dock { display: none; } }
 </style>
+
+<div class="roster-dock">
+  <aside class="roster" id="roster">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span class="mono-util" style="font-size:10px;color:var(--text3);letter-spacing:1px;">STORAGE ROSTER</span>
+      <button class="roster-toggle" onclick="toggleRoster()" title="Collapse">×</button>
+    </div>
+    <p class="muted" style="font-size:10px;margin:0 0 8px;">Drag a part here to move it to another box.</p>
+    {% for b in other_boxes %}
+      <div class="roster-box"
+           data-box-id="{{ b.id }}"
+           data-box-type="{{ b.box_type or 'grid' }}"
+           data-box-label="{{ b.label }}"
+           ondragover="rosterOver(event, this)"
+           ondragleave="rosterLeave(this)"
+           ondrop="rosterDrop(event, this)">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="roster-kind {{ 'filing' if (b.box_type or 'grid') == 'filing' else 'grid' }}">{{ 'CRATE' if (b.box_type or 'grid') == 'filing' else 'GRID' }}</span>
+          <span class="mono-util" style="font-size:11px;">{{ b.label }}</span>
+        </div>
+        <div class="muted" style="font-size:10px;margin-top:2px;">{{ b.model or '' }}</div>
+      </div>
+    {% else %}
+      <p class="muted" style="font-size:10px;">No other boxes yet.</p>
+    {% endfor %}
+  </aside>
+  <button class="roster-reopen" id="roster-reopen" onclick="toggleRoster()" hidden>ROSTER</button>
+</div>
+
+<div class="modal-backdrop" id="file-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <span class="mono-util" style="font-size:11px;" id="file-modal-title">File bag</span>
+      <button class="btn-x" onclick="closeFileModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:11px;margin:0 0 10px;">Choose the divider this bag files behind.</p>
+      <div id="file-div-list"></div>
+      <div class="placement" id="placement" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-sm btn-ghost" onclick="closeFileModal()" style="font-size:11px;">Cancel</button>
+      <button class="btn btn-sm" id="file-confirm" onclick="confirmFile()" style="font-size:11px;" disabled>File it</button>
+    </div>
+  </div>
+</div>
 
 {% endblock %}
 {% block scripts %}
@@ -686,5 +773,147 @@ document.addEventListener('keydown', e => {
     closeStickerModal();
   }
 });
+
+/* ── storage roster: move a part from this grid into another box ──
+   Reuses dragSrcEl, which dragStart() already populates with the cell's
+   component data. */
+const DIVIDER_COLORS = {
+  red: '#ef4444', amber: '#f59e0b', green: '#10b981',
+  blue: '#4f6ef7', violet: '#8b5cf6', slate: '#8b919e',
+};
+let _pendingMove = null;
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+function _colorOf(n) { return DIVIDER_COLORS[n] || DIVIDER_COLORS.slate; }
+
+function toggleRoster() {
+  const r = document.getElementById('roster');
+  const b = document.getElementById('roster-reopen');
+  const hiding = !r.hidden;
+  r.hidden = hiding;
+  b.hidden = !hiding;
+}
+function rosterOver(ev, el) {
+  if (!dragSrcEl || !dragSrcEl.dataset.compId) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  el.classList.add('over');
+}
+function rosterLeave(el) { el.classList.remove('over'); }
+
+async function rosterDrop(ev, el) {
+  ev.preventDefault();
+  el.classList.remove('over');
+  if (!dragSrcEl || !dragSrcEl.dataset.compId) return;
+
+  const drag = {
+    componentId: dragSrcEl.dataset.compId,
+    barcode: dragSrcEl.dataset.barcode,
+    fromCell: dragSrcEl.dataset.cell,
+  };
+  const target = {
+    boxId: el.dataset.boxId,
+    boxType: el.dataset.boxType,
+    label: el.dataset.boxLabel,
+  };
+  dragSrcEl.classList.remove('dragging');
+  dragSrcEl = null;
+
+  if (target.boxType === 'filing') {
+    _pendingMove = { drag, target };
+    await openFileModal(drag, target);
+    return;
+  }
+  setStatus('Open ' + target.label + ' to choose a cell for ' + drag.barcode);
+  setTimeout(() => { location.href = '/boxes/' + target.boxId; }, 900);
+}
+
+async function openFileModal(drag, target) {
+  const modal = document.getElementById('file-modal');
+  document.getElementById('file-modal-title').textContent =
+    'File ' + (drag.barcode || 'bag') + ' into ' + target.label;
+  const list = document.getElementById('file-div-list');
+  document.getElementById('placement').hidden = true;
+  document.getElementById('file-confirm').disabled = true;
+  list.innerHTML = '<p class="muted" style="font-size:11px;">Loading dividers…</p>';
+  modal.hidden = false;
+
+  const r = await fetch('/api/boxes/' + target.boxId + '/dividers');
+  if (!r.ok) { list.innerHTML = '<p class="muted" style="font-size:11px;">Could not load dividers.</p>'; return; }
+  const dividers = await r.json();
+  if (!dividers.length) {
+    list.innerHTML = '<p class="muted" style="font-size:11px;">That crate has no dividers yet. Add one there first.</p>';
+    return;
+  }
+  list.innerHTML = dividers.map(d =>
+    '<div class="div-choice" data-div-id="' + _esc(d.id) + '" onclick="pickDivider(this)">' +
+      '<span class="div-swatch" style="background:' + _colorOf(d.color) + '"></span>' +
+      '<span style="font-size:11px;">' + _esc(d.label) + '</span>' +
+    '</div>').join('');
+}
+
+async function pickDivider(el) {
+  document.querySelectorAll('.div-choice').forEach(x => x.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('file-confirm').disabled = false;
+  if (!_pendingMove) return;
+  _pendingMove.dividerId = el.dataset.divId;
+
+  const p = document.getElementById('placement');
+  p.hidden = false;
+  p.innerHTML = 'Working out where it goes…';
+  const url = '/api/boxes/' + _pendingMove.target.boxId + '/filing/placement'
+            + '?component_id=' + encodeURIComponent(_pendingMove.drag.componentId)
+            + '&divider_id=' + encodeURIComponent(el.dataset.divId);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    let where;
+    if (d.after && d.before) {
+      where = 'between <span class="pk">' + _esc(d.after) + '</span> and <span class="pk">' + _esc(d.before) + '</span>';
+    } else if (d.before) {
+      where = 'at the front, before <span class="pk">' + _esc(d.before) + '</span>';
+    } else if (d.after) {
+      where = 'at the back, after <span class="pk">' + _esc(d.after) + '</span>';
+    } else {
+      where = 'first behind this divider';
+    }
+    p.innerHTML = '<span class="pk">' + _esc(d.shelf_key) + '</span> goes ' + where +
+                  ' — position ' + (d.position + 1) + ' of ' + d.of + '.';
+  } catch (e) {
+    p.innerHTML = 'Could not preview placement.';
+  }
+}
+
+function closeFileModal() {
+  document.getElementById('file-modal').hidden = true;
+  _pendingMove = null;
+}
+
+async function confirmFile() {
+  if (!_pendingMove || !_pendingMove.dividerId) return;
+  const { drag, target, dividerId } = _pendingMove;
+  const btn = document.getElementById('file-confirm');
+  btn.disabled = true;
+  btn.textContent = 'Filing…';
+
+  const body = new URLSearchParams({ component_id: drag.componentId, divider_id: dividerId });
+  const r = await fetch('/api/boxes/' + target.boxId + '/assign', { method: 'POST', body });
+  btn.textContent = 'File it';
+  if (!r.ok) { setStatus('Could not file part (' + r.status + ')'); closeFileModal(); return; }
+
+  // The part left this box: clear its old cell so the grid matches reality.
+  if (drag.fromCell) {
+    await fetch('/api/boxes/' + BOX_ID + '/cell/' + drag.fromCell, { method: 'DELETE' });
+  }
+  closeFileModal();
+  setStatus('Moved ' + drag.barcode + ' to ' + target.label);
+  setTimeout(() => location.reload(), 700);
+}
 </script>
 {% endblock %}
