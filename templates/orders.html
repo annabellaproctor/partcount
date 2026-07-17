@@ -61,6 +61,27 @@
     </div>
   </div>
 
+  <div class="col-12">
+    <div class="card p-3 mb-3" id="review-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:10px;">
+        <h2 class="mono-util text-muted" style="margin:0;">Review before import</h2>
+        <span class="muted" style="font-size:10px;">Nothing is saved until you import.</span>
+      </div>
+      <p class="muted" style="font-size:11px;margin:0 0 10px;">
+        Paste an order's <strong>detail</strong> page for per-item prices — an order-history
+        list only shows order totals. Untick anything that isn't a part. Pick an existing
+        component to add stock to it, or leave "create new".
+      </p>
+      <div id="review-host">
+        <p class="muted" style="font-size:11px;">Paste an order above and parse it to review the lines here.</p>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
+        <button id="import-btn" class="btn" onclick="importReviewed()">Import ticked lines</button>
+        <span id="review-status" class="mono-util muted" style="font-size:11px;"></span>
+      </div>
+    </div>
+  </div>
+
   <div class="col-xl-5">
     <div class="card">
       <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">AI Order Parse</h2>
@@ -148,6 +169,56 @@
     <div style="padding-top:0;"><button class="btn btn-primary btn-sm" onclick="closeOrderView()">Close</button></div>
   </div>
 </div>
+
+<style>
+/* Review table: every parsed line, its fate visible before anything is written. */
+.review-order {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.review-order-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border2);
+}
+.review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.review-row:last-child { border-bottom: none; }
+/* Skipped lines stay visible but plainly inert — a bookshelf you can re-tick. */
+.review-row.off { opacity: .42; background: repeating-linear-gradient(135deg, transparent, transparent 6px, var(--bg3) 6px, var(--bg3) 12px); }
+.review-row.off .rv-match, .review-row.off .rv-qty, .review-row.off .rv-price { pointer-events: none; }
+.review-keep { flex: 0 0 auto; display: flex; align-items: center; }
+.review-main { flex: 1 1 auto; min-width: 0; }
+.review-name {
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review-sub { display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap; }
+.rv-tag {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .4px;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+.rv-tag.kit   { background: var(--accent-bg); color: var(--accent); }
+.rv-tag.match { background: rgba(16,185,129,.12); color: #059669; }
+.rv-tag.skip  { background: var(--bg4); color: var(--text3); }
+.rv-tag.warn  { background: var(--signal-bg); color: var(--signal); }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -302,52 +373,170 @@ async function parseOrderText() {
   }
 
   const data = await r.json();
-  document.getElementById('order-ref').value = data.order_reference || '';
-  if (data.supplier) {
-    const select = document.getElementById('order-supplier');
-    const target = (data.supplier || '').toLowerCase();
-    for (const opt of Array.from(select.options)) {
-      if ((opt.textContent || '').toLowerCase().includes(target) && opt.value) {
-        select.value = opt.value;
-        break;
+  PARSED = data;
+  renderReview(data);
+
+  const orders = data.orders || [];
+  const lines = orders.reduce((n, o) => n + o.items.length, 0);
+  const keep = orders.reduce((n, o) => n + o.items.filter(i => i.is_inventory).length, 0);
+  status.textContent = `${orders.length} order${orders.length === 1 ? '' : 's'}, ` +
+    `${lines} line${lines === 1 ? '' : 's'} — ${keep} look like inventory. Review below, nothing is saved yet.`;
+}
+
+/* ── review table ───────────────────────────────────────────────────────────
+   The parse is a suggestion, not a result: it is non-deterministic, prices are
+   often absent from an order-history page, and only a human can say whether a
+   line is the part they already stock. Nothing reaches the database until it
+   is confirmed here. */
+let PARSED = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+
+function renderReview(data) {
+  const host = document.getElementById('review-host');
+  const orders = data.orders || [];
+  if (!orders.length) {
+    host.innerHTML = '<p class="muted" style="font-size:11px;">Nothing recognised as an order. Try pasting a single order\'s detail page.</p>';
+    return;
+  }
+
+  host.innerHTML = orders.map((o, oi) => {
+    const rows = o.items.map((it, ii) => reviewRow(o, oi, it, ii)).join('');
+    const ref = o.order_reference
+      ? `<span class="mono-util" style="font-size:11px;">${esc(o.order_reference)}</span>`
+      : `<input class="form-control ord-ref" placeholder="Order # (not found — add it)" style="font-size:11px;max-width:220px;">`;
+    return `
+      <div class="review-order" data-oi="${oi}">
+        <div class="review-order-head">
+          ${ref}
+          <span class="muted" style="font-size:10px;">${esc(o.order_date || 'no date')}</span>
+          ${o.order_total ? `<span class="muted" style="font-size:10px;">order total ${o.order_total.toFixed(2)}</span>` : ''}
+          <span class="muted" style="font-size:10px;margin-left:auto;">${o.items.length} lines</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+function reviewRow(order, oi, it, ii) {
+  const opts = ORDER_COMPONENT_DATA.map(c =>
+    `<option value="${c.id}" ${it.match_component_id === c.id ? 'selected' : ''}>${esc(c.barcode_id)} · ${esc(c.name).slice(0, 44)}</option>`
+  ).join('');
+
+  // Default off for non-inventory so a bookshelf is never imported by accident.
+  const on = it.is_inventory;
+  const matched = !!it.match_component_id;
+
+  return `
+    <div class="review-row ${on ? '' : 'off'}" data-oi="${oi}" data-ii="${ii}">
+      <label class="review-keep">
+        <input type="checkbox" class="rv-keep" ${on ? 'checked' : ''} onchange="toggleRow(this)">
+      </label>
+      <div class="review-main">
+        <div class="review-name" title="${esc(it.name)}">${esc(it.name)}</div>
+        <div class="review-sub">
+          ${it.is_kit ? '<span class="rv-tag kit">KIT</span>' : ''}
+          ${!on ? `<span class="rv-tag skip">SKIPPED${it.reject_reason ? ': ' + esc(it.reject_reason) : ''}</span>` : ''}
+          ${it.type_path ? `<span class="mono-util" style="font-size:9px;color:var(--text3);">${esc(it.type_path)}</span>` : '<span class="rv-tag warn">no type</span>'}
+          ${matched ? `<span class="rv-tag match" title="${esc(it.match_reason || '')}">matches ${esc(it.match_barcode_id)}</span>` : ''}
+        </div>
+      </div>
+      <select class="form-select rv-match" style="font-size:10px;max-width:190px;">
+        <option value="">— create new component —</option>
+        ${opts}
+      </select>
+      <input class="form-control rv-qty" type="number" min="1" value="${it.quantity || 1}" style="font-size:11px;max-width:62px;">
+      <input class="form-control rv-price" type="number" step="0.01" placeholder="unit $"
+             value="${typeof it.unit_price === 'number' ? it.unit_price : ''}" style="font-size:11px;max-width:78px;">
+    </div>`;
+}
+
+function toggleRow(cb) {
+  cb.closest('.review-row').classList.toggle('off', !cb.checked);
+}
+
+async function importReviewed() {
+  const status = document.getElementById('review-status');
+  const btn = document.getElementById('import-btn');
+  const supplierId = document.getElementById('order-supplier').value;
+  if (!supplierId) { status.textContent = 'Pick a supplier first.'; return; }
+  if (!PARSED) { status.textContent = 'Parse a paste first.'; return; }
+
+  const supplierName = document.getElementById('order-supplier').selectedOptions[0]?.textContent || '';
+  btn.disabled = true;
+  status.textContent = 'Importing…';
+
+  let ordersMade = 0, linesMade = 0, created = 0, matched = 0, skipped = 0;
+
+  for (const orderEl of document.querySelectorAll('.review-order')) {
+    const oi = +orderEl.dataset.oi;
+    const parsedOrder = PARSED.orders[oi];
+    const rows = [...orderEl.querySelectorAll('.review-row')].filter(r => r.querySelector('.rv-keep').checked);
+    if (!rows.length) { skipped += parsedOrder.items.length; continue; }
+
+    // One purchase order per real order — never merge distinct orders.
+    const ref = parsedOrder.order_reference ||
+      (orderEl.querySelector('.ord-ref')?.value || '').trim();
+    const fd = new FormData();
+    fd.append('supplier_id', supplierId);
+    fd.append('reference', ref);
+    // Only send a total the page actually stated; never a sum of guessed prices.
+    if (typeof parsedOrder.order_total === 'number') fd.append('total_cost', parsedOrder.order_total);
+
+    const createResp = await fetch('/api/suppliers/orders', { method: 'POST', body: fd });
+    if (!createResp.ok) { status.textContent = `Failed to create order ${ref || '(no ref)'}`; btn.disabled = false; return; }
+    const orderId = (await createResp.json()).id;
+    ordersMade++;
+
+    for (const row of rows) {
+      const ii = +row.dataset.ii;
+      const item = parsedOrder.items[ii];
+      const chosen = row.querySelector('.rv-match').value;
+      const qty = parseInt(row.querySelector('.rv-qty').value || '1', 10);
+      const price = row.querySelector('.rv-price').value;
+
+      let compId = chosen;
+      if (!compId) {
+        const stubResp = await fetch('/api/components/stub', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: item.name,
+            type_path: item.type_path || null,
+            supplier_name: supplierName,
+            source_note: `From ${supplierName} order ${ref || '(no ref)'}`,
+            force_new: true,   // the reviewer chose "create new" explicitly
+          }),
+        });
+        if (!stubResp.ok) continue;
+        const stub = await stubResp.json();
+        compId = stub.id;
+        if (stub.created) {
+          created++;
+          ORDER_COMPONENT_DATA.push({id: stub.id, barcode_id: stub.barcode_id, name: item.name});
+        }
+      } else {
+        matched++;
       }
-    }
-  }
-  if (data.items && data.items.length) {
-    const total = data.items.reduce((acc, item) => {
-      if (typeof item.line_total === 'number') return acc + item.line_total;
-      if (typeof item.unit_price === 'number' && item.quantity) return acc + (item.unit_price * item.quantity);
-      return acc;
-    }, 0);
-    if (total > 0) document.getElementById('order-total').value = total.toFixed(2);
-  }
-  const compLines = document.getElementById('component-order-lines');
-  const kitLines = document.getElementById('kit-order-lines');
-  compLines.innerHTML = '';
-  kitLines.innerHTML = '';
 
-  for (const item of (data.items || [])) {
-    const name = (item.name || '').toLowerCase();
-    if (item.is_kit) {
-      const idx = ORDER_KIT_DATA.findIndex(k => (k.name || '').toLowerCase() === name);
-      addKitOrderRow({kit_id: idx >= 0 ? ORDER_KIT_DATA[idx].id : '', quantity: item.quantity || 1});
-      continue;
+      const itemFd = new FormData();
+      itemFd.append('component_id', compId);
+      itemFd.append('quantity_ordered', qty);
+      if (price) itemFd.append('unit_price', price);
+      await fetch(`/api/suppliers/orders/${orderId}/items`, { method: 'POST', body: itemFd });
+      linesMade++;
     }
-    let idx = ORDER_COMPONENT_DATA.findIndex(c => (c.name || '').toLowerCase() === name);
-    if (idx < 0) {
-      idx = ORDER_COMPONENT_DATA.findIndex(c => name && (c.name || '').toLowerCase().includes(name));
-    }
-    addComponentOrderRow({
-      component_id: idx >= 0 ? ORDER_COMPONENT_DATA[idx].id : '',
-      new_name: idx < 0 ? (item.name || '') : '',
-      quantity: item.quantity || 1,
-      unit_price: item.unit_price || '',
-    });
   }
 
-  const matched = Array.from(document.querySelectorAll('#component-order-lines .order-comp')).filter(s => !!s.value).length;
-  const totalItems = (data.items || []).length;
-  status.textContent = (data.summary || 'Parsed') + ` (${totalItems} items, ${matched} matched)`;
+  btn.disabled = false;
+  status.textContent =
+    `Imported ${ordersMade} order${ordersMade === 1 ? '' : 's'}, ${linesMade} lines ` +
+    `(${created} new components, ${matched} matched to existing, ${skipped} skipped).`;
+  if (typeof loadOrders === 'function') loadOrders();
 }
 
 async function createOrderFromDraft() {

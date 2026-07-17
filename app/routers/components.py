@@ -1069,13 +1069,69 @@ class ComponentPatchRequest(BaseModel):
     clear_fields: list[str] = []
 
 
+# Marketplace titles lead with the seller's brand and are padded with filler.
+# Neither identifies the part, so both are ignored when looking for near misses.
+_TITLE_NOISE = {
+    "pcs", "pack", "packs", "pieces", "piece", "set", "sets", "kit", "kits",
+    "assortment", "assorted", "values", "value", "count", "ct", "lot", "bulk",
+    "for", "with", "and", "the", "compatible", "premium", "professional",
+    "quality", "high", "new", "universal", "multicolored", "multicolor",
+    "arduino", "raspberry", "pi", "diy", "projects", "project", "electronics",
+}
+
+
+def _title_tokens(name: str) -> list[str]:
+    """Meaningful tokens from a product title, most distinctive first.
+
+    Part designators (1N4148, ESP32, LM2596) and values (10k, 100nF) identify a
+    part; brands and marketing words do not.
+    """
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9./-]*", name.lower())
+    scored: list[tuple[int, str]] = []
+    for w in words:
+        if w in _TITLE_NOISE or len(w) < 2:
+            continue
+        has_digit = any(c.isdigit() for c in w)
+        has_alpha = any(c.isalpha() for c in w)
+        if has_digit and has_alpha:
+            score = 3           # part-number-ish: esp32, 1n4148, lm2596
+        elif has_digit:
+            score = 2           # bare value or size
+        else:
+            score = 1           # ordinary word
+        scored.append((score, w))
+    scored.sort(key=lambda t: -t[0])
+    return [w for _s, w in scored]
+
+
+async def _near_miss_candidates(db: AsyncSession, name: str, limit: int = 6) -> list:
+    """Components that might be the same part. Advisory only — never auto-merged."""
+    seen: dict[str, Component] = {}
+    for token in _title_tokens(name)[:4]:
+        rows = (await db.execute(
+            select(Component).where(Component.name.ilike(f"%{token}%")).limit(limit)
+        )).scalars().all()
+        for c in rows:
+            seen.setdefault(c.id, c)
+        if len(seen) >= limit:
+            break
+    return list(seen.values())[:limit]
+
+
 class ComponentStubCreateRequest(BaseModel):
     name: str
     value: Optional[str] = None
     unit: Optional[str] = None
     package: Optional[str] = None
+    type_path: Optional[str] = None
     supplier_name: Optional[str] = None
     source_note: Optional[str] = None
+    # Set by the order review table when a human has already decided this line
+    # is an existing part. Authoritative — skips name matching entirely.
+    match_component_id: Optional[str] = None
+    # True when the reviewer explicitly chose "create new" despite near-misses,
+    # so the endpoint must not quietly return a fuzzy match instead.
+    force_new: bool = False
 
 
 class BulkDeleteRequest(BaseModel):
@@ -1670,11 +1726,26 @@ async def create_component_stub(
     if len(name) < 2:
         raise HTTPException(400, "Component name too short")
 
+    # A reviewer's explicit choice wins over any matching this endpoint could do.
+    if req.match_component_id:
+        chosen = (await db.execute(
+            select(Component).where(Component.id == req.match_component_id)
+        )).scalar_one_or_none()
+        if not chosen:
+            raise HTTPException(404, "match_component_id not found")
+        return {
+            "id": chosen.id,
+            "barcode_id": chosen.barcode_id,
+            "created": False,
+            "conflict": False,
+            "matched_existing": True,
+        }
+
     # exact-ish match first to avoid duplicates.
     exact = (await db.execute(
         select(Component).where(Component.name.ilike(name)).limit(1)
     )).scalar_one_or_none()
-    if exact:
+    if exact and not req.force_new:
         return {
             "id": exact.id,
             "barcode_id": exact.barcode_id,
@@ -1683,10 +1754,11 @@ async def create_component_stub(
             "matched_existing": True,
         }
 
-    token = name.split()[0][:24]
-    candidates = (await db.execute(
-        select(Component).where(Component.name.ilike(f"%{token}%")).limit(6)
-    )).scalars().all()
+    # Near-miss candidates are advisory only — never auto-merged. The old code
+    # tokenised on the first word, which on a marketplace title is the seller's
+    # brand ("BOJACK", "ELEGOO"), so identical parts from different sellers
+    # never matched while unrelated parts from one seller looked like matches.
+    candidates = await _near_miss_candidates(db, name)
 
     # Pick a practical default type.
     ctype = (await db.execute(
@@ -1722,7 +1794,9 @@ async def create_component_stub(
         type_id=ctype.id,
         notes=" | ".join(notes),
         description="Auto-created from order parse. Review and complete fields.",
-        type_path="modules/communication/wifi",
+        # Was hardcoded to "modules/communication/wifi", which filed every
+        # stubbed part -- relays, bags, breadboards -- as a wifi module.
+        type_path=(req.type_path or "").strip() or None,
     )
     _apply_component_title(comp, manual=False)
     db.add(comp)

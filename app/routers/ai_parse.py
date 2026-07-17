@@ -18,7 +18,7 @@ from google import genai
 from google.genai import types
 from app.schemas.type_hierarchy import TYPE_HIERARCHY, flatten_type_paths, get_fields_for_type
 from app.models.database import get_db
-from app.models.models import SystemSetting
+from app.models.models import Component, SystemSetting
 from app.services.ai_context import build_workspace_snapshot, extract_text_from_upload, get_ai_sources, upsert_ai_source, serialize_ai_source, AI_SOURCE_DIR
 from app.services.api_usage import track_api_call
 
@@ -1071,64 +1071,102 @@ class OrderParseRequest(BaseModel):
     context_query: str | None = None
 
 
-def _normalize_order_parse_result(raw) -> dict:
-    """Normalize AI output variations into canonical order parse payload."""
+def _num_or_none(v) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def _normalize_order_item(item: dict, known_paths: set[str] | None = None) -> dict:
+    name = (item.get("name") or item.get("item_name") or "").strip()
+
+    qty = item.get("quantity")
+    try:
+        qty = int(qty) if qty is not None else 1
+    except Exception:
+        qty = 1
+    if qty < 1:
+        qty = 1
+
+    # A path the model invented is worse than none: it silently creates a second
+    # taxonomy. Drop anything not already in use.
+    type_path = (item.get("type_path") or "").strip() or None
+    if type_path and known_paths is not None and type_path not in known_paths:
+        type_path = None
+
+    return {
+        "name": name,
+        "quantity": qty,
+        "unit_price": _num_or_none(item.get("unit_price", item.get("price"))),
+        "line_total": _num_or_none(item.get("line_total")),
+        "is_kit": bool(item.get("is_kit", False)),
+        # Default true so a model that omits the flag does not silently drop
+        # real parts; the reject list is the exception, not the rule.
+        "is_inventory": bool(item.get("is_inventory", True)),
+        "reject_reason": (item.get("reject_reason") or "").strip() or None,
+        "type_path": type_path,
+        "match_barcode_id": (item.get("match_barcode_id") or "").strip() or None,
+        "match_reason": (item.get("match_reason") or "").strip() or None,
+        "notes": item.get("notes"),
+    }
+
+
+def _normalize_order_parse_result(raw, known_paths: set[str] | None = None) -> dict:
+    """Normalize AI output into canonical multi-order payload.
+
+    Accepts the current {orders:[{items:[]}]} shape and the older flat
+    {items:[]} one, so a model that ignores the schema still parses.
+    """
     if isinstance(raw, list):
         raw = {"items": raw}
-
     if not isinstance(raw, dict):
-        return {"items": [], "confidence": 0.0}
+        return {"orders": [], "confidence": 0.0}
 
-    items = raw.get("items")
+    orders_raw = raw.get("orders")
 
-    # If model returned a single item object instead of {items:[...]}
-    if items is None and any(k in raw for k in ["item_name", "name", "quantity", "price", "unit_price"]):
-        items = [raw]
+    if not isinstance(orders_raw, list) or not orders_raw:
+        # Older/flat shape, or a bare single item — wrap it as one order.
+        items = raw.get("items")
+        if items is None and any(k in raw for k in ("item_name", "name", "quantity", "price", "unit_price")):
+            items = [raw]
+        orders_raw = [{
+            "order_reference": raw.get("order_reference", raw.get("order_id", "")),
+            "order_date": raw.get("order_date"),
+            "order_total": raw.get("order_total"),
+            "items": items if isinstance(items, list) else [],
+        }]
 
-    if not isinstance(items, list):
-        items = []
-
-    normalized_items = []
-    for item in items:
-        if not isinstance(item, dict):
+    orders = []
+    for o in orders_raw:
+        if not isinstance(o, dict):
             continue
-        name = (item.get("name") or item.get("item_name") or "").strip()
-        qty = item.get("quantity")
-        try:
-            qty = int(qty) if qty is not None else 1
-        except Exception:
-            qty = 1
-        if qty < 1:
-            qty = 1
+        items = o.get("items")
+        if not isinstance(items, list):
+            items = []
+        norm = [_normalize_order_item(i, known_paths) for i in items if isinstance(i, dict)]
+        norm = [i for i in norm if i["name"]]
+        if not norm:
+            continue
 
-        unit_price = item.get("unit_price", item.get("price"))
-        try:
-            unit_price = float(unit_price) if unit_price is not None else None
-        except Exception:
-            unit_price = None
+        ref = (o.get("order_reference") or "").strip()
+        # The model used to answer "Multiple" when it merged orders; that is not
+        # a reference, and a PO carrying it is worse than one with none.
+        if ref.lower() in {"multiple", "multiple orders", "various", "n/a", "unknown"}:
+            ref = ""
 
-        line_total = item.get("line_total")
-        try:
-            line_total = float(line_total) if line_total is not None else None
-        except Exception:
-            line_total = None
-
-        normalized_items.append({
-            "name": name,
-            "quantity": qty,
-            "unit_price": unit_price,
-            "line_total": line_total,
-            "is_kit": bool(item.get("is_kit", False)),
-            "type_path": item.get("type_path"),
-            "notes": item.get("notes"),
+        orders.append({
+            "order_reference": ref,
+            "order_date": (o.get("order_date") or "").strip() or None,
+            "order_total": _num_or_none(o.get("order_total")),
+            "items": norm,
         })
 
     return {
         "summary": raw.get("summary", ""),
         "supplier": raw.get("supplier", ""),
-        "order_reference": raw.get("order_reference", raw.get("order_id", "")),
         "currency": raw.get("currency", "USD"),
-        "items": normalized_items,
+        "orders": orders,
         "confidence": float(raw.get("confidence", 0.0) or 0.0),
     }
 
@@ -1482,26 +1520,43 @@ async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(ge
         "properties": {
             "summary": {"type": "string"},
             "supplier": {"type": "string"},
-            "order_reference": {"type": "string"},
-            "currency": {"type": "string"},
-            "items": {
+            "orders": {
                 "type": "array",
+                "description": "One entry per distinct order found in the paste.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string"},
-                        "quantity": {"type": "integer"},
-                        "unit_price": {"type": "number"},
-                        "line_total": {"type": "number"},
-                        "is_kit": {"type": "boolean"},
-                        "type_path": {"type": "string"},
-                        "notes": {"type": "string"},
+                        "order_reference": {"type": "string"},
+                        "order_date": {"type": "string"},
+                        "order_total": {"type": "number"},
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "quantity": {"type": "integer"},
+                                    "unit_price": {"type": "number"},
+                                    "line_total": {"type": "number"},
+                                    "is_kit": {"type": "boolean"},
+                                    "is_inventory": {"type": "boolean"},
+                                    "reject_reason": {"type": "string"},
+                                    "type_path": {"type": "string"},
+                                    "match_barcode_id": {"type": "string"},
+                                    "match_reason": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                },
+                                "required": ["name", "is_inventory"],
+                            },
+                        },
                     },
+                    "required": ["items"],
                 },
             },
+            "currency": {"type": "string"},
             "confidence": {"type": "number"},
         },
-        "required": ["items", "confidence"],
+        "required": ["orders", "confidence"],
     }
 
     html_snippet = (req.html or "")[:12000]
@@ -1517,17 +1572,75 @@ async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(ge
     )
     context_json = json.dumps(context_bundle, ensure_ascii=False)[:6000]
 
-    prompt = f"""Extract order line-items from noisy copy-pasted website text.
-Rules:
-- Keep only likely purchased items.
-- Ignore site chrome, recommendations, reviews, keyboard shortcuts, and footer.
-- Detect if an item appears to be a kit/assortment (is_kit=true).
-- Quantity defaults to 1 if unknown.
-- Use formatting clues as signals: headers, breadcrumbs, repeated title lines, bullet/line breaks, links, section labels.
-- Input may include plaintext, markdown-like structure, copied table text, or HTML-like fragments.
+    # Give the model the real taxonomy and catalogue. Without these it invents
+    # paths ("furniture/storage") and cannot recognise parts already stocked.
+    known_paths = [
+        r[0] for r in (await db.execute(
+            select(Component.type_path).where(Component.type_path.isnot(None)).distinct()
+        )).all()
+    ]
+    paths_txt = "\n".join(f"- {p}" for p in sorted(known_paths)) or "- (none defined yet)"
 
-Return strict JSON object with top-level keys: summary, supplier, order_reference, currency, items[], confidence.
-Each item must include: name, quantity, unit_price (optional), line_total (optional), is_kit, type_path(optional), notes(optional).
+    catalog_rows = (await db.execute(
+        select(Component.barcode_id, Component.name, Component.value, Component.unit)
+        .order_by(Component.name)
+        .limit(400)
+    )).all()
+    catalog_txt = "\n".join(
+        f"- {b} | {n}" + (f" | {v}{u or ''}" if v else "")
+        for b, n, v, u in catalog_rows
+    ) or "- (catalogue empty)"
+
+    prompt = f"""Extract purchase orders from noisy copy-pasted order-history text.
+
+This is an ELECTRONICS PARTS INVENTORY. The paste is from a general shopping
+site, so most of it is not inventory: household goods, furniture, computer
+accessories, cables, groceries, site chrome, adverts, "Sponsored" blocks,
+"Recommended", "Browsing History", "Buy it again" suggestion carousels, and
+footers. Those must be excluded.
+
+RULES
+
+1. ONE ENTRY PER ORDER. The paste may contain several orders, each with its own
+   order number, date and total. Never merge them, never invent a reference like
+   "Multiple". If an order number is not visible for a group of items, omit
+   order_reference for that group rather than guessing.
+
+2. is_inventory: true only for electronic parts, modules, dev boards, and
+   workshop consumables that belong in a parts inventory. Set false for
+   furniture, screen protectors, phone/laptop accessories, groceries, tools of
+   daily life, and anything from a Sponsored/Recommended/Browsing-History
+   section. When false, give a short reject_reason. Do not drop the line --
+   return it marked false so a human can override.
+
+3. PRICES. Only report unit_price or line_total if the number genuinely appears
+   for that item. An order TOTAL is not an item price: if a $67.32 order holds
+   five items, none of them cost $67.32. Leave prices out rather than
+   apportioning, inventing, or copying the order total onto a line.
+
+4. NAMES. Keep the detail that distinguishes near-identical items -- pack size,
+   count, capacity, voltage, colour. "Pack of 200" and "Case of 1,000" are
+   different products and must not collapse to the same name. Drop only the
+   marketing padding.
+
+5. type_path MUST be chosen from this exact list, or omitted if none fit.
+   Never invent a new path:
+{paths_txt}
+
+6. MATCHING. If an item is plainly the SAME product as something already in the
+   catalogue below, set match_barcode_id to that barcode and explain in
+   match_reason. Be conservative: same function is not the same part. An
+   "ESP32 C3 Mini" is NOT an "ESP32-DEVKITC-32E" -- different module. Only match
+   when you are confident it is the identical part; otherwise leave
+   match_barcode_id empty and a human will decide.
+
+7. quantity is the number of units received. "10pcs" in a title with Qty 1 means
+   quantity 10. Default 1 when unknown.
+
+8. is_kit: true for assortments/variety packs of mixed values.
+
+EXISTING CATALOGUE (match against these):
+{catalog_txt}
 
 Links extracted from paste:
 {urls_txt or '- none'}
@@ -1542,8 +1655,24 @@ Text:
 {req.text[:18000]}"""
 
     raw = await _call_data_aware_ai(prompt, schema, task="order", collapse_list=False, db=db)
-    result = _normalize_order_parse_result(raw)
-    result["source"] = "gemini_order_parse"
+    result = _normalize_order_parse_result(raw, known_paths=set(known_paths))
+
+    # Resolve claimed matches against the real catalogue. A hallucinated barcode
+    # must not reach the review table looking like a confirmed match.
+    by_barcode = {b: (b, n) for b, n, _v, _u in catalog_rows}
+    for order in result["orders"]:
+        for item in order["items"]:
+            bid = item.get("match_barcode_id")
+            if not bid:
+                continue
+            hit = by_barcode.get(bid) or by_barcode.get(bid.upper())
+            if hit:
+                item["match_barcode_id"], item["match_name"] = hit
+            else:
+                item["match_barcode_id"] = None
+                item["match_reason"] = None
+
+    result["source"] = "order_parse_v2"
     return result
 
 
