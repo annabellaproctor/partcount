@@ -29,7 +29,7 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10"))
 # Order parsing reads a whole page of orders against the catalogue and taxonomy,
 # so it is far slower than a single-part lookup and needs its own ceiling.
-GEMINI_ORDER_TIMEOUT_SECONDS = float(os.getenv("GEMINI_ORDER_TIMEOUT_SECONDS", "45"))
+GEMINI_ORDER_TIMEOUT_SECONDS = float(os.getenv("GEMINI_ORDER_TIMEOUT_SECONDS", "60"))
 GEMINI_MAX_WORKERS = int(os.getenv("GEMINI_MAX_WORKERS", "2"))
 AI_PROVIDER = os.getenv("AI_PROVIDER", "auto").strip().lower()
 AI_OPENAI_BASE_URL = os.getenv("AI_OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL", "")).strip().rstrip("/")
@@ -1244,7 +1244,13 @@ def _normalize_order_parse_result(raw, known_paths: set[str] | None = None) -> d
     {items:[]} one, so a model that ignores the schema still parses.
     """
     if isinstance(raw, list):
-        raw = {"items": raw}
+        # A bare array is ambiguous, and models return both kinds. If its
+        # elements carry their own items[], it is a list of orders; otherwise
+        # they are line items belonging to one unnamed order.
+        if raw and isinstance(raw[0], dict) and isinstance(raw[0].get("items"), list):
+            raw = {"orders": raw}
+        else:
+            raw = {"items": raw}
     if not isinstance(raw, dict):
         return {"orders": [], "confidence": 0.0}
 
@@ -1788,6 +1794,17 @@ Text:
 
     raw = await _call_data_aware_ai(prompt, schema, task="order", collapse_list=False, db=db)
     result = _normalize_order_parse_result(raw, known_paths=set(known_paths))
+
+    # A paste this long always contains SOMETHING. Zero orders means the model
+    # failed -- truncated mid-JSON, or answered in a shape the normalizer could
+    # not read -- and returning that quietly looks identical to "your page had
+    # no orders". Fail loudly so the reviewer knows to retry or switch models.
+    if not result["orders"] and len((req.text or "").strip()) > 200:
+        raise HTTPException(
+            502,
+            "The model returned nothing readable for this paste. It may have been "
+            "truncated. Try again, or switch the order model in Settings.",
+        )
 
     # Resolve claimed matches against the real catalogue. A hallucinated barcode
     # must not reach the review table looking like a confirmed match.
