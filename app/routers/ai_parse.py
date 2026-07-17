@@ -1689,13 +1689,11 @@ async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(ge
     if not urls:
         urls = _extract_urls((req.text or "") + "\n" + (req.html or ""))
     urls_txt = "\n".join(f"- {u}" for u in urls[:20])
-    context_bundle = await build_workspace_snapshot(
-        db,
-        message=req.context_query or req.text,
-        page_context=req.page_context or {},
-        source_ids=req.source_ids,
-    )
-    context_json = json.dumps(context_bundle, ensure_ascii=False)[:6000]
+
+    # No workspace snapshot here. It added ~1.6k chars of cache keys, component
+    # counts, missing-datasheet stats and stray source blurbs to every call --
+    # none of which helps read an order. The taxonomy and catalogue below are
+    # the only context this task needs.
 
     # Give the model the real taxonomy and catalogue. Without these it invents
     # paths ("furniture/storage") and cannot recognise parts already stocked.
@@ -1781,9 +1779,6 @@ EXISTING CATALOGUE (match against these):
 
 Links extracted from paste:
 {urls_txt or '- none'}
-
-Workspace context and reference sources:
-{context_json}
 
 Rich/HTML snippet:
 {html_snippet or '[none]'}
