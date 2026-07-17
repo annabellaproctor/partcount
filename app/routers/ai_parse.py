@@ -27,6 +27,9 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10"))
+# Order parsing reads a whole page of orders against the catalogue and taxonomy,
+# so it is far slower than a single-part lookup and needs its own ceiling.
+GEMINI_ORDER_TIMEOUT_SECONDS = float(os.getenv("GEMINI_ORDER_TIMEOUT_SECONDS", "45"))
 GEMINI_MAX_WORKERS = int(os.getenv("GEMINI_MAX_WORKERS", "2"))
 AI_PROVIDER = os.getenv("AI_PROVIDER", "auto").strip().lower()
 AI_OPENAI_BASE_URL = os.getenv("AI_OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL", "")).strip().rstrip("/")
@@ -599,6 +602,9 @@ async def _call_provider(
             db=db,
             api_key=(provider.get("api_key") or "").strip(),
             fallback_models=provider.get("fallback_models") or [],
+            timeout_seconds=(
+                GEMINI_ORDER_TIMEOUT_SECONDS if task == "order" else GEMINI_TIMEOUT_SECONDS
+            ),
         )
 
     if provider_type in {"openai", "openai-compatible"}:
@@ -836,8 +842,10 @@ async def _gemini(
     db: AsyncSession | None = None,
     api_key: str | None = None,
     fallback_models: list[str] | None = None,
+    timeout_seconds: float | None = None,
 ):
     """Call Gemini API with smart model selection and fallback"""
+    effective_timeout = timeout_seconds or GEMINI_TIMEOUT_SECONDS
     effective_key = (api_key or GEMINI_KEY or "").strip()
     if not effective_key:
         raise HTTPException(
@@ -865,7 +873,7 @@ async def _gemini(
                 loop = asyncio.get_running_loop()
                 result = await asyncio.wait_for(
                     loop.run_in_executor(_gemini_executor, _gemini_call_sync, prompt, schema, model, effective_key),
-                    timeout=GEMINI_TIMEOUT_SECONDS,
+                    timeout=effective_timeout,
                 )
 
             # Track successful call
@@ -896,14 +904,14 @@ async def _gemini(
                     api_name="gemini",
                     endpoint=model,
                     success=False,
-                    error_message=f"Timeout after {GEMINI_TIMEOUT_SECONDS}s",
+                    error_message=f"Timeout after {effective_timeout}s",
                 )
             log_failed_request("timeout", {
-                "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+                "timeout_seconds": effective_timeout,
                 "model": model,
                 "attempt": attempt,
             })
-            raise HTTPException(504, f"Gemini request timed out after {GEMINI_TIMEOUT_SECONDS:.0f}s")
+            raise HTTPException(504, f"Gemini request timed out after {effective_timeout:.0f}s")
         except Exception as e:
             error_msg = str(e)
             # Track error
@@ -1627,13 +1635,20 @@ async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(ge
     known_paths = await get_known_type_paths(db)
     paths_txt = "\n".join(f"- {p}" for p in sorted(known_paths)) or "- (none defined yet)"
 
+    # Only parts a marketplace title could plausibly name. Sending the whole
+    # catalogue -- 75 near-identical resistors that no Amazon listing will ever
+    # match by name -- blew the provider's payload limit and timeout for no gain.
     catalog_rows = (await db.execute(
         select(Component.barcode_id, Component.name, Component.value, Component.unit)
+        .where(
+            (Component.type_path.is_(None))
+            | (~Component.type_path.in_(("passives/resistors", "passives/capacitors")))
+        )
         .order_by(Component.name)
-        .limit(400)
+        .limit(120)
     )).all()
     catalog_txt = "\n".join(
-        f"- {b} | {n}" + (f" | {v}{u or ''}" if v else "")
+        f"- {b} | {n[:60]}" + (f" | {v}{u or ''}" if v else "")
         for b, n, v, u in catalog_rows
     ) or "- (catalogue empty)"
 
@@ -1683,7 +1698,16 @@ RULES
 7. quantity is the number of units received. "10pcs" in a title with Qty 1 means
    quantity 10. Default 1 when unknown.
 
-8. is_kit: true for assortments/variety packs of mixed values.
+8. is_kit: true for an assortment/variety pack of MIXED values sold as one unit
+   (a "150 Values 1500 Pieces Resistor Kit", a "12 Values 120 Pcs IC Kit").
+   For a kit, quantity is the number of KITS bought -- almost always 1 -- not
+   the piece count inside it. Put the piece count in notes instead. A pack of
+   identical parts ("10Pcs Buzzer", "4-Pack Servo") is NOT a kit: is_kit=false
+   and quantity is the piece count.
+
+9. ONE PRODUCT PER LINE. A title bundling different products -- "2PCS
+   STM32F103C8T6 Board + 1PCS ST-Link V2 Programmer" -- is two line items with
+   their own quantities (2 and 1), not one line of 3. Split them.
 
 EXISTING CATALOGUE (match against these):
 {catalog_txt}
@@ -2011,7 +2035,7 @@ async def get_failed_requests(limit: int = 50):
         "fallback_chain": [f"{m['name']} ({m['rpd']} RPD)" for m in FREE_TIER_MODELS],
         "tier": "free (no billing)",
         "sdk": "google-genai",
-        "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+        "timeout_seconds": effective_timeout,
         "max_workers": GEMINI_MAX_WORKERS,
         "last_model_check": _last_model_check.isoformat() if _last_model_check else None,
     }
@@ -2024,7 +2048,7 @@ async def get_model_status():
         "current_model": _current_model or FREE_TIER_MODELS[0]["name"],
         "available_models": FREE_TIER_MODELS,
         "check_interval_minutes": _model_check_interval.total_seconds() / 60,
-        "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+        "timeout_seconds": effective_timeout,
         "max_workers": GEMINI_MAX_WORKERS,
         "last_check": _last_model_check.isoformat() if _last_model_check else None,
         "strategy": "Auto-fallback on 429 rate limit errors",
