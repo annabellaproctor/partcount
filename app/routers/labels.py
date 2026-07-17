@@ -1045,6 +1045,13 @@ async def print_sheet_designer(
     boxes_stmt = select(Box).where(Box.box_type == "filing")
     if box_id:
       boxes_stmt = boxes_stmt.where(Box.id == box_id)
+    if not _is_bag_label(settings):
+      raise HTTPException(
+        400,
+        "Divider cards need a large-format profile — a lid-sticker cell cannot "
+        "hold a colour band and a readable name. Switch to the index-card profile.",
+      )
+
     crates = (await db.execute(boxes_stmt.order_by(Box.slot_index, Box.label))).scalars().all()
     if not crates:
       raise HTTPException(404, "No filing crates found" + (f" for box {box_id}" if box_id else ""))

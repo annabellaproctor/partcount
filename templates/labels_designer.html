@@ -155,31 +155,60 @@
   <div class="col-lg-5">
     <div class="card p-3 mb-3">
       <h2 class="mono-util text-muted" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">What To Print</h2>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <input id="filter-q" class="form-control" placeholder="Component filter query (name/value/package/barcode)">
-        <textarea id="barcode-list" class="form-control" rows="4" placeholder="Optional explicit barcode list, comma-separated"></textarea>
-        <div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;">
-          <div style="max-width:220px;">
-            <label class="form-label">Start Index (not saved)</label>
+
+      <!-- Grouped by printer, because that is the physical choice being made:
+           which tray does this sheet go in. -->
+      <div class="print-group">
+        <div class="print-group-head">
+          <span class="ink ink-bw">B/W</span>
+          <span class="print-group-title">Component labels</span>
+        </div>
+        <p class="print-group-note">Values, names, and barcodes. No colour — send to the laser.</p>
+
+        <input id="filter-q" class="form-control" placeholder="Filter by name, value, package, or barcode">
+        <textarea id="barcode-list" class="form-control" rows="3" placeholder="Or paste specific barcodes, comma-separated"></textarea>
+        <div style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-top:2px;">
+          <div style="max-width:140px;">
+            <label class="form-label">Start at cell</label>
             <input id="start-index" class="form-control" type="number" min="0" step="1" value="0">
           </div>
-          <div class="muted" style="font-size:11px;">Left to right, top to bottom. Use to continue printing on partially used sheets.</div>
+          <div class="muted" style="font-size:10px;padding-bottom:6px;">Skip cells already used on a part-printed sheet. Fills left to right, top to bottom.</div>
         </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print Front Sheet</button>
-          <button class="btn btn-primary btn-sm" onclick="openPrint('barcode')">Print Barcode Sheet</button>
-          <button class="btn btn-primary btn-sm" onclick="openPrint('grid_test')">Print Final Grid Test</button>
-          <button class="btn btn-danger btn-sm" onclick="openPrint('calibration')">Print Calibration Runs</button>
+        <div class="print-actions">
+          <button class="btn btn-primary btn-sm" onclick="openPrint('front')">Print labels</button>
+          <button class="btn btn-sm btn-ghost-line" onclick="openPrint('barcode')">Print barcodes only</button>
         </div>
-        <div class="muted" style="font-size:11px;line-height:1.5;">
-          Front/barcode output uses <strong>2 micro-labels per cell</strong> for tiny stock workflows.
-          Front keeps a reserved <strong>0.25in bottom-right circle zone</strong> for color stickers.
-          Front and barcode sheets print a <strong>unique word ID</strong> in top/bottom margins, plus compact row/col headers for placement tracking.
-          Barcodes are normalized (hyphen-free) and scaled to fill each micro label block.
-          Calibration outputs a <strong>cover page</strong> with predicted grid + edge distances, then <strong>cross-only verification sheets</strong> (no borders/cut lines).
-        </div>
-        <div id="print-status" class="muted" style="font-size:11px;"></div>
       </div>
+
+      <div class="print-group">
+        <div class="print-group-head">
+          <span class="ink ink-color">COLOUR</span>
+          <span class="print-group-title">Crate divider cards</span>
+        </div>
+        <p class="print-group-note">Each card carries its divider's colour band. Send to the colour printer, or the band prints grey.</p>
+
+        <select id="divider-box" class="form-select" style="font-size:11px;">
+          <option value="">All filing crates</option>
+        </select>
+        <div class="print-actions">
+          <button class="btn btn-primary btn-sm" onclick="openPrint('dividers')">Print divider cards</button>
+          <span class="muted" style="font-size:10px;" id="divider-hint"></span>
+        </div>
+      </div>
+
+      <div class="print-group print-group-quiet">
+        <div class="print-group-head">
+          <span class="ink ink-bw">B/W</span>
+          <span class="print-group-title">Alignment</span>
+        </div>
+        <p class="print-group-note">Only needed when a new sheet stock cuts off-register.</p>
+        <div class="print-actions">
+          <button class="btn btn-sm btn-ghost-line" onclick="openPrint('grid_test')">Grid test</button>
+          <button class="btn btn-sm btn-ghost-line" onclick="openPrint('calibration')">Calibration runs</button>
+        </div>
+      </div>
+
+      <div id="print-status" class="muted" style="font-size:11px;margin-top:8px;"></div>
       <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
         <h2 class="mono-util text-muted" style="margin-bottom: 12px;">Computed Grid</h2>
         <div id="grid-readout" style="font-size:12px;color:var(--text2);">-</div>
@@ -188,6 +217,71 @@
     </div>
   </div>
 </div>
+<style>
+/* Print setup grouped by printer: the ink chip is the first thing read, because
+   sending divider cards to the laser is the mistake worth preventing. */
+.print-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.print-group:last-of-type { border-bottom: none; }
+.print-group-quiet { opacity: .72; }
+.print-group-quiet:hover { opacity: 1; }
+.print-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.print-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.print-group-note {
+  margin: -2px 0 2px;
+  font-size: 10px;
+  color: var(--text3);
+  line-height: 1.45;
+}
+.ink {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  padding: 2px 5px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.ink-bw {
+  background: var(--text);
+  color: var(--bg2);
+}
+/* The chip itself is in colour, so the distinction survives a glance. */
+.ink-color {
+  background: linear-gradient(90deg, #ef4444, #f59e0b 35%, #10b981 65%, #4f6ef7);
+  color: #fff;
+  text-shadow: 0 0 2px rgba(0,0,0,.45);
+}
+.print-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.btn-ghost-line {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+}
+.btn-ghost-line:hover {
+  border-color: var(--text3);
+  color: var(--text);
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -401,16 +495,71 @@ async function saveAsNewProfile() {
   if (r.ok) await loadProfiles();
 }
 
+const PRINT_LABELS = {
+  front: 'component labels',
+  barcode: 'barcode sheet',
+  dividers: 'divider cards',
+  grid_test: 'grid test',
+  calibration: 'calibration runs',
+};
+
 function openPrint(mode) {
   const sel = document.getElementById('profile-select');
-  const q = encodeURIComponent(document.getElementById('filter-q').value || '');
-  const barcodeIds = encodeURIComponent((document.getElementById('barcode-list').value || '').replace(/\n/g, ','));
-  const startIndex = Math.max(0, parseInt(document.getElementById('start-index').value || '0', 10) || 0);
-  const settingsJson = encodeURIComponent(JSON.stringify(getSettingsFromForm()));
-  const url = `/labels/print-sheet?profile_id=${encodeURIComponent(sel.value)}&mode=${encodeURIComponent(mode)}&q=${q}&barcode_ids=${barcodeIds}&settings_json=${settingsJson}&start_index=${encodeURIComponent(startIndex)}`;
-  window.open(url, '_blank');
-  document.getElementById('print-status').textContent = `Opened ${mode} print view (start index ${startIndex})`;
+  const settings = getSettingsFromForm();
+  const settingsJson = encodeURIComponent(JSON.stringify(settings));
+  const status = document.getElementById('print-status');
+  const params = [
+    `profile_id=${encodeURIComponent(sel.value)}`,
+    `mode=${encodeURIComponent(mode)}`,
+    `settings_json=${settingsJson}`,
+  ];
+
+  if (mode === 'dividers') {
+    // Catch the size mismatch here rather than opening a tab of raw JSON.
+    // Mirrors the server's guard; the server still enforces it.
+    const area = (settings.cell_width_in || 0) * (settings.cell_height_in || 0);
+    if (area < 1.6) {
+      status.textContent =
+        'Divider cards need a large-format profile — switch to "Index Card Dividers (4x6 in)" first.';
+      return;
+    }
+    // Divider cards come from a crate, not the component filter — passing a
+    // stale query here would silently narrow the sheet.
+    const box = document.getElementById('divider-box').value;
+    if (box) params.push(`box_id=${encodeURIComponent(box)}`);
+  } else {
+    const q = encodeURIComponent(document.getElementById('filter-q').value || '');
+    const barcodeIds = encodeURIComponent((document.getElementById('barcode-list').value || '').replace(/\n/g, ','));
+    const startIndex = Math.max(0, parseInt(document.getElementById('start-index').value || '0', 10) || 0);
+    params.push(`q=${q}`, `barcode_ids=${barcodeIds}`, `start_index=${encodeURIComponent(startIndex)}`);
+  }
+
+  window.open(`/labels/print-sheet?${params.join('&')}`, '_blank');
+
+  const ink = (mode === 'dividers') ? 'colour printer' : 'B/W printer';
+  document.getElementById('print-status').textContent =
+    `Opened ${PRINT_LABELS[mode] || mode} — send to the ${ink}.`;
 }
+
+async function loadDividerBoxes() {
+  const sel = document.getElementById('divider-box');
+  const hint = document.getElementById('divider-hint');
+  try {
+    const boxes = await fetch('/api/boxes/').then(r => r.json());
+    const crates = (Array.isArray(boxes) ? boxes : []).filter(b => (b.box_type || 'grid') === 'filing');
+    if (!crates.length) {
+      sel.innerHTML = '<option value="">No filing crates yet</option>';
+      sel.disabled = true;
+      hint.textContent = 'Create a filing crate to print divider cards.';
+      return;
+    }
+    sel.innerHTML = '<option value="">All filing crates</option>' +
+      crates.map(b => `<option value="${b.id}">${(b.label || '').replace(/</g, '&lt;')}</option>`).join('');
+  } catch (e) {
+    hint.textContent = 'Could not load crates.';
+  }
+}
+loadDividerBoxes();
 
 document.getElementById('profile-select').addEventListener('change', (e) => {
   const p = _profiles.find(x => x.id === e.target.value);
