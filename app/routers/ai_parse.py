@@ -6,7 +6,7 @@ https://ai.google.dev/pricing
 """
 from fastapi import APIRouter, HTTPException, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from pydantic import BaseModel, Field
 import os, json, logging, re, uuid
 from datetime import datetime, timedelta
@@ -1071,6 +1071,56 @@ class OrderParseRequest(BaseModel):
     context_query: str | None = None
 
 
+TYPE_PATH_VOCAB_KEY = "type_path_vocabulary_v1"
+
+# Paths for things ordered but not yet stocked. A type_path only otherwise
+# exists once some component uses it, so without these the parser cannot file a
+# relay module until a relay module is already filed.
+DEFAULT_EXTRA_TYPE_PATHS = [
+    "modules/relay",
+    "modules/display",
+    "modules/display/lcd",
+    "modules/sensor",
+    "modules/mcu-module",
+    "modules/power/converter",
+    "modules/power/regulator",
+    "power/supply",
+    "prototyping/breadboard",
+    "prototyping/jumper-wire",
+    "connectors/header",
+    "consumables/anti-static-bag",
+    "consumables/storage",
+]
+
+
+async def get_known_type_paths(db: AsyncSession) -> list[str]:
+    """Every type_path the parser may choose from.
+
+    Union of paths already on components and a declared vocabulary, so a
+    category can exist before its first part does.
+    """
+    in_use = {
+        r[0] for r in (await db.execute(
+            select(Component.type_path).where(Component.type_path.isnot(None)).distinct()
+        )).all() if r[0]
+    }
+
+    row = (await db.execute(
+        select(SystemSetting).where(SystemSetting.key == TYPE_PATH_VOCAB_KEY)
+    )).scalar_one_or_none()
+    if row and row.value:
+        try:
+            declared = json.loads(row.value)
+            if isinstance(declared, list):
+                in_use.update(str(p).strip() for p in declared if str(p).strip())
+        except Exception:
+            pass
+    else:
+        in_use.update(DEFAULT_EXTRA_TYPE_PATHS)
+
+    return sorted(in_use)
+
+
 def _num_or_none(v) -> float | None:
     try:
         return float(v) if v is not None else None
@@ -1574,11 +1624,7 @@ async def parse_order_text(req: OrderParseRequest, db: AsyncSession = Depends(ge
 
     # Give the model the real taxonomy and catalogue. Without these it invents
     # paths ("furniture/storage") and cannot recognise parts already stocked.
-    known_paths = [
-        r[0] for r in (await db.execute(
-            select(Component.type_path).where(Component.type_path.isnot(None)).distinct()
-        )).all()
-    ]
+    known_paths = await get_known_type_paths(db)
     paths_txt = "\n".join(f"- {p}" for p in sorted(known_paths)) or "- (none defined yet)"
 
     catalog_rows = (await db.execute(
@@ -1674,6 +1720,47 @@ Text:
 
     result["source"] = "order_parse_v2"
     return result
+
+
+@router.get("/type-paths")
+async def list_type_paths(db: AsyncSession = Depends(get_db)):
+    """The vocabulary the order parser may file into, and which paths are in use."""
+    in_use = {
+        r[0]: r[1] for r in (await db.execute(
+            select(Component.type_path, func.count(Component.id))
+            .where(Component.type_path.isnot(None))
+            .group_by(Component.type_path)
+        )).all()
+    }
+    paths = await get_known_type_paths(db)
+    return {
+        "paths": [{"path": p, "component_count": in_use.get(p, 0)} for p in paths],
+        "total": len(paths),
+    }
+
+
+class TypePathVocabRequest(BaseModel):
+    paths: list[str]
+
+
+@router.post("/type-paths")
+async def set_type_paths(req: TypePathVocabRequest, db: AsyncSession = Depends(get_db)):
+    """Replace the declared vocabulary. Paths already on components always remain."""
+    cleaned = sorted({
+        p.strip().strip("/") for p in req.paths
+        if p and p.strip() and re.match(r"^[a-z0-9]+(?:[/-][a-z0-9]+)*$", p.strip().strip("/"))
+    })
+
+    row = (await db.execute(
+        select(SystemSetting).where(SystemSetting.key == TYPE_PATH_VOCAB_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = json.dumps(cleaned)
+    else:
+        db.add(SystemSetting(key=TYPE_PATH_VOCAB_KEY, value=json.dumps(cleaned)))
+    await db.flush()
+
+    return {"saved": len(cleaned), "paths": await get_known_type_paths(db)}
 
 
 @router.post("/merge")
