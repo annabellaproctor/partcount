@@ -8,7 +8,10 @@ services:
       - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8437 --reload
+    # --proxy-headers makes uvicorn trust Traefik's X-Forwarded-Proto. Without
+    # it every redirect (e.g. /api/manufacturers -> /api/manufacturers/) is built
+    # as http://, and the browser blocks it as mixed content on an https page.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8437 --reload --proxy-headers --forwarded-allow-ips="*"
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates

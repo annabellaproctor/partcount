@@ -15,4 +15,6 @@ COPY . .
 # ensure static dirs exist even if empty
 RUN mkdir -p /app/app/static/css /app/app/static/js /app/app/static/img /app/images
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# --proxy-headers: trust the reverse proxy's X-Forwarded-Proto so redirects are
+# built as https, not http (which a browser blocks as mixed content).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]

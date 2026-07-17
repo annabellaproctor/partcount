@@ -1722,7 +1722,9 @@ async function _loadFormData() {
   try {
     const [t, m, tp] = await Promise.all([
       fetch('/api/components/types').then(r => r.ok ? r.json() : []),
-      fetch('/api/manufacturers').then(r => r.ok ? r.json() : []),
+      // Trailing slash matters: the route is "/", so omitting it makes FastAPI
+      // 307 to the canonical URL, and that redirect is where the http:// leaks in.
+      fetch('/api/manufacturers/').then(r => r.ok ? r.json() : []),
       fetch('/api/components/type-paths').then(r => r.ok ? r.json() : {paths: []}),
     ]);
     _types = Array.isArray(t) ? t : [];
