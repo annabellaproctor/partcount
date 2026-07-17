@@ -371,7 +371,138 @@ def _print_value(comp: Component) -> str:
   return _humanize_value(parsed, comp.value, _unit_symbol(comp))
 
 
+def _svg_fill_box(svg: str) -> str:
+  """Make a python-barcode SVG scale to its CSS box without distorting it.
+
+  The library emits fixed mm width/height; inside a flex box those intrinsic
+  dimensions fight the CSS. Swap them for a viewBox so CSS drives the size.
+
+  Aspect ratio is preserved deliberately: Code128 encodes data in relative bar
+  widths, so stretching one to fill a wide box produces a barcode no scanner
+  can read.
+  """
+  if "<svg" not in svg:
+    return svg
+
+  m = re.search(r'<svg[^>]*?width="([\d.]+)mm"[^>]*?height="([\d.]+)mm"', svg)
+  if not m:
+    return svg
+  w, h = float(m.group(1)), float(m.group(2))
+
+  head_end = svg.index(">", svg.index("<svg"))
+  head = svg[svg.index("<svg"):head_end + 1]
+  new_head = re.sub(r'\s(width|height)="[^"]*"', "", head)
+  if "viewBox" not in new_head:
+    new_head = new_head.replace("<svg", f'<svg viewBox="0 0 {w:.3f} {h:.3f}"', 1)
+  if "preserveAspectRatio" not in new_head:
+    new_head = new_head.replace("<svg", '<svg preserveAspectRatio="xMinYMax meet"', 1)
+  return new_head + svg[head_end + 1:]
+
+
+# A cell this size is a bag label or index card, not a lid sticker: the
+# two-micro-labels-per-cell layout leaves it mostly empty.
+_BAG_LABEL_MIN_AREA_IN2 = 1.6
+
+
+def _is_bag_label(settings: dict) -> bool:
+  return (float(settings["cell_width_in"]) * float(settings["cell_height_in"])) >= _BAG_LABEL_MIN_AREA_IN2
+
+
+def _build_bag_cell(comp: Component, settings: dict) -> str:
+  """Large-format label: value leads, then short title, then the barcode.
+
+  Sized to be read at arm's length while sorting a crate, so the value is set
+  as large as the cell allows rather than at lid-sticker sizes.
+  """
+  printed_val = _print_value(comp)
+  title = html.escape((comp.short_title or comp.name or "").strip())
+  raw_name = html.escape((comp.name or "").strip())
+  bid_raw = _normalize_barcode_for_print(comp.barcode_id)
+  bid = html.escape(bid_raw)
+
+  h = float(settings["cell_height_in"])
+  val_pt = max(14.0, min(46.0, h * 7.0))
+  title_pt = max(8.0, min(17.0, h * 2.6))
+  meta_pt = max(6.0, min(11.0, h * 1.7))
+
+  # Strip the library's text caption (the id is set separately below) and its
+  # intrinsic mm dimensions -- left in place they fight the CSS box and stall
+  # layout. A viewBox alone lets the bars scale to whatever the cell allows.
+  raw_svg = generate_code128_svg(bid_raw)
+  raw_svg = re.sub(r"<text[^>]*>.*?</text>", "", raw_svg, flags=re.IGNORECASE | re.DOTALL)
+  barcode_svg = _svg_fill_box(raw_svg)
+
+  bits = []
+  if comp.package:
+    bits.append(html.escape(comp.package))
+  if comp.tolerance:
+    bits.append(html.escape(comp.tolerance))
+  if comp.voltage_rating:
+    bits.append(f"{comp.voltage_rating:g}V")
+  meta = " · ".join(bits)
+
+  # short_title already carries the value; the raw name is the useful second line.
+  sub = raw_name if raw_name and raw_name != title else title
+
+  return (
+    '<div class="front front-bag">'
+    f'<div class="bag-val" style="font-size:{val_pt:.1f}pt;">{html.escape(printed_val) or "&nbsp;"}</div>'
+    f'<div class="bag-title" style="font-size:{title_pt:.1f}pt;">{sub}</div>'
+    + (f'<div class="bag-meta" style="font-size:{meta_pt:.1f}pt;">{meta}</div>' if meta else '')
+    + '<div class="bag-rule"></div>'
+    + '<div class="bag-foot">'
+      f'<div class="bag-barcode">{barcode_svg}</div>'
+      f'<div class="bag-id" style="font-size:{meta_pt:.1f}pt;">{bid}</div>'
+    '</div>'
+    '</div>'
+  )
+
+
+DIVIDER_PRINT_COLORS = {
+  "red": "#ef4444",
+  "amber": "#f59e0b",
+  "green": "#10b981",
+  "blue": "#4f6ef7",
+  "violet": "#8b5cf6",
+  "slate": "#8b919e",
+}
+
+
+def _build_divider_cell(divider: dict, settings: dict) -> str:
+  """An index card that stands behind a crate divider.
+
+  The colour band runs along the top edge so it reads as a tab when the card is
+  filed upright, matching the divider's colour in the crate view. The label is
+  set large because this is read from across a bench, not in the hand.
+  """
+  label = html.escape(str(divider.get("label") or divider.get("id") or "").strip())
+  color = DIVIDER_PRINT_COLORS.get(str(divider.get("color") or "slate"), DIVIDER_PRINT_COLORS["slate"])
+  box_label = html.escape(str(divider.get("box_label") or "").strip())
+  count = divider.get("count")
+
+  h = float(settings["cell_height_in"])
+  label_pt = max(16.0, min(54.0, h * 8.0))
+  meta_pt = max(7.0, min(13.0, h * 2.0))
+
+  sub = []
+  if box_label:
+    sub.append(box_label)
+  if isinstance(count, int):
+    sub.append(f"{count} bag{'s' if count != 1 else ''}")
+
+  return (
+    '<div class="front front-divider">'
+    f'<div class="div-band" style="background:{color};"></div>'
+    f'<div class="div-label" style="font-size:{label_pt:.1f}pt;">{label}</div>'
+    + (f'<div class="div-sub" style="font-size:{meta_pt:.1f}pt;">{html.escape(" · ".join(sub))}</div>' if sub else '')
+    + '</div>'
+  )
+
+
 def _build_front_cell(comp: Component, settings: dict) -> str:
+  if _is_bag_label(settings):
+    return _build_bag_cell(comp, settings)
+
   title = _title_with_hyphen_breaks(comp.short_title or comp.name or "")
   bid = html.escape(_normalize_barcode_for_print(comp.barcode_id))
 
@@ -882,10 +1013,11 @@ async def update_label_profile(profile_id: str, req: LabelProfileUpdateRequest, 
 @router.get("/print-sheet", response_class=HTMLResponse)
 async def print_sheet_designer(
   profile_id: str,
-  mode: str = Query("front", pattern="^(front|barcode|calibration|grid_test)$"),
+  mode: str = Query("front", pattern="^(front|barcode|calibration|grid_test|dividers)$"),
   q: str | None = None,
   barcode_ids: str | None = None,
   settings_json: str | None = None,
+  box_id: str | None = None,
   start_index: int = Query(0, ge=0),
   limit: int = 500,
   db: AsyncSession = Depends(get_db),
@@ -906,6 +1038,36 @@ async def print_sheet_designer(
   cols, rows = _compute_grid(settings)
   capacity = cols * rows
   take = max(1, min(limit, 2000))
+
+  # Divider cards come from a crate's box_metadata, not from components.
+  divider_rows: list[dict] = []
+  if mode == "dividers":
+    boxes_stmt = select(Box).where(Box.box_type == "filing")
+    if box_id:
+      boxes_stmt = boxes_stmt.where(Box.id == box_id)
+    crates = (await db.execute(boxes_stmt.order_by(Box.slot_index, Box.label))).scalars().all()
+    if not crates:
+      raise HTTPException(404, "No filing crates found" + (f" for box {box_id}" if box_id else ""))
+
+    counts = {}
+    for crate in crates:
+      rows_ = (await db.execute(
+        select(BinAssignment.divider_id, func.count(BinAssignment.id))
+        .where(BinAssignment.box_id == crate.id, BinAssignment.active == True)
+        .group_by(BinAssignment.divider_id)
+      )).all()
+      counts[crate.id] = {d: n for d, n in rows_}
+
+    for crate in crates:
+      meta = crate.box_metadata if isinstance(crate.box_metadata, dict) else {}
+      for d in (meta.get("dividers") or []):
+        if not isinstance(d, dict):
+          continue
+        divider_rows.append({
+          **d,
+          "box_label": crate.label,
+          "count": counts.get(crate.id, {}).get(d.get("id"), 0),
+        })
 
   stmt = select(Component).order_by(Component.barcode_id)
   if barcode_ids:
@@ -968,8 +1130,11 @@ async def print_sheet_designer(
         )
 
     for i in range(capacity):
-      source_idx = i - start_index if mode in {"front", "barcode"} else i
-      has_component = source_idx >= 0 and source_idx < len(comps)
+      source_idx = i - start_index if mode in {"front", "barcode", "dividers"} else i
+      if mode == "dividers":
+        has_component = 0 <= source_idx < len(divider_rows)
+      else:
+        has_component = source_idx >= 0 and source_idx < len(comps)
       if mode == "calibration":
         if i in marked_set:
           run_label = f"{settings.get('calibration_run_label', 'RUN')} {run_no}"
@@ -993,13 +1158,15 @@ async def print_sheet_designer(
           inner = _build_grid_test_cell()
         elif not has_component:
           inner = ""
+        elif mode == "dividers":
+          inner = _build_divider_cell(divider_rows[source_idx], settings)
         elif mode == "barcode":
           inner = _build_barcode_cell(comps[source_idx], settings)
         else:
           inner = _build_front_cell(comps[source_idx], settings)
         classes = "cell"
 
-      show_final_cut = bool(final_cut_overlay_html and mode in {"front", "barcode"} and has_component)
+      show_final_cut = bool(final_cut_overlay_html and mode in {"front", "barcode", "dividers"} and has_component)
       cells.append(f'<div class="{classes}">{inner}{final_cut_overlay_html if show_final_cut else ""}</div>')
 
     sheet = "".join(cells)
@@ -1211,6 +1378,107 @@ async def print_sheet_designer(
     box-sizing: border-box;
     text-align: left;
   }}
+  /* Large-format bag / index-card label: value leads, barcode anchors the foot. */
+  .front-bag {{
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 3.5mm 4mm 3mm;
+    gap: 0;
+  }}
+  .bag-val {{
+    font-family: 'Bahnschrift SemiCondensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.5pt;
+    width: 100%;
+    overflow: hidden;
+  }}
+  .bag-title {{
+    font-family: 'Bahnschrift SemiCondensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 600;
+    line-height: 1.15;
+    margin-top: 1.5mm;
+    width: 100%;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
+  }}
+  .bag-meta {{
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 500;
+    color: #555;
+    margin-top: 1mm;
+    line-height: 1.2;
+    width: 100%;
+  }}
+  /* Separates what the part IS from how a scanner finds it. On a tall card it
+     also gives the empty middle a job instead of reading as a printing fault. */
+  .bag-rule {{
+    margin-top: 2.5mm;
+    width: 100%;
+    border-top: 0.75pt solid #111;
+  }}
+  .bag-foot {{
+    margin-top: auto;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    gap: 3mm;
+  }}
+  /* Fixed box, aspect preserved: a stretched Code128 will not scan. */
+  .bag-barcode {{
+    flex: 0 0 auto;
+    width: 46mm;
+    height: 13mm;
+    display: block;
+  }}
+  .bag-barcode svg {{ width: 100%; height: 100%; display: block; }}
+  .bag-id {{
+    flex: 0 0 auto;
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-style: italic;
+    font-weight: 600;
+    color: #333;
+    line-height: 1;
+    padding-bottom: 0.5mm;
+  }}
+
+  /* Index card that stands behind a crate divider. */
+  .front-divider {{
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 0;
+    overflow: hidden;
+  }}
+  .div-band {{
+    width: 100%;
+    height: 9mm;
+    flex: 0 0 auto;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }}
+  .div-label {{
+    font-family: 'Bahnschrift SemiCondensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.5pt;
+    padding: 5mm 5mm 0;
+    width: 100%;
+    overflow-wrap: anywhere;
+  }}
+  .div-sub {{
+    font-family: 'Bahnschrift Condensed', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif;
+    font-weight: 500;
+    color: #555;
+    padding: 2mm 5mm 0;
+    width: 100%;
+  }}
+
   .front-dual {{ padding-right: 0; }}
   .front-dual::before {{
     content: '';
