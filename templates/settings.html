@@ -92,9 +92,10 @@
             <option value="round_robin">round_robin</option>
             <option value="weighted_random">weighted_random</option>
           </select>
-          <button class="btn btn-primary btn-xs" onclick="addAiProvider()">Add Provider</button>
-          <button class="btn btn-primary btn-xs" onclick="applyOllamaGroqPreset()">Preset: Ollama + Groq</button>
-          <button class="btn btn-primary btn-xs" onclick="refreshAiProviders()">Reload</button>
+          <button class="btn btn-primary btn-xs" onclick="addOpenRouterProvider()">+ OpenRouter</button>
+          <button class="btn btn-xs pv-ghost" onclick="addAiProvider()">+ Blank provider</button>
+          <button class="btn btn-xs pv-ghost" onclick="applyOllamaGroqPreset()">Preset: Ollama + Groq</button>
+          <button class="btn btn-xs pv-ghost" onclick="refreshAiProviders()">Reload</button>
           <button class="btn btn-primary btn-xs" onclick="saveAiProviders()">Save</button>
           <button class="btn btn-primary btn-xs" onclick="copyAiProviderJson()">Copy JSON</button>
           <button class="btn btn-primary btn-xs" onclick="loadAiProviderJsonFromEditor()">Apply JSON</button>
@@ -485,42 +486,173 @@ function renderAiProviders() {
     list.innerHTML = '<div class="muted" style="font-size:11px;">No providers configured yet.</div>';
     return;
   }
-  list.innerHTML = providers.map((p, idx) => {
+  // Priority order is what actually runs, so show them in it.
+  const ordered = providers
+    .map((p, idx) => ({p, idx}))
+    .sort((a, b) => (a.p.priority ?? 100) - (b.p.priority ?? 100));
+
+  list.innerHTML = ordered.map(({p, idx}, rank) => {
     const fallback = Array.isArray(p.fallback_models) ? p.fallback_models.join(', ') : '';
+    const r = p.routing || {};
+    const isOR = (p.base_url || '').includes('openrouter.ai');
+    const hasKey = !!(p.api_key || p.api_key_masked);
+
     const taskRows = AI_TASKS.map(task => `
-      <div style="display:flex;flex-direction:column;gap:2px;">
-        <label style="font-size:9px;color:var(--text3);text-transform:uppercase;">${task}</label>
-        <input class="form-control" style="font-size:10px;padding:4px 6px;" value="${(p.models || {})[task] || ''}" onchange="updateProviderTaskModel(${idx}, '${task}', this.value)">
-      </div>
-    `).join('');
+      <div class="pv-task">
+        <label>${task}</label>
+        <input class="form-control" placeholder="${p.default_model || 'default'}"
+               value="${(p.models || {})[task] || ''}"
+               onchange="updateProviderTaskModel(${idx}, '${task}', this.value)">
+      </div>`).join('');
+
+    // Routing only means anything for OpenRouter; hide the noise elsewhere.
+    const routingBlock = isOR ? `
+      <div class="pv-section">
+        <div class="pv-section-head">
+          <span class="pv-section-title">Provider routing</span>
+          <span class="pv-hint">OpenRouter picks between hosts serving the same model.</span>
+        </div>
+        <div class="pv-grid">
+          <div class="pv-field">
+            <label>Pick host by</label>
+            <select class="form-select" onchange="updateProviderRouting(${idx}, 'sort', this.value)">
+              <option value="" ${!r.sort ? 'selected' : ''}>Balanced (default)</option>
+              <option value="price" ${r.sort === 'price' ? 'selected' : ''}>Cheapest</option>
+              <option value="throughput" ${r.sort === 'throughput' ? 'selected' : ''}>Fastest</option>
+              <option value="latency" ${r.sort === 'latency' ? 'selected' : ''}>Lowest latency</option>
+            </select>
+          </div>
+          <div class="pv-field">
+            <label>Prompt logging</label>
+            <select class="form-select" onchange="updateProviderRouting(${idx}, 'data_collection', this.value)">
+              <option value="" ${!r.data_collection ? 'selected' : ''}>Any host</option>
+              <option value="deny" ${r.data_collection === 'deny' ? 'selected' : ''}>Only hosts that don't log</option>
+              <option value="allow" ${r.data_collection === 'allow' ? 'selected' : ''}>Allow logging hosts</option>
+            </select>
+          </div>
+        </div>
+        <label class="pv-check">
+          <input type="checkbox" ${r.require_parameters ? 'checked' : ''}
+                 onchange="updateProviderRouting(${idx}, 'require_parameters', this.checked)">
+          Only hosts that support every parameter sent
+          <span class="pv-hint">Stops a host silently ignoring the JSON schema.</span>
+        </label>
+      </div>` : '';
+
     return `
-      <div style="border:1px solid var(--border2);border-radius:4px;padding:10px;background:var(--bg3);">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <input class="form-control" style="max-width:160px;font-size:11px;" value="${p.id || ''}" onchange="updateProviderField(${idx}, 'id', this.value)">
-          <input class="form-control" style="max-width:180px;font-size:11px;" value="${p.label || ''}" onchange="updateProviderField(${idx}, 'label', this.value)">
-          <select class="form-select" style="max-width:170px;font-size:11px;" onchange="updateProviderField(${idx}, 'type', this.value)">
-            <option value="gemini" ${p.type === 'gemini' ? 'selected' : ''}>gemini</option>
-            <option value="openai-compatible" ${p.type === 'openai-compatible' || p.type === 'openai' ? 'selected' : ''}>openai-compatible</option>
-          </select>
-          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="updateProviderField(${idx}, 'enabled', this.checked)">enabled</label>
-          <button class="btn btn-danger btn-xs" onclick="removeAiProvider(${idx})">Remove</button>
+      <div class="pv-card ${p.enabled ? '' : 'off'}">
+        <div class="pv-head">
+          <span class="pv-rank">${rank + 1}</span>
+          <span class="pv-name">${(p.label || p.id || 'provider').replace(/</g, '&lt;')}</span>
+          <span class="pv-type">${p.type === 'gemini' ? 'GEMINI' : 'OPENAI-API'}</span>
+          ${isOR ? '<span class="pv-badge or">OPENROUTER</span>' : ''}
+          ${hasKey ? '' : '<span class="pv-badge warn">NO KEY</span>'}
+          <label class="pv-toggle">
+            <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="updateProviderField(${idx}, 'enabled', this.checked)">
+            <span>${p.enabled ? 'Active' : 'Disabled'}</span>
+          </label>
+          <button class="btn btn-xs pv-remove" onclick="removeAiProvider(${idx})" title="Remove provider">Remove</button>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:8px;">
-          <div><label style="font-size:10px;color:var(--text3);">priority</label><input type="number" class="form-control" value="${p.priority ?? 50}" onchange="updateProviderField(${idx}, 'priority', Number(this.value||50))"></div>
-          <div><label style="font-size:10px;color:var(--text3);">weight</label><input type="number" class="form-control" value="${p.weight ?? 1}" onchange="updateProviderField(${idx}, 'weight', Number(this.value||1))"></div>
-          <div><label style="font-size:10px;color:var(--text3);">default model</label><input class="form-control" value="${p.default_model || ''}" onchange="updateProviderField(${idx}, 'default_model', this.value)"></div>
-          <div><label style="font-size:10px;color:var(--text3);">fallback models (csv)</label><input class="form-control" value="${fallback}" onchange="updateProviderFallback(${idx}, this.value)"></div>
+
+        <div class="pv-section">
+          <div class="pv-grid">
+            <div class="pv-field">
+              <label>Name</label>
+              <input class="form-control" value="${(p.label || '').replace(/"/g, '&quot;')}" onchange="updateProviderField(${idx}, 'label', this.value)">
+            </div>
+            <div class="pv-field">
+              <label>Kind</label>
+              <select class="form-select" onchange="updateProviderField(${idx}, 'type', this.value)">
+                <option value="gemini" ${p.type === 'gemini' ? 'selected' : ''}>Gemini (native)</option>
+                <option value="openai-compatible" ${p.type === 'openai-compatible' || p.type === 'openai' ? 'selected' : ''}>OpenAI-compatible</option>
+              </select>
+            </div>
+            <div class="pv-field">
+              <label>Try order <span class="pv-hint">lower runs first</span></label>
+              <input type="number" class="form-control" value="${p.priority ?? 50}" onchange="updateProviderField(${idx}, 'priority', Number(this.value||50))">
+            </div>
+          </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:8px;">
-          <div><label style="font-size:10px;color:var(--text3);">base url</label><input class="form-control" value="${p.base_url || ''}" onchange="updateProviderField(${idx}, 'base_url', this.value)"></div>
-          <div><label style="font-size:10px;color:var(--text3);">alt base urls (csv)</label><input class="form-control" value="${Array.isArray(p.alt_base_urls) ? p.alt_base_urls.join(', ') : ''}" onchange="updateProviderAltUrls(${idx}, this.value)"></div>
-          <div><label style="font-size:10px;color:var(--text3);">api key</label><input class="form-control" value="${p.api_key || ''}" placeholder="${p.api_key_masked || ''}" onchange="updateProviderField(${idx}, 'api_key', this.value)"></div>
+
+        <div class="pv-section">
+          <div class="pv-section-head"><span class="pv-section-title">Connection</span></div>
+          <div class="pv-grid">
+            <div class="pv-field pv-wide">
+              <label>API base URL</label>
+              <input class="form-control" value="${(p.base_url || '').replace(/"/g, '&quot;')}"
+                     placeholder="${p.type === 'gemini' ? 'not needed for Gemini' : 'https://openrouter.ai/api/v1'}"
+                     onchange="updateProviderField(${idx}, 'base_url', this.value)">
+            </div>
+            <div class="pv-field">
+              <label>API key</label>
+              <input class="form-control" type="password" autocomplete="off" value=""
+                     placeholder="${p.api_key_masked || 'paste to set'}"
+                     onchange="updateProviderField(${idx}, 'api_key', this.value)">
+            </div>
+          </div>
         </div>
-        <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Task model routing</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:6px;">${taskRows}</div>
-      </div>
-    `;
+
+        ${routingBlock}
+
+        <div class="pv-section">
+          <div class="pv-section-head">
+            <span class="pv-section-title">Models</span>
+            <span class="pv-hint">Leave a task blank to use the default.</span>
+          </div>
+          <div class="pv-grid">
+            <div class="pv-field pv-wide">
+              <label>Default model</label>
+              <input class="form-control" value="${(p.default_model || '').replace(/"/g, '&quot;')}"
+                     placeholder="${isOR ? 'google/gemini-2.5-flash' : 'model id'}"
+                     onchange="updateProviderField(${idx}, 'default_model', this.value)">
+            </div>
+            <div class="pv-field pv-wide">
+              <label>Fallbacks <span class="pv-hint">comma separated, tried in order</span></label>
+              <input class="form-control" value="${fallback.replace(/"/g, '&quot;')}" onchange="updateProviderFallback(${idx}, this.value)">
+            </div>
+          </div>
+          <details class="pv-details">
+            <summary>Per-task model overrides</summary>
+            <div class="pv-tasks">${taskRows}</div>
+          </details>
+        </div>
+      </div>`;
   }).join('');
+}
+
+function updateProviderRouting(idx, field, value) {
+  const p = _aiProviderConfig.providers?.[idx];
+  if (!p) return;
+  p.routing = p.routing || {};
+  if (value === '' || value === false) delete p.routing[field];
+  else p.routing[field] = value;
+  syncAiProviderJsonEditor();
+  renderAiProviders();
+}
+
+function addOpenRouterProvider() {
+  _aiProviderConfig.providers = _aiProviderConfig.providers || [];
+  _aiProviderConfig.providers.push({
+    id: 'openrouter',
+    label: 'OpenRouter',
+    type: 'openai-compatible',
+    enabled: true,
+    priority: 10,
+    weight: 1,
+    base_url: 'https://openrouter.ai/api/v1',
+    api_key: '',
+    default_model: 'google/gemini-2.5-flash',
+    fallback_models: ['qwen/qwen-2.5-72b-instruct', 'meta-llama/llama-3.3-70b-instruct'],
+    models: {},
+    routing: {
+      sort: 'price',
+      require_parameters: true,
+      data_collection: 'deny',
+      title: 'Partcount',
+    },
+  });
+  syncAiProviderJsonEditor();
+  renderAiProviders();
 }
 
 function updateProviderField(idx, field, value) {
@@ -644,4 +776,131 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshAiProviders();
 });
 </script>
+
+<style>
+/* AI providers: a card per provider, grouped identity / connection / routing /
+   models, in the order they are actually tried. */
+.pv-card {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  overflow: hidden;
+}
+.pv-card.off { opacity: .55; }
+.pv-card.off:hover { opacity: 1; }
+
+.pv-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border2);
+  flex-wrap: wrap;
+}
+/* The rank is the answer to "which one runs first?" — the old UI made you
+   read priority numbers off four cards to work that out. */
+.pv-rank {
+  flex: 0 0 auto;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pv-name { font-size: 12px; font-weight: 600; color: var(--text); }
+.pv-type {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .5px;
+  color: var(--text3);
+  background: var(--bg4);
+  padding: 2px 5px;
+  border-radius: 2px;
+}
+.pv-badge {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .5px;
+  padding: 2px 5px;
+  border-radius: 2px;
+}
+.pv-badge.or   { background: var(--accent-bg); color: var(--accent); }
+.pv-badge.warn { background: var(--signal-bg); color: var(--signal); }
+.pv-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+.pv-remove { color: var(--red); background: transparent; border: 1px solid transparent; }
+.pv-remove:hover { border-color: var(--red); }
+
+.pv-section { padding: 10px 11px; border-bottom: 1px solid var(--border); }
+.pv-section:last-child { border-bottom: none; }
+.pv-section-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.pv-section-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+.pv-hint { font-size: 10px; color: var(--text3); font-weight: 400; }
+
+.pv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.pv-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pv-field > label { font-size: 10px; color: var(--text2); }
+.pv-field .form-control, .pv-field .form-select { font-size: 11px; }
+.pv-wide { grid-column: span 2; }
+@media (max-width: 720px) { .pv-wide { grid-column: span 1; } }
+
+.pv-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.pv-details { margin-top: 9px; }
+.pv-details summary {
+  font-size: 10px;
+  color: var(--text3);
+  cursor: pointer;
+  user-select: none;
+}
+.pv-details summary:hover { color: var(--text); }
+.pv-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+.pv-task { display: flex; flex-direction: column; gap: 2px; }
+.pv-task > label {
+  font-size: 9px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.pv-task .form-control { font-size: 10px; padding: 4px 6px; }
+
+.pv-ghost { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
+.pv-ghost:hover { border-color: var(--text3); color: var(--text); }
+</style>
 {% endblock %}

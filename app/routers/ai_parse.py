@@ -128,6 +128,40 @@ def _default_ai_provider_config() -> dict:
     }
 
 
+ROUTING_SORTS = {"price", "throughput", "latency"}
+
+
+def _normalize_routing(raw) -> dict:
+    """OpenRouter provider-routing preferences. Empty dict when unset."""
+    r = raw if isinstance(raw, dict) else {}
+    out: dict = {}
+
+    sort = (r.get("sort") or "").strip().lower()
+    if sort in ROUTING_SORTS:
+        out["sort"] = sort
+
+    order = [str(x).strip() for x in (r.get("order") or []) if str(x).strip()]
+    if order:
+        out["order"] = order
+
+    if r.get("require_parameters"):
+        out["require_parameters"] = True
+
+    dc = (r.get("data_collection") or "").strip().lower()
+    if dc in {"allow", "deny"}:
+        out["data_collection"] = dc
+
+    if r.get("allow_fallbacks") is not None:
+        out["allow_fallbacks"] = bool(r.get("allow_fallbacks"))
+
+    for k in ("referer", "title"):
+        v = (r.get(k) or "").strip()
+        if v:
+            out[k] = v
+
+    return out
+
+
 def _normalize_provider(raw: dict) -> dict:
     p = raw if isinstance(raw, dict) else {}
     provider_type = (p.get("type") or "openai-compatible").strip().lower()
@@ -146,6 +180,7 @@ def _normalize_provider(raw: dict) -> dict:
         "default_model": (p.get("default_model") or "").strip(),
         "models": norm_models,
         "fallback_models": [str(m).strip() for m in (p.get("fallback_models") or []) if str(m).strip()],
+        "routing": _normalize_routing(p.get("routing")),
     }
 
 
@@ -496,6 +531,7 @@ async def _call_openai_compatible(
     api_key: str,
     model: str,
     timeout_seconds: float = AI_ASSISTANT_TIMEOUT_SECONDS,
+    routing: dict | None = None,
 ) -> dict:
     if not base_url:
         raise HTTPException(503, "OpenAI-compatible AI provider is not configured")
@@ -523,6 +559,32 @@ async def _call_openai_compatible(
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+
+    # OpenRouter serves many models from competing hosts. `provider` picks
+    # between those hosts for the SAME model -- cheapest first, only ones that
+    # honour our parameters, and optionally only ones that do not log prompts.
+    # Ignored by other OpenAI-compatible endpoints, so it is safe to always send
+    # when configured.
+    if routing:
+        prov: dict = {}
+        if routing.get("sort"):
+            prov["sort"] = routing["sort"]
+        if routing.get("order"):
+            prov["order"] = routing["order"]
+        if routing.get("require_parameters"):
+            prov["require_parameters"] = True
+        if routing.get("data_collection"):
+            prov["data_collection"] = routing["data_collection"]
+        if routing.get("allow_fallbacks") is not None:
+            prov["allow_fallbacks"] = bool(routing["allow_fallbacks"])
+        if prov:
+            payload["provider"] = prov
+        # Attribution headers; optional, but they identify this app on
+        # OpenRouter's dashboard rather than showing as anonymous traffic.
+        if routing.get("referer"):
+            headers["HTTP-Referer"] = routing["referer"]
+        if routing.get("title"):
+            headers["X-Title"] = routing["title"]
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         try:
@@ -627,6 +689,11 @@ async def _call_provider(
                     base_url=url,
                     api_key=(provider.get("api_key") or "").strip(),
                     model=model,
+                    timeout_seconds=(
+                        GEMINI_ORDER_TIMEOUT_SECONDS if task == "order"
+                        else AI_ASSISTANT_TIMEOUT_SECONDS
+                    ),
+                    routing=provider.get("routing") or None,
                 )
             except Exception as exc:
                 last_exc = exc
