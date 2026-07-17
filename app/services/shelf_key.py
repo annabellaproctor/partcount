@@ -52,11 +52,30 @@ _INFIX = re.compile(rf"^(\d+)\s*(meg|MEG|Meg|[{_SUFFIX_CHARS}])\s*(\d+)$")
 _SUFFIXED = re.compile(rf"^(\d*\.?\d+)\s*(meg|MEG|Meg|[{_SUFFIX_CHARS}])?$")
 
 
-def parse_value(raw: str | None) -> float | None:
+def _unit_multiplier(unit: str | None) -> float:
+    """Multiplier carried by a unit string: 'kΩ' -> 1e3, 'uF' -> 1e-6, 'Ω' -> 1.
+
+    Much of the inventory splits a value across two columns -- value='10',
+    unit='kΩ' -- so the magnitude is meaningless without the unit.
+    """
+    if not unit:
+        return 1.0
+    u = str(unit).strip()
+    if len(u) < 2:
+        return 1.0
+    # A leading SI prefix only counts if a real unit symbol follows it.
+    head, tail = u[0], u[1:]
+    if not _UNIT_TAIL.match(tail.strip()):
+        return 1.0
+    return _multiplier(head) or 1.0
+
+
+def parse_value(raw: str | None, unit: str | None = None) -> float | None:
     """Parse a component value into base units. Returns None if unreadable.
 
     Case matters: `m` is milli, `M` is mega. `4k7` and `4R7` place the suffix
-    where the decimal point goes.
+    where the decimal point goes. When the value carries no SI prefix of its
+    own, one is taken from `unit` ('10' + 'kΩ' -> 10000.0).
     """
     if raw is None:
         return None
@@ -66,9 +85,12 @@ def parse_value(raw: str | None) -> float | None:
         return None
 
     v = v.replace(",", "")
+    had_own_suffix = bool(_SUFFIXED.match(v) and _SUFFIXED.match(v).group(2)) or bool(_INFIX.match(v))
     v = _UNIT_TAIL.sub("", v).strip()
     if not v:
         return None
+
+    scale = 1.0 if had_own_suffix else _unit_multiplier(unit)
 
     m = _INFIX.match(v)
     if m:
@@ -77,7 +99,7 @@ def parse_value(raw: str | None) -> float | None:
         if mult is None:
             return None
         try:
-            return float(f"{whole}.{frac}") * mult
+            return float(f"{whole}.{frac}") * mult * scale
         except ValueError:
             return None
 
@@ -88,7 +110,7 @@ def parse_value(raw: str | None) -> float | None:
         if mult is None:
             return None
         try:
-            return float(number) * mult
+            return float(number) * mult * scale
         except ValueError:
             return None
 
@@ -133,9 +155,15 @@ def _pad_tolerance(pct: float | None) -> str:
 
 
 def _unit_symbol(component) -> str:
-    """Best-effort unit symbol, from the component's own unit or its type."""
+    """Best-effort BASE unit symbol, from the component's own unit or its type.
+
+    Strips any SI prefix ('kΩ' -> 'Ω'): the magnitude is already folded into the
+    parsed value, and re-appending it would render 10kΩ as "10kkΩ".
+    """
     unit = (getattr(component, "unit", None) or "").strip()
     if unit:
+        if len(unit) > 1 and _UNIT_TAIL.match(unit[1:].strip()) and _multiplier(unit[0]):
+            return unit[1:].strip()
         return unit
 
     prefix = _type_prefix(
@@ -187,7 +215,7 @@ def shelf_sort_key(component) -> str:
         getattr(component, "unit", None),
         getattr(component, "name", None),
     )
-    value = parse_value(getattr(component, "value", None))
+    value = parse_value(getattr(component, "value", None), getattr(component, "unit", None))
     tolerance = parse_tolerance(getattr(component, "tolerance", None))
 
     return "::".join(
@@ -209,7 +237,7 @@ def shelf_display_key(component) -> str:
         getattr(component, "name", None),
     )
     raw_value = getattr(component, "value", None)
-    parsed = parse_value(raw_value)
+    parsed = parse_value(raw_value, getattr(component, "unit", None))
 
     if parsed is None:
         # No readable value — fall back to something nameable rather than "?"
