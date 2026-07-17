@@ -5,6 +5,43 @@ import re
 MAX_LABEL_TITLE_LEN = 18
 
 
+# Most components carry no type_path, so the name has to carry the type.
+# Matched as a leading token ("RES-1/4w-5%-1MΩ") or a whole word ("10k Resistor"),
+# never as a bare substring — "RES" inside "PRESSURE" is not a resistor.
+_NAME_TYPE_HINTS = (
+    ("RES", ("res", "resistor", "resistors")),
+    ("CAP", ("cap", "capacitor", "capacitors")),
+    ("IND", ("ind", "inductor", "inductors", "choke")),
+    ("DIO", ("dio", "diode", "diodes", "led", "zener", "schottky")),
+    ("TR", ("tr", "transistor", "mosfet", "bjt", "igbt")),
+    ("MCU", ("mcu", "microcontroller")),
+    ("MOD", ("mod", "module", "modules", "devkit", "breakout")),
+    ("SNS", ("sns", "sensor", "sensors")),
+    ("CON", ("con", "conn", "connector", "connectors", "header")),
+    ("RLY", ("rly", "relay", "relays")),
+    ("SWT", ("swt", "switch", "switches", "button")),
+    ("XTAL", ("xtal", "crystal", "oscillator", "resonator")),
+    ("FUS", ("fus", "fuse", "fuses", "ptc")),
+)
+
+
+def _prefix_from_name(name: str | None) -> str | None:
+    if not name:
+        return None
+    tokens = [w for w in re.split(r"[^A-Za-z]+", name.lower()) if w]
+    if not tokens:
+        return None
+    for prefix, hints in _NAME_TYPE_HINTS:
+        # Leading token wins: "RES-1/4w" is a resistor, "LED Resistor Kit" is not.
+        if tokens[0] in hints:
+            return prefix
+    for prefix, hints in _NAME_TYPE_HINTS:
+        # Whole-word match anywhere, but only for unambiguous full words.
+        if any(h in tokens for h in hints if len(h) > 3):
+            return prefix
+    return None
+
+
 def _type_prefix(type_path: str | None, unit: str | None, name: str | None) -> str:
     t = (type_path or "").lower()
     n = (name or "").lower()
@@ -33,6 +70,13 @@ def _type_prefix(type_path: str | None, unit: str | None, name: str | None) -> s
         return "RLY"
     if "switch" in t:
         return "SWT"
+
+    # type_path is missing on most components — fall back to the name before
+    # giving up and calling it a generic CMP.
+    from_name = _prefix_from_name(name)
+    if from_name:
+        return from_name
+
     return "CMP"
 
 
